@@ -1,0 +1,15 @@
+[package]
+name = "chromifer"
+description = "Command-line migration planner for Chromifer"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[dependencies]
+chromifer-manifest = { path = "../chromifer-manifest" }
+chromifer-planner = { path = "../chromifer-planner" }
+clap.workspace = true
+serde_json.workspace = true

@@ -1,0 +1,80 @@
+schema_version = 1
+
+[project]
+name = "Chromifer"
+upstream = "https://chromium.googlesource.com/chromium/src"
+baseline = "main@2026-08-05"
+
+[[targets]]
+id = "linux-x64"
+description = "Linux desktop x86-64"
+required = true
+
+[[targets]]
+id = "windows-x64"
+description = "Windows desktop x86-64"
+required = true
+
+[[targets]]
+id = "macos-arm64"
+description = "macOS desktop arm64"
+required = true
+
+[[gates]]
+id = "base-unit"
+command = "autoninja -C out/Chromifer base_unittests && out/Chromifer/base_unittests"
+targets = ["linux-x64", "windows-x64", "macos-arm64"]
+
+[[gates]]
+id = "network-unit"
+command = "autoninja -C out/Chromifer services_unittests && out/Chromifer/services_unittests --gtest_filter=Network*"
+targets = ["linux-x64", "windows-x64", "macos-arm64"]
+
+[[gates]]
+id = "content-browser"
+command = "autoninja -C out/Chromifer content_browsertests && out/Chromifer/content_browsertests"
+targets = ["linux-x64", "windows-x64", "macos-arm64"]
+
+[[modules]]
+id = "base_runtime"
+path = "base"
+owner = "foundation"
+state = "legacy_cpp"
+gates = ["base-unit"]
+
+[[modules]]
+id = "network_service"
+path = "services/network"
+owner = "browser-services"
+state = "bridged"
+gates = ["network-unit"]
+
+[[modules.dependencies]]
+module = "base_runtime"
+boundary = "cxx"
+
+[[modules]]
+id = "content_browser"
+path = "content/browser"
+owner = "process-security-kernel"
+state = "legacy_cpp"
+gates = ["content-browser"]
+
+[[modules.dependencies]]
+module = "base_runtime"
+boundary = "cpp_internal"
+
+[[modules.dependencies]]
+module = "network_service"
+boundary = "mojo"
+
+[[modules]]
+id = "blink_runtime"
+path = "third_party/blink"
+owner = "web-runtime"
+state = "legacy_cpp"
+gates = ["content-browser"]
+
+[[modules.dependencies]]
+module = "base_runtime"
+boundary = "cpp_internal"
