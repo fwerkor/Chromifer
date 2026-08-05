@@ -283,7 +283,7 @@ fn build_groups(manifest: &Manifest, path_depth: usize) -> Vec<GroupDraft<'_>> {
     for module in &manifest.modules {
         let path = component_path(module, path_depth);
         grouped
-            .entry((module.owner.clone(), path))
+            .entry((module_owner_key(module), path))
             .or_default()
             .push(module);
     }
@@ -299,6 +299,15 @@ fn build_groups(manifest: &Manifest, path_depth: usize) -> Vec<GroupDraft<'_>> {
             }
         })
         .collect()
+}
+
+fn module_owner_key(module: &Module) -> String {
+    module
+        .ownership
+        .as_ref()
+        .filter(|ownership| !ownership.primary_owners.is_empty())
+        .map(|ownership| ownership.primary_owners.join(","))
+        .unwrap_or_else(|| module.owner.clone())
 }
 
 fn component_path(module: &Module, path_depth: usize) -> String {
@@ -712,7 +721,8 @@ fn migration_scope(path: &str) -> MigrationScope {
 #[cfg(test)]
 mod tests {
     use chromifer_manifest::{
-        BoundaryReview, BoundaryReviewKind, CompatibilityGate, Dependency, Project, Target,
+        BoundaryReview, BoundaryReviewKind, CompatibilityGate, Dependency, ModuleOwnership,
+        Project, Target,
     };
 
     use super::*;
@@ -730,6 +740,7 @@ mod tests {
             id: id.into(),
             path: path.into(),
             owner: owner.into(),
+            ownership: None,
             source_label: None,
             source_type: None,
             sources: sources.iter().map(|source| (*source).into()).collect(),
@@ -866,6 +877,47 @@ mod tests {
             .collect();
         assert_eq!(matching.len(), 2);
         assert_ne!(matching[0].id, matching[1].id);
+    }
+
+    #[test]
+    fn inferred_primary_owners_override_coarse_manifest_owner_for_grouping() {
+        let mut manifest = manifest();
+        manifest.modules[0].ownership = Some(ModuleOwnership {
+            primary_owners: vec!["network@chromium.org".into()],
+            effective_owners: vec!["network@chromium.org".into()],
+            common_effective_owners: vec!["network@chromium.org".into()],
+            owner_files: vec!["services/network/OWNERS".into()],
+            unresolved_sources: vec![],
+            split_ownership: false,
+            sources: vec![],
+        });
+        manifest.modules[1].ownership = Some(ModuleOwnership {
+            primary_owners: vec!["api@chromium.org".into()],
+            effective_owners: vec!["api@chromium.org".into()],
+            common_effective_owners: vec!["api@chromium.org".into()],
+            owner_files: vec!["services/network/OWNERS".into()],
+            unresolved_sources: vec![],
+            split_ownership: false,
+            sources: vec![],
+        });
+
+        let analysis = analyze_components(&manifest, &AnalysisOptions::default()).unwrap();
+        let matching: Vec<_> = analysis
+            .components
+            .iter()
+            .filter(|component| component.path == "services/network")
+            .collect();
+        assert_eq!(matching.len(), 2);
+        assert!(
+            matching
+                .iter()
+                .any(|component| component.owner == "network@chromium.org")
+        );
+        assert!(
+            matching
+                .iter()
+                .any(|component| component.owner == "api@chromium.org")
+        );
     }
 
     #[test]

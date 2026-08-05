@@ -2,11 +2,11 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
-use std::path::{Component, Path, PathBuf};
+use std::path::{Path, PathBuf};
 
 use chromifer_manifest::{
     Boundary, BoundaryEvidence, BoundaryEvidenceKind, BoundaryReview, BoundaryReviewKind, Manifest,
-    Module, ValidationErrors,
+    Module, ValidationErrors, normalize_repo_relative_path,
 };
 use serde::Serialize;
 use thiserror::Error;
@@ -238,7 +238,7 @@ fn scan_module(
     let mut result = ModuleScan::default();
     for source in &module.sources {
         let relative =
-            normalize_source_path(source).ok_or_else(|| ScanError::InvalidSourcePath {
+            normalize_repo_relative_path(source).ok_or_else(|| ScanError::InvalidSourcePath {
                 module: module.id.clone(),
                 path: source.clone(),
             })?;
@@ -271,34 +271,6 @@ fn scan_module(
         result.files.push(file_scan);
     }
     Ok(result)
-}
-
-fn normalize_source_path(source: &str) -> Option<String> {
-    let normalized = source.replace('\\', "/");
-    let normalized = if let Some(relative) = normalized.strip_prefix("//") {
-        relative
-    } else if normalized.starts_with('/')
-        || normalized
-            .as_bytes()
-            .get(1)
-            .is_some_and(|character| *character == b':')
-    {
-        return None;
-    } else {
-        normalized.as_str()
-    };
-    let path = Path::new(normalized);
-    if normalized.is_empty()
-        || path.components().any(|component| {
-            matches!(
-                component,
-                Component::ParentDir | Component::RootDir | Component::Prefix(_)
-            )
-        })
-    {
-        return None;
-    }
-    Some(normalized.trim_start_matches("./").to_owned())
 }
 
 fn resolve_source_path(source_root: &Path, module: &Module, source: &str) -> PathBuf {
@@ -671,7 +643,7 @@ fn module_matches_include(module: &Module, include: &str) -> bool {
     }
 
     module.sources.iter().any(|source| {
-        let Some(source) = normalize_source_path(source) else {
+        let Some(source) = normalize_repo_relative_path(source) else {
             return false;
         };
         let source_without_gen = source
@@ -804,6 +776,7 @@ mod tests {
             id: id.into(),
             path: path.into(),
             owner: "fixture".into(),
+            ownership: None,
             source_label: None,
             source_type: None,
             sources: sources.iter().map(|source| (*source).into()).collect(),

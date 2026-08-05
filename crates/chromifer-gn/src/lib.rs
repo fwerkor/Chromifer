@@ -229,6 +229,7 @@ pub fn import_gn_project(
             id: ids[label].clone(),
             path: label_path(label),
             owner: inferred_owner(label),
+            ownership: None,
             source_label: Some(label.clone()),
             source_type: Some(target.target_type.clone()),
             sources: normalized_sources(label, target),

@@ -31,7 +31,7 @@ Each component includes a `risk` object containing every individual point contri
 
 The default policy groups modules by:
 
-1. the manifest owner; and
+1. the inferred primary Chromium owner set, falling back to the manifest owner; and
 2. the first two directory segments of the module path.
 
 For example, targets under `services/network/core` and `services/network/public` become one `services/network` proposal when they have the same owner. Identical paths with different owners remain separate components.
@@ -59,7 +59,7 @@ This metric proves only that executable gates are declared. It does not prove th
 - branch or line coverage is sufficient;
 - performance and compatibility budgets pass.
 
-Actual immutable gate results belong to a later execution/evidence stage.
+Actual gate results are produced by `run-gates` and verified by `verify-evidence`; they remain separate from this declaration-based ranking score.
 
 ## Migration scopes
 

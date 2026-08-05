@@ -3,13 +3,39 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 use std::fs;
-use std::path::Path;
+use std::path::{Component, Path};
 use std::str::FromStr;
 
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
 pub const SUPPORTED_SCHEMA_VERSION: u32 = 1;
+
+pub fn normalize_repo_relative_path(value: &str) -> Option<String> {
+    let normalized = value.replace('\\', "/");
+    let normalized = if let Some(relative) = normalized.strip_prefix("//") {
+        relative
+    } else if normalized.starts_with('/')
+        || normalized
+            .as_bytes()
+            .get(1)
+            .is_some_and(|character| *character == b':')
+    {
+        return None;
+    } else {
+        normalized.as_str()
+    };
+
+    let mut segments = Vec::new();
+    for component in Path::new(normalized).components() {
+        match component {
+            Component::Normal(segment) => segments.push(segment.to_string_lossy().into_owned()),
+            Component::CurDir => {}
+            Component::ParentDir | Component::RootDir | Component::Prefix(_) => return None,
+        }
+    }
+    (!segments.is_empty()).then(|| segments.join("/"))
+}
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Manifest {
@@ -73,6 +99,8 @@ pub struct Module {
     pub path: String,
     pub owner: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ownership: Option<ModuleOwnership>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub source_label: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub source_type: Option<String>,
@@ -85,6 +113,37 @@ pub struct Module {
     pub reviews: Vec<BoundaryReview>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub dependencies: Vec<Dependency>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ModuleOwnership {
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub primary_owners: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub effective_owners: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub common_effective_owners: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub owner_files: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub unresolved_sources: Vec<String>,
+    #[serde(default)]
+    pub split_ownership: bool,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub sources: Vec<SourceOwnership>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SourceOwnership {
+    pub source: String,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub primary_owners: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub effective_owners: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub owner_files: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub inheritance_stopped_at: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -288,6 +347,8 @@ pub enum ValidationError {
     SelfDependency { module: String },
     #[error("module `{module}` has duplicate dependency `{dependency}`")]
     DuplicateDependency { module: String, dependency: String },
+    #[error("module `{module}` has an invalid ownership value in `{field}`")]
+    InvalidOwnershipValue { module: String, field: &'static str },
     #[error("{kind} `{id}` has an invalid source location in `{file}` at line {line}")]
     InvalidSourceLocation {
         kind: &'static str,
@@ -397,6 +458,9 @@ impl Manifest {
         for module in &self.modules {
             check_nonempty("module", &module.id, "path", &module.path, &mut errors);
             check_nonempty("module", &module.id, "owner", &module.owner, &mut errors);
+            if let Some(ownership) = &module.ownership {
+                check_ownership(module, ownership, &mut errors);
+            }
             for source in &module.sources {
                 check_nonempty("module", &module.id, "source", source, &mut errors);
             }
@@ -491,6 +555,67 @@ impl Manifest {
 
     pub fn gate(&self, id: &str) -> Option<&CompatibilityGate> {
         self.gates.iter().find(|gate| gate.id == id)
+    }
+}
+
+fn check_ownership(
+    module: &Module,
+    ownership: &ModuleOwnership,
+    errors: &mut Vec<ValidationError>,
+) {
+    for (field, values) in [
+        ("ownership.primary_owners", &ownership.primary_owners),
+        ("ownership.effective_owners", &ownership.effective_owners),
+        (
+            "ownership.common_effective_owners",
+            &ownership.common_effective_owners,
+        ),
+        ("ownership.owner_files", &ownership.owner_files),
+        (
+            "ownership.unresolved_sources",
+            &ownership.unresolved_sources,
+        ),
+    ] {
+        if values.iter().any(|value| value.trim().is_empty()) {
+            errors.push(ValidationError::InvalidOwnershipValue {
+                module: module.id.clone(),
+                field,
+            });
+        }
+    }
+
+    for source in &ownership.sources {
+        if source.source.trim().is_empty() {
+            errors.push(ValidationError::InvalidOwnershipValue {
+                module: module.id.clone(),
+                field: "ownership.sources.source",
+            });
+        }
+        for (field, values) in [
+            ("ownership.sources.primary_owners", &source.primary_owners),
+            (
+                "ownership.sources.effective_owners",
+                &source.effective_owners,
+            ),
+            ("ownership.sources.owner_files", &source.owner_files),
+        ] {
+            if values.iter().any(|value| value.trim().is_empty()) {
+                errors.push(ValidationError::InvalidOwnershipValue {
+                    module: module.id.clone(),
+                    field,
+                });
+            }
+        }
+        if source
+            .inheritance_stopped_at
+            .as_ref()
+            .is_some_and(|path| path.trim().is_empty())
+        {
+            errors.push(ValidationError::InvalidOwnershipValue {
+                module: module.id.clone(),
+                field: "ownership.sources.inheritance_stopped_at",
+            });
+        }
     }
 }
 
@@ -634,6 +759,7 @@ mod tests {
                     id: "base".into(),
                     path: "base".into(),
                     owner: "foundation".into(),
+                    ownership: None,
                     source_label: None,
                     source_type: None,
                     sources: vec![],
@@ -646,6 +772,7 @@ mod tests {
                     id: "network".into(),
                     path: "services/network".into(),
                     owner: "services".into(),
+                    ownership: None,
                     source_label: None,
                     source_type: None,
                     sources: vec![],
@@ -666,6 +793,18 @@ mod tests {
     #[test]
     fn accepts_valid_manifest() {
         assert_eq!(valid_manifest().validate(), Ok(()));
+    }
+
+    #[test]
+    fn normalizes_only_repository_relative_paths() {
+        assert_eq!(
+            normalize_repo_relative_path("//services\\network/./context.cc"),
+            Some("services/network/context.cc".into())
+        );
+        assert_eq!(normalize_repo_relative_path("services/../base.cc"), None);
+        assert_eq!(normalize_repo_relative_path("/etc/passwd"), None);
+        assert_eq!(normalize_repo_relative_path("C:\\Windows\\win.ini"), None);
+        assert_eq!(normalize_repo_relative_path(""), None);
     }
 
     #[test]

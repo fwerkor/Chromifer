@@ -42,7 +42,9 @@ GN groups, actions, and other targets without compilable sources are contracted 
 
 Source targets are then grouped into component proposals by owner and directory prefix. Internal target edges disappear inside the proposal; crossing edges retain their boundary types, evidence, unresolved reviews, and ownership changes. The proposal and ranking policy are deterministic and documented rather than inferred by a statistical model.
 
-Candidate ranking uses compatibility-gate declaration coverage only as a proxy. It does not claim that tests were executed or that source coverage is adequate. A later evidence executor must attach immutable pass/fail, performance, and compatibility results before a migration transition is approved.
+The owner key is refined from Chromium OWNERS files when available. Per-source primary and inherited owners are stored separately from the project's architectural owner label, including `set noparent`, per-file rules, and included owner files.
+
+Candidate ranking uses compatibility-gate declaration coverage only as a proxy. Actual execution is recorded separately as content-addressed evidence: the exact manifest digest, commands, results, timings, and full output logs are hashed and can be re-verified before a transition check consumes them. Source coverage and signed runner attestations remain separate requirements.
 
 ## Compatibility contracts
 
@@ -55,7 +57,7 @@ Every component leaving `legacy_cpp` must identify executable gates. Gates are c
 - platform build matrices;
 - binary and IPC compatibility checks.
 
-The migration planner verifies the presence and references of gates. A later executor will run them and attach immutable evidence to a proposed state transition.
+The migration planner verifies the presence and references of gates. The evidence executor runs selected gates, preserves full content-addressed logs, and writes a content-addressed JSON bundle. Verification recomputes the bundle digest, manifest digest, gate definitions, result consistency, and every referenced log digest before the evidence can support a transition check.
 
 ## Upstream strategy
 

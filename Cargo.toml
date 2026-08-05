@@ -2,8 +2,10 @@
 members = [
     "crates/chromifer-cli",
     "crates/chromifer-components",
+    "crates/chromifer-evidence",
     "crates/chromifer-gn",
     "crates/chromifer-manifest",
+    "crates/chromifer-owners",
     "crates/chromifer-planner",
     "crates/chromifer-source",
 ]
@@ -21,5 +23,6 @@ authors = ["Cao Yuhang <caoyuhang@fwerkor.com>"]
 clap = { version = "4.5", features = ["derive"] }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
+sha2 = "0.10"
 thiserror = "2.0"
 toml = "0.9"

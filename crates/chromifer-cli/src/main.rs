@@ -3,12 +3,15 @@
 use std::fs;
 use std::path::PathBuf;
 use std::process::ExitCode;
+use std::time::Duration;
 
 use chromifer_components::{
     AnalysisOptions, CandidateConcern, ComponentAnalysis, analyze_components,
 };
+use chromifer_evidence::{RunOptions, run_gates, verify_evidence};
 use chromifer_gn::{GateOptions, ImportOptions, import_gn_file};
 use chromifer_manifest::{Manifest, MigrationState};
+use chromifer_owners::scan_ownership;
 use chromifer_planner::{Blocker, assess_transition, migration_frontier};
 use chromifer_source::scan_manifest;
 use clap::{Parser, Subcommand};
@@ -79,6 +82,21 @@ enum Command {
         #[arg(long)]
         json: bool,
     },
+    /// Resolve Chromium OWNERS hierarchy for every module source file.
+    ScanOwners {
+        /// Input manifest containing module source lists.
+        manifest: PathBuf,
+        /// Chromium checkout root matching the manifest baseline.
+        source_root: PathBuf,
+        /// Ownership-annotated output manifest.
+        output: PathBuf,
+        /// Replace an existing output file.
+        #[arg(long)]
+        force: bool,
+        /// Print the ownership summary as JSON.
+        #[arg(long)]
+        json: bool,
+    },
     /// Aggregate GN targets into migration components and rank candidates.
     RankComponents {
         /// Source-annotated migration manifest.
@@ -90,6 +108,45 @@ enum Command {
         #[arg(long, default_value_t = 20)]
         limit: usize,
         /// Print the full analysis as JSON.
+        #[arg(long)]
+        json: bool,
+    },
+    /// Execute compatibility gates and write content-addressed evidence.
+    RunGates {
+        /// Migration manifest declaring compatibility gates.
+        manifest: PathBuf,
+        /// Working directory used for all gate commands.
+        workdir: PathBuf,
+        /// Directory receiving immutable evidence and log artifacts.
+        output_dir: PathBuf,
+        /// Run only these gate IDs. Repeatable.
+        #[arg(long = "gate")]
+        gates: Vec<String>,
+        /// Run gates declared by these module IDs. Repeatable.
+        #[arg(long = "module")]
+        modules: Vec<String>,
+        /// Stop after the first failed, timed out, or unlaunchable gate.
+        #[arg(long)]
+        fail_fast: bool,
+        /// Per-gate timeout in seconds.
+        #[arg(long, default_value_t = 3600)]
+        timeout_seconds: u64,
+        /// Maximum stdout/stderr tail bytes embedded in the evidence JSON.
+        #[arg(long, default_value_t = 8192)]
+        max_tail_bytes: usize,
+        /// Print the complete evidence run as JSON.
+        #[arg(long)]
+        json: bool,
+    },
+    /// Verify an evidence bundle and every referenced content-addressed log.
+    VerifyEvidence {
+        /// Manifest whose exact bytes and gate definitions must match the evidence.
+        manifest: PathBuf,
+        /// Content-addressed evidence JSON file.
+        evidence: PathBuf,
+        /// Root directory containing the evidence bundle's `logs/` paths.
+        artifact_root: PathBuf,
+        /// Print the verification summary as JSON.
         #[arg(long)]
         json: bool,
     },
@@ -106,6 +163,12 @@ enum Command {
         manifest: PathBuf,
         module: String,
         target: MigrationState,
+        /// Verified evidence bundle used to prove declared gates passed.
+        #[arg(long, requires = "artifact_root")]
+        evidence: Option<PathBuf>,
+        /// Root directory containing logs referenced by `--evidence`.
+        #[arg(long, requires = "evidence")]
+        artifact_root: Option<PathBuf>,
         #[arg(long)]
         json: bool,
     },
@@ -257,6 +320,42 @@ fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
                 println!("wrote annotated manifest to {}", output.display());
             }
         }
+        Command::ScanOwners {
+            manifest,
+            source_root,
+            output,
+            force,
+            json,
+        } => {
+            if output.exists() && !force {
+                return Err(format!(
+                    "output `{}` already exists; pass --force to replace it",
+                    output.display()
+                )
+                .into());
+            }
+            let manifest = Manifest::load(&manifest)?;
+            let scanned = scan_ownership(&manifest, &source_root)?;
+            fs::write(&output, scanned.manifest.to_toml_pretty()?)?;
+            if json {
+                println!("{}", serde_json::to_string_pretty(&scanned.summary)?);
+            } else {
+                println!(
+                    "resolved ownership for {} of {} source file(s) across {} module(s)",
+                    scanned.summary.resolved_sources,
+                    scanned.summary.scanned_sources,
+                    scanned.summary.scanned_modules
+                );
+                println!(
+                    "read {} OWNERS file(s); unresolved sources: {}; split modules: {}; modules without sources: {}",
+                    scanned.summary.owner_files_read,
+                    scanned.summary.unresolved_sources,
+                    scanned.summary.split_ownership_modules,
+                    scanned.summary.modules_without_sources
+                );
+                println!("wrote ownership manifest to {}", output.display());
+            }
+        }
         Command::RankComponents {
             manifest,
             path_depth,
@@ -269,6 +368,72 @@ fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
                 println!("{}", serde_json::to_string_pretty(&analysis)?);
             } else {
                 print_component_ranking(&analysis, limit);
+            }
+        }
+        Command::RunGates {
+            manifest,
+            workdir,
+            output_dir,
+            gates,
+            modules,
+            fail_fast,
+            timeout_seconds,
+            max_tail_bytes,
+            json,
+        } => {
+            let manifest_bytes = fs::read(&manifest)?;
+            let manifest = Manifest::load(&manifest)?;
+            let run = run_gates(
+                &manifest,
+                &manifest_bytes,
+                &RunOptions {
+                    workdir,
+                    output_dir,
+                    gate_ids: gates,
+                    module_ids: modules,
+                    fail_fast,
+                    timeout: Duration::from_secs(timeout_seconds),
+                    max_tail_bytes,
+                },
+            )?;
+            if json {
+                println!("{}", serde_json::to_string_pretty(&run)?);
+            } else {
+                println!("evidence {}: {}", run.digest, run.path.display());
+                for gate in &run.bundle.gates {
+                    println!(
+                        "  - {}: {:?} exit={:?} duration={}ms",
+                        gate.gate, gate.status, gate.exit_code, gate.duration_ms
+                    );
+                }
+                for gate in &run.bundle.skipped_gates {
+                    println!("  - {gate}: skipped by fail-fast");
+                }
+            }
+            if !run.bundle.passed {
+                return Err(format!(
+                    "one or more compatibility gates failed; evidence was written to {}",
+                    run.path.display()
+                )
+                .into());
+            }
+        }
+        Command::VerifyEvidence {
+            manifest,
+            evidence,
+            artifact_root,
+            json,
+        } => {
+            let manifest_bytes = fs::read(&manifest)?;
+            let manifest = Manifest::load(&manifest)?;
+            let summary = verify_evidence(&manifest, &manifest_bytes, &evidence, &artifact_root)?;
+            if json {
+                println!("{}", serde_json::to_string_pretty(&summary)?);
+            } else {
+                println!(
+                    "verified evidence {}: {} gate result(s), {} distinct log artifact(s), passed={}",
+                    summary.digest, summary.gate_count, summary.log_count, summary.passed
+                );
             }
         }
         Command::Validate { manifest } => {
@@ -304,29 +469,71 @@ fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
             manifest,
             module,
             target,
+            evidence,
+            artifact_root,
             json,
         } => {
+            let manifest_bytes = fs::read(&manifest)?;
             let manifest = Manifest::load(&manifest)?;
             let assessment = assess_transition(&manifest, &module, target)?;
+            let verification = match (evidence, artifact_root) {
+                (Some(evidence), Some(artifact_root)) => Some(verify_evidence(
+                    &manifest,
+                    &manifest_bytes,
+                    &evidence,
+                    &artifact_root,
+                )?),
+                (None, None) => None,
+                _ => return Err("--evidence and --artifact-root must be supplied together".into()),
+            };
+            let missing_gate_evidence =
+                if target == MigrationState::RustOwned && verification.is_some() {
+                    let passed: std::collections::BTreeSet<_> = verification
+                        .as_ref()
+                        .map(|summary| summary.passed_gates.iter().cloned().collect())
+                        .unwrap_or_default();
+                    manifest
+                        .module(&module)
+                        .into_iter()
+                        .flat_map(|module| module.gates.iter())
+                        .filter(|gate| !passed.contains(*gate))
+                        .cloned()
+                        .collect::<Vec<_>>()
+                } else {
+                    Vec::new()
+                };
+            let allowed = assessment.allowed && missing_gate_evidence.is_empty();
+
             if json {
-                println!("{}", serde_json::to_string_pretty(&assessment)?);
+                if let Some(verification) = verification {
+                    println!(
+                        "{}",
+                        serde_json::to_string_pretty(&serde_json::json!({
+                            "transition": assessment,
+                            "evidence": verification,
+                            "missing_gate_evidence": missing_gate_evidence,
+                            "allowed": allowed,
+                        }))?
+                    );
+                } else {
+                    println!("{}", serde_json::to_string_pretty(&assessment)?);
+                }
             } else {
                 println!(
                     "{}: {} -> {}: {}",
                     assessment.module,
                     assessment.from,
                     assessment.to,
-                    if assessment.allowed {
-                        "allowed"
-                    } else {
-                        "blocked"
-                    }
+                    if allowed { "allowed" } else { "blocked" }
                 );
                 for blocker in &assessment.blockers {
                     println!("  - {}", display_blocker(blocker));
                 }
+                for gate in &missing_gate_evidence {
+                    println!("  - compatibility gate `{gate}` lacks verified passing evidence");
+                }
             }
-            if !assessment.allowed {
+            if !allowed {
                 return Err("transition is blocked".into());
             }
         }

@@ -22,8 +22,11 @@ Acceptance criteria:
 - group source targets into owner-aware migration components; **implemented**
 - retain component-level boundary sets, evidence, review obligations, and owner crossings; **implemented**
 - rank candidate components with a documented boundary, topology, scope, and gate-coverage proxy; **implemented**
-- infer Chromium `OWNERS` hierarchy beyond the manifest's current owner field;
-- measure real test execution and source coverage rather than declaration proxies.
+- infer Chromium `OWNERS` hierarchy beyond the manifest's current owner field; **implemented**
+- execute compatibility gates and persist content-addressed results and logs; **implemented**
+- verify evidence against exact manifest bytes, gate definitions, and log digests; **implemented**
+- measure source coverage rather than declaration proxies;
+- sign evidence with isolated runner identity and source-checkout attestation.
 
 ## M2 — Build-system bridge
 
@@ -32,6 +35,8 @@ Acceptance criteria:
 - establish CXX, C ABI, and Mojo boundary templates;
 - enforce that `unsafe` appears only in designated bridge crates;
 - build on Linux, Windows, and macOS.
+
+Evidence execution is available before the build bridge, but current gates still depend on commands supplied by the manifest. M2 will generate and validate those commands from the Chromium/Cargo integration rather than relying entirely on hand-authored gate definitions.
 
 ## M3 — First production component
 
