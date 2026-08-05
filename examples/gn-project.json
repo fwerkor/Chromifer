@@ -1,0 +1,59 @@
+{
+  "build_settings": {
+    "root_path": "/src/chromium/src",
+    "build_dir": "//out/Default/",
+    "default_toolchain": "//build/toolchain/linux:clang_x64"
+  },
+  "targets": {
+    "//app:browser": {
+      "type": "executable",
+      "toolchain": "//build/toolchain/linux:clang_x64",
+      "sources": ["//app/main.cc"],
+      "deps": [
+        "//meta:base_group",
+        "//services/network:network_service",
+        "//tools:codegen(//build/toolchain/linux:clang_x64_host)"
+      ]
+    },
+    "//base:base": {
+      "type": "source_set",
+      "toolchain": "//build/toolchain/linux:clang_x64",
+      "sources": ["//base/base.cc", "//base/base.h"],
+      "deps": []
+    },
+    "//meta:base_group": {
+      "type": "group",
+      "toolchain": "//build/toolchain/linux:clang_x64",
+      "deps": ["//base:base"]
+    },
+    "//rust:parser": {
+      "type": "rust_library",
+      "toolchain": "//build/toolchain/linux:clang_x64",
+      "sources": ["//rust/parser.rs"],
+      "crate_root": "//rust/parser.rs",
+      "deps": []
+    },
+    "//services/network:network_service": {
+      "type": "static_library",
+      "toolchain": "//build/toolchain/linux:clang_x64",
+      "sources": [
+        "//services/network/network.cc",
+        "//services/network/bridge.rs"
+      ],
+      "deps": ["//base:base", "//rust:parser"]
+    },
+    "//tests:network_tests": {
+      "type": "executable",
+      "toolchain": "//build/toolchain/linux:clang_x64",
+      "sources": ["//tests/network_tests.cc"],
+      "deps": ["//services/network:network_service"],
+      "testonly": true
+    },
+    "//tools:codegen(//build/toolchain/linux:clang_x64_host)": {
+      "type": "executable",
+      "toolchain": "//build/toolchain/linux:clang_x64_host",
+      "sources": ["//tools/codegen.cc"],
+      "deps": []
+    }
+  }
+}

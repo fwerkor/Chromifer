@@ -15,11 +15,13 @@ pub const SUPPORTED_SCHEMA_VERSION: u32 = 1;
 pub struct Manifest {
     pub schema_version: u32,
     pub project: Project,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub inventory: Option<InventoryMetadata>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub targets: Vec<Target>,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub gates: Vec<CompatibilityGate>,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub modules: Vec<Module>,
 }
 
@@ -28,6 +30,25 @@ pub struct Project {
     pub name: String,
     pub upstream: String,
     pub baseline: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct InventoryMetadata {
+    pub source_format: String,
+    pub build_dir: String,
+    pub default_toolchain: String,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub roots: Vec<String>,
+    #[serde(default)]
+    pub include_all_toolchains: bool,
+    #[serde(default)]
+    pub include_testonly: bool,
+    #[serde(default)]
+    pub include_meta_targets: bool,
+    #[serde(default)]
+    pub infer_state: bool,
+    #[serde(default)]
+    pub omitted_dependency_count: usize,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -42,7 +63,7 @@ pub struct Target {
 pub struct CompatibilityGate {
     pub id: String,
     pub command: String,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub targets: Vec<String>,
 }
 
@@ -51,10 +72,14 @@ pub struct Module {
     pub id: String,
     pub path: String,
     pub owner: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source_label: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source_type: Option<String>,
     pub state: MigrationState,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub gates: Vec<String>,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub dependencies: Vec<Dependency>,
 }
 
@@ -112,6 +137,7 @@ pub struct ParseMigrationStateError(String);
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Boundary {
+    Unclassified,
     CppInternal,
     Cxx,
     CAbi,
@@ -128,6 +154,7 @@ impl Boundary {
 impl fmt::Display for Boundary {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(match self {
+            Self::Unclassified => "unclassified",
             Self::CppInternal => "cpp_internal",
             Self::Cxx => "cxx",
             Self::CAbi => "c_abi",
@@ -180,6 +207,8 @@ pub enum ValidationError {
     UnsupportedSchema { found: u32, supported: u32 },
     #[error("project field `{field}` must not be empty")]
     EmptyProjectField { field: &'static str },
+    #[error("inventory field `{field}` must not be empty")]
+    EmptyInventoryField { field: &'static str },
     #[error("duplicate {kind} id `{id}`")]
     DuplicateId { kind: &'static str, id: String },
     #[error("{kind} `{id}` has an empty {field}")]
@@ -244,6 +273,18 @@ impl Manifest {
         ] {
             if value.trim().is_empty() {
                 errors.push(ValidationError::EmptyProjectField { field });
+            }
+        }
+
+        if let Some(inventory) = &self.inventory {
+            for (field, value) in [
+                ("source_format", inventory.source_format.as_str()),
+                ("build_dir", inventory.build_dir.as_str()),
+                ("default_toolchain", inventory.default_toolchain.as_str()),
+            ] {
+                if value.trim().is_empty() {
+                    errors.push(ValidationError::EmptyInventoryField { field });
+                }
             }
         }
 
@@ -337,6 +378,10 @@ impl Manifest {
         } else {
             Err(ValidationErrors(errors))
         }
+    }
+
+    pub fn to_toml_pretty(&self) -> Result<String, toml::ser::Error> {
+        toml::to_string_pretty(self)
     }
 
     pub fn module(&self, id: &str) -> Option<&Module> {
@@ -454,6 +499,7 @@ mod tests {
                 upstream: "chromium/src".into(),
                 baseline: "main".into(),
             },
+            inventory: None,
             targets: vec![Target {
                 id: "linux".into(),
                 description: "Linux desktop".into(),
@@ -469,6 +515,8 @@ mod tests {
                     id: "base".into(),
                     path: "base".into(),
                     owner: "foundation".into(),
+                    source_label: None,
+                    source_type: None,
                     state: MigrationState::LegacyCpp,
                     gates: vec![],
                     dependencies: vec![],
@@ -477,6 +525,8 @@ mod tests {
                     id: "network".into(),
                     path: "services/network".into(),
                     owner: "services".into(),
+                    source_label: None,
+                    source_type: None,
                     state: MigrationState::Bridged,
                     gates: vec!["unit".into()],
                     dependencies: vec![Dependency {
@@ -539,6 +589,28 @@ mod tests {
         assert!(errors.0.iter().any(|error| matches!(
             error,
             ValidationError::MissingCompatibilityGate { module, .. } if module == "network"
+        )));
+    }
+
+    #[test]
+    fn rejects_incomplete_inventory_metadata() {
+        let mut manifest = valid_manifest();
+        manifest.inventory = Some(InventoryMetadata {
+            source_format: "gn-project-json".into(),
+            build_dir: String::new(),
+            default_toolchain: "//build/toolchain/linux:clang_x64".into(),
+            roots: vec![],
+            include_all_toolchains: false,
+            include_testonly: false,
+            include_meta_targets: false,
+            infer_state: false,
+            omitted_dependency_count: 0,
+        });
+
+        let errors = manifest.validate().unwrap_err();
+        assert!(errors.0.iter().any(|error| matches!(
+            error,
+            ValidationError::EmptyInventoryField { field } if *field == "build_dir"
         )));
     }
 }

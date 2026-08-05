@@ -1,8 +1,10 @@
 #![forbid(unsafe_code)]
 
+use std::fs;
 use std::path::PathBuf;
 use std::process::ExitCode;
 
+use chromifer_gn::{GateOptions, ImportOptions, import_gn_file};
 use chromifer_manifest::{Manifest, MigrationState};
 use chromifer_planner::{Blocker, assess_transition, migration_frontier};
 use clap::{Parser, Subcommand};
@@ -16,6 +18,48 @@ struct Cli {
 
 #[derive(Debug, Subcommand)]
 enum Command {
+    /// Import a Chromium GN project JSON export into a migration manifest.
+    ImportGn {
+        project_json: PathBuf,
+        output: PathBuf,
+        /// Exact Chromium revision, tag, or other reproducible baseline identifier.
+        #[arg(long)]
+        baseline: String,
+        /// Import only these roots and their transitive dependencies. Repeatable.
+        #[arg(long = "root")]
+        roots: Vec<String>,
+        /// Include targets outside GN's default toolchain.
+        #[arg(long)]
+        all_toolchains: bool,
+        /// Include GN targets marked test-only.
+        #[arg(long)]
+        include_testonly: bool,
+        /// Preserve groups, actions, and other targets without compilable sources.
+        #[arg(long)]
+        include_meta_targets: bool,
+        /// Infer legacy, bridged, and Rust-owned states from source extensions.
+        #[arg(long)]
+        infer_state: bool,
+        /// Compatibility command assigned to imported modules.
+        #[arg(long)]
+        gate_command: Option<String>,
+        #[arg(long, default_value = "imported-compatibility")]
+        gate_id: String,
+        #[arg(long, default_value = "import-host")]
+        target_id: String,
+        #[arg(long, default_value = "Host configuration used for the GN export")]
+        target_description: String,
+        #[arg(long, default_value = "Chromifer Chromium inventory")]
+        project_name: String,
+        #[arg(long, default_value = "https://chromium.googlesource.com/chromium/src")]
+        upstream: String,
+        /// Replace an existing output file.
+        #[arg(long)]
+        force: bool,
+        /// Print the import summary as JSON.
+        #[arg(long)]
+        json: bool,
+    },
     /// Parse and structurally validate a migration manifest.
     Validate { manifest: PathBuf },
     /// Show all currently legal next migration transitions.
@@ -46,6 +90,78 @@ fn main() -> ExitCode {
 
 fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
     match cli.command {
+        Command::ImportGn {
+            project_json,
+            output,
+            baseline,
+            roots,
+            all_toolchains,
+            include_testonly,
+            include_meta_targets,
+            infer_state,
+            gate_command,
+            gate_id,
+            target_id,
+            target_description,
+            project_name,
+            upstream,
+            force,
+            json,
+        } => {
+            if output.exists() && !force {
+                return Err(format!(
+                    "output `{}` already exists; pass --force to replace it",
+                    output.display()
+                )
+                .into());
+            }
+            let gate = gate_command.map(|command| GateOptions {
+                id: gate_id,
+                command,
+                target_id,
+                target_description,
+            });
+            let imported = import_gn_file(
+                &project_json,
+                &ImportOptions {
+                    project_name,
+                    upstream,
+                    baseline,
+                    roots,
+                    include_all_toolchains: all_toolchains,
+                    include_testonly,
+                    include_meta_targets,
+                    infer_state,
+                    gate,
+                },
+            )?;
+            let manifest = imported.manifest.to_toml_pretty()?;
+            fs::write(&output, manifest)?;
+
+            if json {
+                println!("{}", serde_json::to_string_pretty(&imported.summary)?);
+            } else {
+                println!(
+                    "imported {} modules from {} selected GN targets into {}",
+                    imported.summary.imported_modules,
+                    imported.summary.selected_targets,
+                    output.display()
+                );
+                println!(
+                    "skipped: {} meta, {} test-only, {} other-toolchain; omitted {} dependency edge(s)",
+                    imported.summary.skipped_meta_targets,
+                    imported.summary.skipped_testonly_targets,
+                    imported.summary.skipped_other_toolchain_targets,
+                    imported.summary.omitted_dependencies.len()
+                );
+                for edge in &imported.summary.omitted_dependencies {
+                    println!(
+                        "  - {} -> {} ({})",
+                        edge.target, edge.dependency, edge.reason
+                    );
+                }
+            }
+        }
         Command::Validate { manifest } => {
             let manifest = Manifest::load(&manifest)?;
             println!(

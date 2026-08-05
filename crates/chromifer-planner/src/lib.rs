@@ -195,6 +195,7 @@ mod tests {
                 upstream: "chromium/src".into(),
                 baseline: "main".into(),
             },
+            inventory: None,
             targets: vec![],
             gates: vec![CompatibilityGate {
                 id: "unit".into(),
@@ -206,6 +207,8 @@ mod tests {
                     id: "base".into(),
                     path: "base".into(),
                     owner: "foundation".into(),
+                    source_label: None,
+                    source_type: None,
                     state: MigrationState::LegacyCpp,
                     gates: vec!["unit".into()],
                     dependencies: vec![],
@@ -214,6 +217,8 @@ mod tests {
                     id: "network".into(),
                     path: "services/network".into(),
                     owner: "services".into(),
+                    source_label: None,
+                    source_type: None,
                     state: MigrationState::Bridged,
                     gates: vec!["unit".into()],
                     dependencies: vec![Dependency {
@@ -225,6 +230,8 @@ mod tests {
                     id: "browser".into(),
                     path: "content/browser".into(),
                     owner: "content".into(),
+                    source_label: None,
+                    source_type: None,
                     state: MigrationState::LegacyCpp,
                     gates: vec!["unit".into()],
                     dependencies: vec![Dependency {
@@ -255,6 +262,21 @@ mod tests {
         assert!(assessment.blockers.iter().any(|blocker| matches!(
             blocker,
             Blocker::UnsafeIncomingBoundary { dependent, .. } if dependent == "browser"
+        )));
+    }
+
+    #[test]
+    fn blocks_unclassified_outgoing_boundary() {
+        let mut manifest = manifest();
+        manifest.modules[1].dependencies[0].boundary = Boundary::Unclassified;
+
+        let assessment =
+            assess_transition(&manifest, "network", MigrationState::RustOwned).unwrap();
+        assert!(!assessment.allowed);
+        assert!(assessment.blockers.iter().any(|blocker| matches!(
+            blocker,
+            Blocker::UnsafeOutgoingBoundary { dependency, boundary, .. }
+                if dependency == "base" && *boundary == Boundary::Unclassified
         )));
     }
 

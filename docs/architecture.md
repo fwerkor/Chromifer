@@ -23,13 +23,20 @@ The first three layers are primary Rust migration targets. Web runtime, graphics
 
 ## Boundary types
 
+- `unclassified`: imported or observed edge whose ABI has not been audited. Always blocks Rust ownership.
 - `cpp_internal`: private C++ ownership or ABI assumptions. Never accepted for a Rust-owned crossing.
 - `cxx`: typed bridge generated through the CXX interoperability model.
 - `c_abi`: narrow C-compatible ABI with explicit ownership and error contracts.
 - `mojo`: process boundary using Chromium Mojo interfaces.
 - `rust`: native Rust dependency.
 
-A boundary label is a claim that must eventually be supported by generated inventory data and boundary-specific tests. The bootstrap manifest is hand-authored; later milestones will derive most edges from Chromium GN metadata and source analysis.
+A boundary label is a claim that must eventually be supported by generated inventory data and boundary-specific tests. GN imports initially use `unclassified` for language crossings because the build graph does not prove which ABI is used.
+
+## Inventory provenance
+
+Generated manifests retain the GN build directory, default toolchain, selected roots, filtering flags, state-inference policy, and omitted dependency count. Each imported module also retains its exact GN label and target type. This makes later source analysis traceable to one Chromium revision and one generated build configuration.
+
+GN groups, actions, and other targets without compilable sources are contracted by default: a source target depending on a group is connected to the nearest source targets reachable through that group. The original meta targets can be retained when build-system analysis requires them.
 
 ## Compatibility contracts
 

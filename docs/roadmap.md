@@ -13,7 +13,9 @@ Acceptance criteria:
 
 ## M1 — Chromium inventory
 
-- import GN target metadata from a Chromium checkout;
+- import GN target metadata from a Chromium checkout; **implemented**
+- retain exact labels, target types, toolchain policy, roots, and omitted-edge counts; **implemented**
+- contract non-source GN meta targets into source-target dependency edges; **implemented**
 - group source targets into migration components;
 - identify C++ ownership and callback crossings;
 - emit a reproducible manifest with source locations;
