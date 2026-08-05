@@ -1,0 +1,24 @@
+{
+  "schema_version": 1,
+  "package": "chromifer-rust-bridge-example",
+  "version": "0.1.0",
+  "cargo_manifest_sha256": "8c1905897ff0f3c357b6b42f868efe26bf8a4a96aca45821b7dcda1869f5f8be",
+  "target_name": "chromifer_rust_bridge_example",
+  "crate_root": "src/lib.rs",
+  "edition": "2024",
+  "sources": [
+    "src/lib.rs",
+    "src/parser.rs"
+  ],
+  "cxx_bindings": [],
+  "features": [],
+  "no_default_features": false,
+  "dependencies": [],
+  "additional_deps": [],
+  "additional_public_deps": [],
+  "visibility": [
+    "//examples/rust-bridge:*"
+  ],
+  "allow_unsafe": false,
+  "build_gn_sha256": "f852b7162c27398a8e5ebd48254c25444db051ef01ce2de5f2945d1bda3dcbb0"
+}

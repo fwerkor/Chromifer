@@ -59,6 +59,12 @@ Every component leaving `legacy_cpp` must identify executable gates. Gates are c
 
 The migration planner verifies the presence and references of gates. The evidence executor runs selected gates, preserves full content-addressed logs, and writes a content-addressed JSON bundle. Verification recomputes the bundle digest, manifest digest, gate definitions, result consistency, and every referenced log digest before the evidence can support a transition check.
 
+## Build bridge
+
+First-party Cargo libraries are projected into Chromium's `rust_static_library` template. The bridge records Cargo manifest digest, source inventory, edition, features, CXX bridge files, dependency mappings, visibility, unsafe policy, and the generated BUILD.gn digest. Cargo dependencies never become GN dependencies by name inference: every active dependency requires an explicit GN label, while CXX's own machinery is supplied through `cxx_bindings`.
+
+Target-specific Cargo dependencies are currently rejected because unconditional translation would change platform semantics. Generated files support a check-only mode and are intended to be committed beside the Rust package.
+
 ## Upstream strategy
 
 Chromifer should remain a downstream integration layer rather than a permanent full-tree fork. Rust components should be consumable from Chromium GN targets, while source patches stay small and mechanically rebaseable. Vendoring Chromium source into this repository is not planned.

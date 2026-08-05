@@ -1,10 +1,12 @@
 #![forbid(unsafe_code)]
 
+use std::collections::BTreeMap;
 use std::fs;
 use std::path::PathBuf;
 use std::process::ExitCode;
 use std::time::Duration;
 
+use chromifer_build::{GenerateOptions, generate_and_write};
 use chromifer_components::{
     AnalysisOptions, CandidateConcern, ComponentAnalysis, analyze_components,
 };
@@ -108,6 +110,58 @@ enum Command {
         #[arg(long, default_value_t = 20)]
         limit: usize,
         /// Print the full analysis as JSON.
+        #[arg(long)]
+        json: bool,
+    },
+    /// Generate Chromium rust_static_library BUILD.gn from Cargo metadata.
+    GenerateGn {
+        /// Cargo.toml for a first-party Rust library.
+        cargo_manifest: PathBuf,
+        /// Must be BUILD.gn in the selected package root.
+        output: PathBuf,
+        /// Select a package when Cargo.toml is a virtual workspace manifest.
+        #[arg(long)]
+        package: Option<String>,
+        /// Override the generated GN target name.
+        #[arg(long)]
+        target_name: Option<String>,
+        /// Map an active Cargo dependency as `cargo_name=//gn:label`. Repeatable.
+        #[arg(long = "dep")]
+        dependencies: Vec<String>,
+        /// Map a public Cargo dependency as `cargo_name=//gn:label`. Repeatable.
+        #[arg(long = "public-dep")]
+        public_dependencies: Vec<String>,
+        /// Add a non-Cargo private GN dependency. Repeatable.
+        #[arg(long = "gn-dep")]
+        additional_deps: Vec<String>,
+        /// Add a non-Cargo public GN dependency. Repeatable.
+        #[arg(long = "gn-public-dep")]
+        additional_public_deps: Vec<String>,
+        /// Restrict GN visibility. Repeatable.
+        #[arg(long)]
+        visibility: Vec<String>,
+        /// Enable a Cargo feature. Repeatable.
+        #[arg(long = "feature")]
+        features: Vec<String>,
+        /// Do not enable the Cargo package's default feature set.
+        #[arg(long)]
+        no_default_features: bool,
+        /// Include an additional package-relative Rust source. Repeatable.
+        #[arg(long = "extra-source")]
+        extra_sources: Vec<String>,
+        /// Permit unsafe Rust even when no CXX bridge is detected.
+        #[arg(long)]
+        allow_unsafe: bool,
+        /// Cargo executable used for metadata extraction.
+        #[arg(long, default_value = "cargo")]
+        cargo: PathBuf,
+        /// Replace existing BUILD.gn and provenance files.
+        #[arg(long, conflicts_with = "check")]
+        force: bool,
+        /// Verify generated files are current without modifying them.
+        #[arg(long, conflicts_with = "force")]
+        check: bool,
+        /// Print generation summary as JSON.
         #[arg(long)]
         json: bool,
     },
@@ -370,6 +424,71 @@ fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
                 print_component_ranking(&analysis, limit);
             }
         }
+        Command::GenerateGn {
+            cargo_manifest,
+            output,
+            package,
+            target_name,
+            dependencies,
+            public_dependencies,
+            additional_deps,
+            additional_public_deps,
+            visibility,
+            features,
+            no_default_features,
+            extra_sources,
+            allow_unsafe,
+            cargo,
+            force,
+            check,
+            json,
+        } => {
+            let generated = generate_and_write(&GenerateOptions {
+                cargo,
+                cargo_manifest,
+                output,
+                package,
+                target_name,
+                dependency_mappings: parse_dependency_mappings(&dependencies)?,
+                public_dependency_mappings: parse_dependency_mappings(&public_dependencies)?,
+                additional_deps,
+                additional_public_deps,
+                visibility,
+                features,
+                no_default_features,
+                extra_sources,
+                allow_unsafe,
+                force,
+                check,
+            })?;
+            if json {
+                println!("{}", serde_json::to_string_pretty(&generated.summary)?);
+            } else if generated.summary.checked {
+                println!(
+                    "current: {} and {} match Cargo metadata for {} {}",
+                    generated.summary.output,
+                    generated.summary.provenance,
+                    generated.summary.package,
+                    generated.summary.version
+                );
+            } else {
+                println!(
+                    "generated {} and {} for {} {}",
+                    generated.summary.output,
+                    generated.summary.provenance,
+                    generated.summary.package,
+                    generated.summary.version
+                );
+                println!(
+                    "target {}: {} source(s), {} CXX binding(s), {} mapped dependency(ies), allow_unsafe={}",
+                    generated.summary.target_name,
+                    generated.summary.source_count,
+                    generated.summary.cxx_binding_count,
+                    generated.summary.mapped_dependency_count,
+                    generated.summary.allow_unsafe
+                );
+            }
+        }
         Command::RunGates {
             manifest,
             workdir,
@@ -539,6 +658,28 @@ fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
         }
     }
     Ok(())
+}
+
+fn parse_dependency_mappings(values: &[String]) -> Result<BTreeMap<String, String>, String> {
+    let mut mappings = BTreeMap::new();
+    for value in values {
+        let Some((name, label)) = value.split_once('=') else {
+            return Err(format!(
+                "dependency mapping `{value}` must use cargo_name=//gn:label"
+            ));
+        };
+        let name = name.trim();
+        let label = label.trim();
+        if name.is_empty() || label.is_empty() {
+            return Err(format!(
+                "dependency mapping `{value}` must use nonempty cargo_name=//gn:label"
+            ));
+        }
+        if mappings.insert(name.to_owned(), label.to_owned()).is_some() {
+            return Err(format!("duplicate dependency mapping for `{name}`"));
+        }
+    }
+    Ok(mappings)
 }
 
 fn print_component_ranking(analysis: &ComponentAnalysis, limit: usize) {

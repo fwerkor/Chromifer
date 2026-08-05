@@ -1,6 +1,7 @@
 [workspace]
 members = [
     "crates/chromifer-cli",
+    "crates/chromifer-build",
     "crates/chromifer-components",
     "crates/chromifer-evidence",
     "crates/chromifer-gn",

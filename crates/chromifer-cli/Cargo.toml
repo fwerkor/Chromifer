@@ -9,6 +9,7 @@ repository.workspace = true
 authors.workspace = true
 
 [dependencies]
+chromifer-build = { path = "../chromifer-build" }
 chromifer-components = { path = "../chromifer-components" }
 chromifer-evidence = { path = "../chromifer-evidence" }
 chromifer-gn = { path = "../chromifer-gn" }

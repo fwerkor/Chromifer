@@ -20,6 +20,7 @@ This repository does **not** claim to contain a Rust browser engine. The first m
 The initial workspace provides:
 
 - `chromifer-manifest`: parses and validates migration manifests.
+- `chromifer-build`: generates Chromium `rust_static_library` targets from Cargo metadata.
 - `chromifer-gn`: imports GN JSON project graphs into reproducible manifests.
 - `chromifer-components`: aggregates GN targets and ranks migration candidates.
 - `chromifer-owners`: resolves Chromium OWNERS hierarchy and per-source provenance.
@@ -73,6 +74,15 @@ cargo run -p chromifer -- rank-components \
   chromium-owned.toml
 ```
 
+Generate a Chromium Rust build target:
+
+```bash
+cargo run -p chromifer -- generate-gn \
+  path/to/Cargo.toml \
+  path/to/BUILD.gn \
+  --visibility //services/example:*
+```
+
 Execute and verify compatibility evidence:
 
 ```bash
@@ -114,6 +124,7 @@ GN imports follow the same rule. Cross-language edges inferred only from source 
 ```text
 crates/
   chromifer-manifest/  Manifest model and structural validation
+  chromifer-build/     Cargo-to-Chromium GN bridge generation
   chromifer-gn/        GN JSON graph importer
   chromifer-source/    Source boundary evidence scanner
   chromifer-owners/    Chromium OWNERS hierarchy scanner
@@ -128,6 +139,7 @@ docs/
   owners-scan.md       Chromium OWNERS hierarchy and provenance
   component-ranking.md Aggregation policy and scoring formula
   gate-evidence.md     Gate execution and evidence verification
+  build-bridge.md      Cargo-to-Chromium GN generation
   roadmap.md           Milestones and acceptance criteria
 examples/
   chromium.toml        Example migration manifest
@@ -138,4 +150,4 @@ examples/
 
 The project initially targets Chromium's browser framework, service layer, process/security orchestration, and platform adapters. Rewriting Blink or V8 is explicitly outside the first phases.
 
-See [docs/gn-import.md](docs/gn-import.md) for graph import, [docs/source-scan.md](docs/source-scan.md) for boundary evidence, [docs/owners-scan.md](docs/owners-scan.md) for ownership, [docs/component-ranking.md](docs/component-ranking.md) for component analysis, [docs/gate-evidence.md](docs/gate-evidence.md) for executable evidence, and [docs/roadmap.md](docs/roadmap.md) for the staged plan.
+See [docs/gn-import.md](docs/gn-import.md) for graph import, [docs/source-scan.md](docs/source-scan.md) for boundary evidence, [docs/owners-scan.md](docs/owners-scan.md) for ownership, [docs/component-ranking.md](docs/component-ranking.md) for component analysis, [docs/gate-evidence.md](docs/gate-evidence.md) for executable evidence, [docs/build-bridge.md](docs/build-bridge.md) for Chromium GN generation, and [docs/roadmap.md](docs/roadmap.md) for the staged plan.

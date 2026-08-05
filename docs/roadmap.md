@@ -30,13 +30,17 @@ Acceptance criteria:
 
 ## M2 — Build-system bridge
 
-- build Rust static libraries through Chromium's supported Rust toolchain;
-- generate GN targets from Cargo metadata;
-- establish CXX, C ABI, and Mojo boundary templates;
+- generate first-party `rust_static_library` GN targets from Cargo metadata; **implemented**
+- detect CXX bridge sources and generate `cxx_bindings`; **implemented**
+- require explicit Cargo dependency to GN label mappings; **implemented**
+- persist deterministic build provenance and detect generated-file drift; **implemented**
+- generate C++ consumer targets and CXX include contracts;
+- translate supported Cargo target conditions into GN conditions;
+- establish C ABI and Mojo boundary templates;
 - enforce that `unsafe` appears only in designated bridge crates;
-- build on Linux, Windows, and macOS.
+- build generated bridge examples on Linux, Windows, and macOS.
 
-Evidence execution is available before the build bridge, but current gates still depend on commands supplied by the manifest. M2 will generate and validate those commands from the Chromium/Cargo integration rather than relying entirely on hand-authored gate definitions.
+Evidence execution is available before the build bridge, but current gates still depend on commands supplied by the manifest. The first M2 generator now emits first-party Rust GN targets and deterministic provenance; subsequent work will generate C++ consumer targets and build/test gate definitions from the bridge model.
 
 ## M3 — First production component
 
