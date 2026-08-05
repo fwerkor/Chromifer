@@ -21,6 +21,7 @@ The initial workspace provides:
 
 - `chromifer-manifest`: parses and validates migration manifests.
 - `chromifer-gn`: imports GN JSON project graphs into reproducible manifests.
+- `chromifer-components`: aggregates GN targets and ranks migration candidates.
 - `chromifer-planner`: computes legal next transitions and explains blocked ones.
 - `chromifer-source`: scans source files for CXX, C ABI, Mojo, callback, and observer evidence.
 - `chromifer`: command-line interface for import, scanning, validation, and planning.
@@ -54,6 +55,13 @@ cargo run -p chromifer -- scan-boundaries \
   chromium-boundaries.toml
 ```
 
+Aggregate targets and rank migration candidates:
+
+```bash
+cargo run -p chromifer -- rank-components \
+  chromium-boundaries.toml
+```
+
 JSON output is available for automation:
 
 ```bash
@@ -84,12 +92,14 @@ crates/
   chromifer-manifest/  Manifest model and structural validation
   chromifer-gn/        GN JSON graph importer
   chromifer-source/    Source boundary evidence scanner
+  chromifer-components/ Target aggregation and candidate ranking
   chromifer-planner/   Transition safety analysis
   chromifer-cli/       Command-line frontend
 docs/
   architecture.md      Target architecture and migration policy
   gn-import.md         Chromium GN export and import workflow
   source-scan.md       Source evidence and review workflow
+  component-ranking.md Aggregation policy and scoring formula
   roadmap.md           Milestones and acceptance criteria
 examples/
   chromium.toml        Example migration manifest
@@ -100,4 +110,4 @@ examples/
 
 The project initially targets Chromium's browser framework, service layer, process/security orchestration, and platform adapters. Rewriting Blink or V8 is explicitly outside the first phases.
 
-See [docs/gn-import.md](docs/gn-import.md) for graph import, [docs/source-scan.md](docs/source-scan.md) for boundary evidence, and [docs/roadmap.md](docs/roadmap.md) for the staged plan.
+See [docs/gn-import.md](docs/gn-import.md) for graph import, [docs/source-scan.md](docs/source-scan.md) for boundary evidence, [docs/component-ranking.md](docs/component-ranking.md) for component analysis, and [docs/roadmap.md](docs/roadmap.md) for the staged plan.

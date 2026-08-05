@@ -19,9 +19,11 @@ Acceptance criteria:
 - detect high-confidence CXX, C ABI, and Mojo edge evidence; **implemented**
 - record callback and observer review obligations and enforce their resolution; **implemented**
 - emit a reproducible manifest with source locations; **implemented**
-- group source targets into migration components;
-- infer higher-level C++ ownership boundaries;
-- rank candidate components by boundary complexity and test coverage.
+- group source targets into owner-aware migration components; **implemented**
+- retain component-level boundary sets, evidence, review obligations, and owner crossings; **implemented**
+- rank candidate components with a documented boundary, topology, scope, and gate-coverage proxy; **implemented**
+- infer Chromium `OWNERS` hierarchy beyond the manifest's current owner field;
+- measure real test execution and source coverage rather than declaration proxies.
 
 ## M2 — Build-system bridge
 

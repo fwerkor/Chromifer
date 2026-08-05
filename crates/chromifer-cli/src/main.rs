@@ -4,6 +4,9 @@ use std::fs;
 use std::path::PathBuf;
 use std::process::ExitCode;
 
+use chromifer_components::{
+    AnalysisOptions, CandidateConcern, ComponentAnalysis, analyze_components,
+};
 use chromifer_gn::{GateOptions, ImportOptions, import_gn_file};
 use chromifer_manifest::{Manifest, MigrationState};
 use chromifer_planner::{Blocker, assess_transition, migration_frontier};
@@ -73,6 +76,20 @@ enum Command {
         #[arg(long)]
         force: bool,
         /// Print the scan summary as JSON.
+        #[arg(long)]
+        json: bool,
+    },
+    /// Aggregate GN targets into migration components and rank candidates.
+    RankComponents {
+        /// Source-annotated migration manifest.
+        manifest: PathBuf,
+        /// Number of directory segments retained in each component anchor.
+        #[arg(long, default_value_t = 2)]
+        path_depth: usize,
+        /// Maximum candidates printed in text mode. JSON always contains all candidates.
+        #[arg(long, default_value_t = 20)]
+        limit: usize,
+        /// Print the full analysis as JSON.
         #[arg(long)]
         json: bool,
     },
@@ -240,6 +257,20 @@ fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
                 println!("wrote annotated manifest to {}", output.display());
             }
         }
+        Command::RankComponents {
+            manifest,
+            path_depth,
+            limit,
+            json,
+        } => {
+            let manifest = Manifest::load(&manifest)?;
+            let analysis = analyze_components(&manifest, &AnalysisOptions { path_depth })?;
+            if json {
+                println!("{}", serde_json::to_string_pretty(&analysis)?);
+            } else {
+                print_component_ranking(&analysis, limit);
+            }
+        }
         Command::Validate { manifest } => {
             let manifest = Manifest::load(&manifest)?;
             println!(
@@ -301,6 +332,62 @@ fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
         }
     }
     Ok(())
+}
+
+fn print_component_ranking(analysis: &ComponentAnalysis, limit: usize) {
+    println!(
+        "aggregated {} modules into {} components at path depth {}",
+        analysis.module_count, analysis.component_count, analysis.path_depth
+    );
+    if analysis.ranking.is_empty() {
+        println!("no non-Rust-owned migration candidates");
+        return;
+    }
+
+    for candidate in analysis.ranking.iter().take(limit) {
+        println!(
+            "{}. {} [{}] score={} risk={} modules={} sources={} scope={} owner={}",
+            candidate.rank,
+            candidate.component,
+            if candidate.eligible { "ready" } else { "audit" },
+            candidate.readiness_score,
+            candidate.risk_score,
+            candidate.module_count,
+            candidate.source_files,
+            candidate.scope,
+            candidate.owner
+        );
+        for concern in &candidate.concerns {
+            println!("   - {}", display_concern(concern));
+        }
+    }
+}
+
+fn display_concern(concern: &CandidateConcern) -> String {
+    match concern {
+        CandidateConcern::NoSourceFiles => "component has no source files".into(),
+        CandidateConcern::MissingCompatibilityGates => {
+            "component has no compatibility gates".into()
+        }
+        CandidateConcern::MissingRequiredTargetCoverage {
+            missing_pairs,
+            total_pairs,
+        } => format!(
+            "compatibility gates miss {missing_pairs} of {total_pairs} required module-target pairs"
+        ),
+        CandidateConcern::MixedMigrationStates => {
+            "component mixes legacy_cpp, bridged, or rust_owned modules".into()
+        }
+        CandidateConcern::DeferredScope { scope } => {
+            format!("component belongs to explicitly deferred scope `{scope}`")
+        }
+        CandidateConcern::UnresolvedReviews { count } => {
+            format!("{count} callback/observer review(s) remain unresolved")
+        }
+        CandidateConcern::UnauditedExternalEdges { count } => {
+            format!("{count} external boundary type(s) remain private or unclassified")
+        }
+    }
 }
 
 fn display_blocker(blocker: &Blocker) -> String {

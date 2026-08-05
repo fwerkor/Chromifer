@@ -40,6 +40,10 @@ Generated manifests retain the GN build directory, default toolchain, selected r
 
 GN groups, actions, and other targets without compilable sources are contracted by default: a source target depending on a group is connected to the nearest source targets reachable through that group. The original meta targets can be retained when build-system analysis requires them.
 
+Source targets are then grouped into component proposals by owner and directory prefix. Internal target edges disappear inside the proposal; crossing edges retain their boundary types, evidence, unresolved reviews, and ownership changes. The proposal and ranking policy are deterministic and documented rather than inferred by a statistical model.
+
+Candidate ranking uses compatibility-gate declaration coverage only as a proxy. It does not claim that tests were executed or that source coverage is adequate. A later evidence executor must attach immutable pass/fail, performance, and compatibility results before a migration transition is approved.
+
 ## Compatibility contracts
 
 Every component leaving `legacy_cpp` must identify executable gates. Gates are commands, not prose. Planned gate classes include:
