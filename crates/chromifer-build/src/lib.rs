@@ -10,7 +10,7 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use thiserror::Error;
 
-const PROVENANCE_SCHEMA_VERSION: u32 = 2;
+const PROVENANCE_SCHEMA_VERSION: u32 = 3;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct GenerateOptions {
@@ -118,6 +118,10 @@ pub struct MappedDependency {
     pub package_name: String,
     pub gn_label: String,
     pub public: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cargo_target: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub gn_condition: Option<String>,
 }
 
 #[derive(Debug, Error)]
@@ -178,8 +182,14 @@ pub enum BuildBridgeError {
     ConflictingDependencyMapping(String),
     #[error("GN dependency `{0}` appears in both deps and public_deps")]
     ConflictingGnDependency(String),
-    #[error("target-specific Cargo dependency `{dependency}` (`{target}`) is not supported yet")]
-    TargetSpecificDependency { dependency: String, target: String },
+    #[error("unsupported Cargo target condition `{0}`")]
+    UnsupportedTargetCondition(String),
+    #[error("invalid Cargo target condition `{condition}` at byte {position}: {message}")]
+    InvalidTargetConditionSyntax {
+        condition: String,
+        position: usize,
+        message: String,
+    },
     #[error(
         "Cargo dependency `{dependency}` changes dependency features, which cannot yet be represented by a GN label"
     )]
@@ -266,6 +276,20 @@ struct CargoDependency {
 struct ResolvedFeatures {
     enabled: Vec<String>,
     active_optional_dependencies: BTreeSet<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum CfgExpr {
+    Flag(String),
+    Value { key: String, value: String },
+    All(Vec<CfgExpr>),
+    Any(Vec<CfgExpr>),
+    Not(Box<CfgExpr>),
+}
+
+struct CfgParser<'a> {
+    input: &'a str,
+    position: usize,
 }
 
 #[derive(Debug)]
@@ -646,6 +670,217 @@ fn detect_cxx_bindings(root: &Path, sources: &[String]) -> Result<Vec<String>, B
     Ok(bindings)
 }
 
+fn translate_target_condition(condition: &str) -> Result<String, BuildBridgeError> {
+    let mut parser = CfgParser {
+        input: condition,
+        position: 0,
+    };
+    parser.skip_whitespace();
+    let name = parser.parse_identifier()?;
+    if name != "cfg" {
+        return Err(BuildBridgeError::UnsupportedTargetCondition(
+            condition.to_owned(),
+        ));
+    }
+    parser.expect('(')?;
+    let expression = parser.parse_expression()?;
+    parser.expect(')')?;
+    parser.skip_whitespace();
+    if parser.position != condition.len() {
+        return parser.syntax("unexpected trailing input");
+    }
+    render_cfg_expression(&expression, condition)
+}
+
+impl CfgParser<'_> {
+    fn parse_expression(&mut self) -> Result<CfgExpr, BuildBridgeError> {
+        self.skip_whitespace();
+        let identifier = self.parse_identifier()?;
+        self.skip_whitespace();
+        if self.consume('=') {
+            self.skip_whitespace();
+            return Ok(CfgExpr::Value {
+                key: identifier,
+                value: self.parse_string()?,
+            });
+        }
+        if !self.consume('(') {
+            return Ok(CfgExpr::Flag(identifier));
+        }
+
+        let mut arguments = Vec::new();
+        loop {
+            self.skip_whitespace();
+            if self.consume(')') {
+                break;
+            }
+            arguments.push(self.parse_expression()?);
+            self.skip_whitespace();
+            if self.consume(')') {
+                break;
+            }
+            self.expect(',')?;
+        }
+        if arguments.is_empty() {
+            return self.syntax("cfg operator requires at least one argument");
+        }
+        match identifier.as_str() {
+            "all" => Ok(CfgExpr::All(arguments)),
+            "any" => Ok(CfgExpr::Any(arguments)),
+            "not" if arguments.len() == 1 => Ok(CfgExpr::Not(Box::new(arguments.remove(0)))),
+            "not" => self.syntax("not() requires exactly one argument"),
+            _ => Err(BuildBridgeError::UnsupportedTargetCondition(
+                self.input.to_owned(),
+            )),
+        }
+    }
+
+    fn parse_identifier(&mut self) -> Result<String, BuildBridgeError> {
+        self.skip_whitespace();
+        let start = self.position;
+        while self
+            .current_byte()
+            .is_some_and(|byte| byte.is_ascii_alphanumeric() || byte == b'_')
+        {
+            self.position += 1;
+        }
+        if self.position == start {
+            return self.syntax("expected identifier");
+        }
+        Ok(self.input[start..self.position].to_owned())
+    }
+
+    fn parse_string(&mut self) -> Result<String, BuildBridgeError> {
+        if !self.consume('"') {
+            return self.syntax("expected quoted string");
+        }
+        let mut output = String::new();
+        while let Some(byte) = self.current_byte() {
+            self.position += 1;
+            match byte {
+                b'"' => return Ok(output),
+                b'\\' => {
+                    let escaped = self
+                        .current_byte()
+                        .ok_or_else(|| self.syntax_error("unterminated escape"))?;
+                    self.position += 1;
+                    match escaped {
+                        b'"' => output.push('"'),
+                        b'\\' => output.push('\\'),
+                        _ => return self.syntax("unsupported string escape"),
+                    }
+                }
+                value if value.is_ascii() => output.push(value as char),
+                _ => return self.syntax("non-ASCII cfg strings are unsupported"),
+            }
+        }
+        self.syntax("unterminated string")
+    }
+
+    fn expect(&mut self, character: char) -> Result<(), BuildBridgeError> {
+        self.skip_whitespace();
+        if self.consume(character) {
+            Ok(())
+        } else {
+            self.syntax(&format!("expected `{character}`"))
+        }
+    }
+
+    fn consume(&mut self, character: char) -> bool {
+        if self.current_byte() == Some(character as u8) {
+            self.position += 1;
+            true
+        } else {
+            false
+        }
+    }
+
+    fn skip_whitespace(&mut self) {
+        while self
+            .current_byte()
+            .is_some_and(|byte| byte.is_ascii_whitespace())
+        {
+            self.position += 1;
+        }
+    }
+
+    fn current_byte(&self) -> Option<u8> {
+        self.input.as_bytes().get(self.position).copied()
+    }
+
+    fn syntax<T>(&self, message: &str) -> Result<T, BuildBridgeError> {
+        Err(self.syntax_error(message))
+    }
+
+    fn syntax_error(&self, message: &str) -> BuildBridgeError {
+        BuildBridgeError::InvalidTargetConditionSyntax {
+            condition: self.input.to_owned(),
+            position: self.position,
+            message: message.to_owned(),
+        }
+    }
+}
+
+fn render_cfg_expression(expression: &CfgExpr, original: &str) -> Result<String, BuildBridgeError> {
+    match expression {
+        CfgExpr::Flag(flag) if flag == "windows" => Ok("is_win".into()),
+        CfgExpr::Flag(_) => Err(BuildBridgeError::UnsupportedTargetCondition(
+            original.to_owned(),
+        )),
+        CfgExpr::Value { key, value } if key == "target_os" => match value.as_str() {
+            "windows" => Ok("is_win".into()),
+            "macos" => Ok("is_mac".into()),
+            "ios" => Ok("is_ios".into()),
+            "watchos" => Ok("is_watchos".into()),
+            "android" => Ok("is_android".into()),
+            "fuchsia" => Ok("is_fuchsia".into()),
+            "emscripten" => Ok("is_wasm".into()),
+            "linux" => Ok("(is_linux || is_chromeos)".into()),
+            _ => Err(BuildBridgeError::UnsupportedTargetCondition(
+                original.to_owned(),
+            )),
+        },
+        CfgExpr::Value { key, value } if key == "target_arch" => {
+            let cpu = match value.as_str() {
+                "x86" => "x86",
+                "x86_64" => "x64",
+                "arm" => "arm",
+                "aarch64" => "arm64",
+                "riscv64" => "riscv64",
+                "wasm32" => "wasm",
+                _ => {
+                    return Err(BuildBridgeError::UnsupportedTargetCondition(
+                        original.to_owned(),
+                    ));
+                }
+            };
+            Ok(format!("current_cpu == \"{cpu}\""))
+        }
+        CfgExpr::Value { .. } => Err(BuildBridgeError::UnsupportedTargetCondition(
+            original.to_owned(),
+        )),
+        CfgExpr::All(arguments) => render_cfg_join(arguments, "&&", original),
+        CfgExpr::Any(arguments) => render_cfg_join(arguments, "||", original),
+        CfgExpr::Not(argument) => Ok(format!("!({})", render_cfg_expression(argument, original)?)),
+    }
+}
+
+fn render_cfg_join(
+    arguments: &[CfgExpr],
+    operator: &str,
+    original: &str,
+) -> Result<String, BuildBridgeError> {
+    let rendered = arguments
+        .iter()
+        .map(|argument| render_cfg_expression(argument, original))
+        .collect::<Result<Vec<_>, _>>()?;
+    if let [single] = rendered.as_slice() {
+        Ok(single.clone())
+    } else {
+        Ok(format!("({})", rendered.join(&format!(" {operator} "))))
+    }
+}
+
 fn normalize_gn_package_path(value: &str) -> Result<String, BuildBridgeError> {
     let Some(relative) = value.strip_prefix("//") else {
         return Err(BuildBridgeError::InvalidGnPackagePath(value.to_owned()));
@@ -814,12 +1049,6 @@ fn active_dependencies<'a>(
         if dependency.optional && !active_optional.contains(&cargo_name) {
             continue;
         }
-        if let Some(target) = &dependency.target {
-            return Err(BuildBridgeError::TargetSpecificDependency {
-                dependency: cargo_name,
-                target: target.clone(),
-            });
-        }
         if !dependency.uses_default_features || !dependency.features.is_empty() {
             return Err(BuildBridgeError::DependencyFeatureConfiguration {
                 dependency: cargo_name,
@@ -924,6 +1153,12 @@ fn map_dependencies(
             package_name: dependency.name.clone(),
             gn_label: label.clone(),
             public: is_public,
+            cargo_target: dependency.target.clone(),
+            gn_condition: dependency
+                .target
+                .as_deref()
+                .map(translate_target_condition)
+                .transpose()?,
         });
     }
     mapped.sort();
@@ -931,21 +1166,12 @@ fn map_dependencies(
 }
 
 fn render_build_gn(inputs: &RenderInputs<'_>) -> String {
-    let mut private_deps: Vec<_> = inputs
-        .dependencies
-        .iter()
-        .filter(|dependency| !dependency.public)
-        .map(|dependency| dependency.gn_label.clone())
-        .collect();
+    let (mut private_deps, private_conditions) =
+        split_mapped_dependencies(inputs.dependencies, false);
     private_deps.extend(inputs.additional_deps.iter().cloned());
     private_deps.sort_by(|left, right| gn_label_cmp(left, right));
     private_deps.dedup();
-    let mut public_deps: Vec<_> = inputs
-        .dependencies
-        .iter()
-        .filter(|dependency| dependency.public)
-        .map(|dependency| dependency.gn_label.clone())
-        .collect();
+    let (mut public_deps, public_conditions) = split_mapped_dependencies(inputs.dependencies, true);
     public_deps.extend(inputs.additional_public_deps.iter().cloned());
     public_deps.sort_by(|left, right| gn_label_cmp(left, right));
     public_deps.dedup();
@@ -984,16 +1210,8 @@ fn render_build_gn(inputs: &RenderInputs<'_>) -> String {
             inputs.features.iter().map(String::as_str),
         );
     }
-    if !private_deps.is_empty() {
-        render_list(&mut output, "deps", private_deps.iter().map(String::as_str));
-    }
-    if !public_deps.is_empty() {
-        render_list(
-            &mut output,
-            "public_deps",
-            public_deps.iter().map(String::as_str),
-        );
-    }
+    render_dependency_set(&mut output, "deps", &private_deps, &private_conditions);
+    render_dependency_set(&mut output, "public_deps", &public_deps, &public_conditions);
     if !inputs.visibility.is_empty() {
         render_list(
             &mut output,
@@ -1037,6 +1255,68 @@ fn render_build_gn(inputs: &RenderInputs<'_>) -> String {
         output.push_str("}\n");
     }
     output
+}
+
+fn split_mapped_dependencies(
+    dependencies: &[MappedDependency],
+    public: bool,
+) -> (Vec<String>, BTreeMap<String, Vec<String>>) {
+    let mut unconditional = Vec::new();
+    let mut conditional = BTreeMap::<String, Vec<String>>::new();
+    for dependency in dependencies
+        .iter()
+        .filter(|dependency| dependency.public == public)
+    {
+        if let Some(condition) = &dependency.gn_condition {
+            conditional
+                .entry(condition.clone())
+                .or_default()
+                .push(dependency.gn_label.clone());
+        } else {
+            unconditional.push(dependency.gn_label.clone());
+        }
+    }
+    unconditional.sort_by(|left, right| gn_label_cmp(left, right));
+    unconditional.dedup();
+    for labels in conditional.values_mut() {
+        labels.sort_by(|left, right| gn_label_cmp(left, right));
+        labels.dedup();
+    }
+    (unconditional, conditional)
+}
+
+fn render_dependency_set(
+    output: &mut String,
+    name: &str,
+    unconditional: &[String],
+    conditional: &BTreeMap<String, Vec<String>>,
+) {
+    if !unconditional.is_empty() {
+        render_list(output, name, unconditional.iter().map(String::as_str));
+    } else if !conditional.is_empty() {
+        output.push_str(&format!("  {name} = []\n"));
+    }
+    for (condition, labels) in conditional {
+        if condition.starts_with('(') {
+            output.push_str(&format!("  if {condition} {{\n"));
+        } else {
+            output.push_str(&format!("  if ({condition}) {{\n"));
+        }
+        render_indented_list(output, name, labels);
+        output.push_str("  }\n");
+    }
+}
+
+fn render_indented_list(output: &mut String, name: &str, values: &[String]) {
+    if let [value] = values {
+        output.push_str(&format!("    {name} += [ \"{}\" ]\n", escape_gn(value)));
+        return;
+    }
+    output.push_str(&format!("    {name} += [\n"));
+    for value in values {
+        output.push_str(&format!("      \"{}\",\n", escape_gn(value)));
+    }
+    output.push_str("    ]\n");
 }
 
 fn render_list<'a>(output: &mut String, name: &str, values: impl Iterator<Item = &'a str>) {
@@ -1446,7 +1726,7 @@ mod tests {
     }
 
     #[test]
-    fn rejects_target_specific_dependencies_until_conditions_can_be_preserved() {
+    fn translates_supported_target_specific_dependencies() {
         let tree = TempTree::new();
         tree.write(
             "dep/Cargo.toml",
@@ -1455,12 +1735,60 @@ mod tests {
         tree.write("dep/src/lib.rs", "pub fn dep() {}\n");
         package(
             &tree,
-            "[package]\nname='conditional'\nversion='0.1.0'\nedition='2021'\n[target.'cfg(unix)'.dependencies]\ndep={path='dep'}\n",
+            "[package]\nname='conditional'\nversion='0.1.0'\nedition='2021'\n[target.'cfg(all(target_os = \"linux\", target_arch = \"x86_64\"))'.dependencies]\ndep={path='dep'}\n",
             "pub fn conditional() {}\n",
         );
+        let mut options = options(&tree);
+        options
+            .dependency_mappings
+            .insert("dep".into(), "//components/dep:rust".into());
+        let generated = generate_bridge(&options).unwrap();
+        assert!(
+            generated
+                .build_gn
+                .contains("if ((is_linux || is_chromeos) && current_cpu == \"x64\")")
+        );
+        assert!(
+            generated
+                .build_gn
+                .contains("deps += [ \"//components/dep:rust\" ]")
+        );
+        assert_eq!(generated.summary.mapped_dependency_count, 1);
+        assert!(
+            generated
+                .provenance_json
+                .contains("cfg(all(target_os = \\\"linux\\\", target_arch = \\\"x86_64\\\"))")
+        );
+    }
+
+    #[test]
+    fn translates_any_not_windows_and_arch_conditions() {
+        assert_eq!(
+            translate_target_condition("cfg(windows)").unwrap(),
+            "is_win"
+        );
+        assert_eq!(
+            translate_target_condition(
+                "cfg(any(target_os = \"macos\", not(target_arch = \"aarch64\")))"
+            )
+            .unwrap(),
+            "(is_mac || !(current_cpu == \"arm64\"))"
+        );
+    }
+
+    #[test]
+    fn rejects_inexact_or_malformed_target_conditions() {
         assert!(matches!(
-            generate_bridge(&options(&tree)),
-            Err(BuildBridgeError::TargetSpecificDependency { dependency, .. }) if dependency == "dep"
+            translate_target_condition("cfg(unix)"),
+            Err(BuildBridgeError::UnsupportedTargetCondition(_))
+        ));
+        assert!(matches!(
+            translate_target_condition("x86_64-pc-windows-msvc"),
+            Err(BuildBridgeError::UnsupportedTargetCondition(_))
+        ));
+        assert!(matches!(
+            translate_target_condition("cfg(all(target_os = \"linux\")"),
+            Err(BuildBridgeError::InvalidTargetConditionSyntax { .. })
         ));
     }
 

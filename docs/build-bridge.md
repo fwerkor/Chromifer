@@ -128,7 +128,22 @@ Additional build-only GN dependencies that have no Cargo counterpart use:
 --gn-public-dep //components/example/public
 ```
 
-The generator deliberately rejects target-specific Cargo dependencies. Translating Cargo `cfg(...)` expressions into equivalent GN conditions without changing semantics requires a separate condition model; emitting them unconditionally would be unsafe.
+Target-specific Cargo dependencies are translated only for a strict `cfg(...)` subset:
+
+- `windows` and `target_os = "windows"` → `is_win`;
+- `target_os = "macos"` → `is_mac`;
+- `target_os = "ios"` → `is_ios`;
+- `target_os = "watchos"` → `is_watchos`;
+- `target_os = "android"` → `is_android`;
+- `target_os = "fuchsia"` → `is_fuchsia`;
+- `target_os = "emscripten"` → `is_wasm`;
+- `target_os = "linux"` → `is_linux || is_chromeos`;
+- `target_arch` values `x86`, `x86_64`, `arm`, `aarch64`, `riscv64`, and `wasm32` → matching `current_cpu` values;
+- nested `all(...)`, `any(...)`, and single-argument `not(...)`.
+
+Conditional dependencies are emitted as initialized `deps` or `public_deps` lists followed by `if (...) { ... += [...] }` blocks. The original Cargo target expression and canonical GN condition are both recorded in provenance.
+
+Bare `unix`, arbitrary target triples, `target_env`, `target_vendor`, unknown OS/CPU values, and malformed expressions are rejected. These cases do not have a proven one-to-one mapping in the current bridge; emitting them unconditionally would be unsafe.
 
 ## Features
 
@@ -172,7 +187,7 @@ chromifer generate-gn Cargo.toml BUILD.gn \
 
 This stage generates a first-party Rust target. It does not yet:
 
-- translate target-specific Cargo dependencies into GN conditions;
+- extend target-condition translation beyond the currently proven OS/architecture subset;
 - preserve dependency crate feature configurations;
 - select subsets of multiple CXX bridges for separate consumer targets;
 - generate Mojo interfaces;

@@ -36,7 +36,8 @@ Acceptance criteria:
 - persist deterministic build provenance and detect generated-file drift; **implemented**
 - generate C++ `source_set` consumers with verified CXX include contracts; **implemented**
 - support multiple consumer targets selecting different CXX bridge subsets;
-- translate supported Cargo target conditions into GN conditions;
+- translate a proven Cargo `cfg` OS/architecture subset into GN conditions; **implemented**
+- extend condition translation to additional exact Cargo/Chromium mappings;
 - establish C ABI and Mojo boundary templates;
 - enforce that `unsafe` appears only in designated bridge crates;
 - build generated bridge examples on Linux, Windows, and macOS.

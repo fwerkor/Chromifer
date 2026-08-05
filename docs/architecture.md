@@ -65,7 +65,7 @@ First-party Cargo libraries are projected into Chromium's `rust_static_library` 
 
 For CXX migrations, the same BUILD.gn can contain a generated C++ `source_set`. Chromifer derives each generated header from the Chromium package path and Rust bridge source, verifies that the declared consumer sources actually include every header, records file-and-line evidence, and gives the consumer a private dependency on the Rust target.
 
-Target-specific Cargo dependencies are currently rejected because unconditional translation would change platform semantics. Generated files support a check-only mode and are intended to be committed beside the Rust package.
+Target-specific Cargo dependencies pass through a strict `cfg(...)` parser. Only OS and CPU predicates with an explicit Chromium GN equivalent, plus `all/any/not`, are translated; the original Cargo condition and canonical GN expression remain in provenance. Inexact families such as bare `unix`, arbitrary target triples, and unknown keys or values are rejected rather than linked unconditionally. Generated files support a check-only mode and are intended to be committed beside the Rust package.
 
 ## Upstream strategy
 
