@@ -34,7 +34,8 @@ Acceptance criteria:
 - detect CXX bridge sources and generate `cxx_bindings`; **implemented**
 - require explicit Cargo dependency to GN label mappings; **implemented**
 - persist deterministic build provenance and detect generated-file drift; **implemented**
-- generate C++ consumer targets and CXX include contracts;
+- generate C++ `source_set` consumers with verified CXX include contracts; **implemented**
+- support multiple consumer targets selecting different CXX bridge subsets;
 - translate supported Cargo target conditions into GN conditions;
 - establish C ABI and Mojo boundary templates;
 - enforce that `unsafe` appears only in designated bridge crates;

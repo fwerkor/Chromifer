@@ -10,7 +10,7 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use thiserror::Error;
 
-const PROVENANCE_SCHEMA_VERSION: u32 = 1;
+const PROVENANCE_SCHEMA_VERSION: u32 = 2;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct GenerateOptions {
@@ -28,8 +28,19 @@ pub struct GenerateOptions {
     pub no_default_features: bool,
     pub extra_sources: Vec<String>,
     pub allow_unsafe: bool,
+    pub gn_package_path: Option<String>,
+    pub consumer: Option<ConsumerOptions>,
     pub force: bool,
     pub check: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ConsumerOptions {
+    pub target_name: String,
+    pub sources: Vec<String>,
+    pub deps: Vec<String>,
+    pub public_deps: Vec<String>,
+    pub visibility: Vec<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -43,6 +54,9 @@ pub struct GenerateSummary {
     pub cxx_binding_count: usize,
     pub mapped_dependency_count: usize,
     pub allow_unsafe: bool,
+    pub generated_cxx_header_count: usize,
+    pub consumer_target: Option<String>,
+    pub consumer_source_count: usize,
     pub output: String,
     pub provenance: String,
     pub checked: bool,
@@ -66,6 +80,9 @@ pub struct BridgeProvenance {
     pub edition: String,
     pub sources: Vec<String>,
     pub cxx_bindings: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub gn_package_path: Option<String>,
+    pub generated_cxx_headers: Vec<String>,
     pub features: Vec<String>,
     pub no_default_features: bool,
     pub dependencies: Vec<MappedDependency>,
@@ -73,7 +90,26 @@ pub struct BridgeProvenance {
     pub additional_public_deps: Vec<String>,
     pub visibility: Vec<String>,
     pub allow_unsafe: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub consumer: Option<ConsumerProvenance>,
     pub build_gn_sha256: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct ConsumerProvenance {
+    pub target_name: String,
+    pub sources: Vec<String>,
+    pub deps: Vec<String>,
+    pub public_deps: Vec<String>,
+    pub visibility: Vec<String>,
+    pub generated_header_includes: Vec<HeaderIncludeEvidence>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize)]
+pub struct HeaderIncludeEvidence {
+    pub generated_header: String,
+    pub source: String,
+    pub line: usize,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize)]
@@ -156,6 +192,24 @@ pub enum BuildBridgeError {
     InvalidGnLabel(String),
     #[error("invalid GN target name `{0}`")]
     InvalidTargetName(String),
+    #[error("invalid Chromium GN package path `{0}`; expected `//path/to/package`")]
+    InvalidGnPackagePath(String),
+    #[error(
+        "C++ consumer configuration requires --consumer-target, --consumer-source, and --gn-package-path together"
+    )]
+    IncompleteConsumerConfiguration,
+    #[error("C++ consumer target `{0}` must differ from the Rust target name")]
+    ConsumerTargetCollision(String),
+    #[error("C++ consumer source `{0}` is not a safe package-relative path")]
+    InvalidConsumerSource(String),
+    #[error("C++ consumer source `{0}` does not exist")]
+    MissingConsumerSource(String),
+    #[error("C++ consumer requires at least one compilable .cc, .cpp, .cxx, or .mm source")]
+    MissingConsumerCompilationUnit,
+    #[error("C++ consumer was requested for a Rust crate without any CXX bridge")]
+    ConsumerWithoutCxxBridge,
+    #[error("C++ consumer does not include generated CXX header `{0}`")]
+    MissingGeneratedHeaderInclude(String),
     #[error("unsupported Rust edition `{0}`")]
     UnsupportedEdition(String),
     #[error("generated file `{0}` already exists; pass --force to replace it")]
@@ -234,6 +288,7 @@ struct RenderInputs<'a> {
     additional_public_deps: &'a [String],
     visibility: &'a [String],
     allow_unsafe: bool,
+    consumer: Option<&'a ConsumerProvenance>,
 }
 
 pub fn generate_and_write(options: &GenerateOptions) -> Result<GeneratedBridge, BuildBridgeError> {
@@ -311,6 +366,23 @@ pub fn generate_bridge(options: &GenerateOptions) -> Result<GeneratedBridge, Bui
     let visibility = normalize_labels(&options.visibility)?;
     validate_dependency_partition(&dependencies, &additional_deps, &additional_public_deps)?;
     let features = resolved_features.enabled;
+    let gn_package_path = options
+        .gn_package_path
+        .as_deref()
+        .map(normalize_gn_package_path)
+        .transpose()?;
+    let generated_cxx_headers = generated_cxx_headers(
+        gn_package_path.as_deref(),
+        &cxx_bindings,
+        options.consumer.is_some(),
+    )?;
+    let consumer = prepare_consumer(
+        &selected.root,
+        &target_name,
+        options.consumer.as_ref(),
+        &cxx_bindings,
+        &generated_cxx_headers,
+    )?;
 
     let build_gn = render_build_gn(&RenderInputs {
         target_name: &target_name,
@@ -324,6 +396,7 @@ pub fn generate_bridge(options: &GenerateOptions) -> Result<GeneratedBridge, Bui
         additional_public_deps: &additional_public_deps,
         visibility: &visibility,
         allow_unsafe,
+        consumer: consumer.as_ref(),
     });
     let manifest_bytes = read_file(&options.cargo_manifest)?;
     let provenance = BridgeProvenance {
@@ -336,6 +409,8 @@ pub fn generate_bridge(options: &GenerateOptions) -> Result<GeneratedBridge, Bui
         edition: edition.clone(),
         sources: sources.clone(),
         cxx_bindings: cxx_bindings.clone(),
+        gn_package_path: gn_package_path.clone(),
+        generated_cxx_headers: generated_cxx_headers.clone(),
         features: features.clone(),
         no_default_features: options.no_default_features,
         dependencies: dependencies.clone(),
@@ -343,6 +418,7 @@ pub fn generate_bridge(options: &GenerateOptions) -> Result<GeneratedBridge, Bui
         additional_public_deps: additional_public_deps.clone(),
         visibility: visibility.clone(),
         allow_unsafe,
+        consumer: consumer.clone(),
         build_gn_sha256: sha256_hex(build_gn.as_bytes()),
     };
     let provenance_json = format!("{}\n", serde_json::to_string_pretty(&provenance)?);
@@ -356,6 +432,13 @@ pub fn generate_bridge(options: &GenerateOptions) -> Result<GeneratedBridge, Bui
         cxx_binding_count: cxx_bindings.len(),
         mapped_dependency_count: dependencies.len(),
         allow_unsafe,
+        generated_cxx_header_count: generated_cxx_headers.len(),
+        consumer_target: consumer
+            .as_ref()
+            .map(|consumer| consumer.target_name.clone()),
+        consumer_source_count: consumer
+            .as_ref()
+            .map_or(0, |consumer| consumer.sources.len()),
         output: options.output.display().to_string(),
         provenance: provenance_path(&options.output).display().to_string(),
         checked: options.check,
@@ -563,6 +646,154 @@ fn detect_cxx_bindings(root: &Path, sources: &[String]) -> Result<Vec<String>, B
     Ok(bindings)
 }
 
+fn normalize_gn_package_path(value: &str) -> Result<String, BuildBridgeError> {
+    let Some(relative) = value.strip_prefix("//") else {
+        return Err(BuildBridgeError::InvalidGnPackagePath(value.to_owned()));
+    };
+    if relative.contains(':')
+        || !relative.chars().all(|character| {
+            character.is_ascii_alphanumeric() || matches!(character, '/' | '_' | '-' | '.' | '+')
+        })
+    {
+        return Err(BuildBridgeError::InvalidGnPackagePath(value.to_owned()));
+    }
+    let normalized = normalize_repo_relative_path(relative)
+        .ok_or_else(|| BuildBridgeError::InvalidGnPackagePath(value.to_owned()))?;
+    Ok(format!("//{normalized}"))
+}
+
+fn generated_cxx_headers(
+    gn_package_path: Option<&str>,
+    cxx_bindings: &[String],
+    consumer_requested: bool,
+) -> Result<Vec<String>, BuildBridgeError> {
+    if consumer_requested && cxx_bindings.is_empty() {
+        return Err(BuildBridgeError::ConsumerWithoutCxxBridge);
+    }
+    if cxx_bindings.is_empty() {
+        return Ok(Vec::new());
+    }
+    let Some(package_path) = gn_package_path else {
+        if consumer_requested {
+            return Err(BuildBridgeError::IncompleteConsumerConfiguration);
+        }
+        return Ok(Vec::new());
+    };
+    let package_path = package_path.trim_start_matches("//");
+    Ok(cxx_bindings
+        .iter()
+        .map(|binding| format!("{package_path}/{binding}.h"))
+        .collect())
+}
+
+fn prepare_consumer(
+    package_root: &Path,
+    rust_target_name: &str,
+    options: Option<&ConsumerOptions>,
+    cxx_bindings: &[String],
+    generated_headers: &[String],
+) -> Result<Option<ConsumerProvenance>, BuildBridgeError> {
+    let Some(options) = options else {
+        return Ok(None);
+    };
+    if cxx_bindings.is_empty() {
+        return Err(BuildBridgeError::ConsumerWithoutCxxBridge);
+    }
+    if generated_headers.is_empty() || options.sources.is_empty() {
+        return Err(BuildBridgeError::IncompleteConsumerConfiguration);
+    }
+    if !valid_target_name(&options.target_name) {
+        return Err(BuildBridgeError::InvalidTargetName(
+            options.target_name.clone(),
+        ));
+    }
+    if options.target_name == rust_target_name {
+        return Err(BuildBridgeError::ConsumerTargetCollision(
+            options.target_name.clone(),
+        ));
+    }
+
+    let mut sources = BTreeSet::new();
+    for source in &options.sources {
+        let relative = normalize_repo_relative_path(source)
+            .ok_or_else(|| BuildBridgeError::InvalidConsumerSource(source.clone()))?;
+        if !package_root.join(&relative).is_file() {
+            return Err(BuildBridgeError::MissingConsumerSource(relative));
+        }
+        sources.insert(relative);
+    }
+    if !sources.iter().any(|source| is_cpp_compilation_unit(source)) {
+        return Err(BuildBridgeError::MissingConsumerCompilationUnit);
+    }
+    let sources: Vec<_> = sources.into_iter().collect();
+
+    let mut deps = normalize_labels(&options.deps)?;
+    deps.push(format!(":{rust_target_name}"));
+    deps.sort_by(|left, right| gn_label_cmp(left, right));
+    deps.dedup();
+    let public_deps = normalize_labels(&options.public_deps)?;
+    let visibility = normalize_labels(&options.visibility)?;
+    validate_label_partition(&deps, &public_deps)?;
+
+    let mut include_evidence = Vec::new();
+    for source in &sources {
+        let bytes = read_file(&package_root.join(source))?;
+        let content = String::from_utf8_lossy(&bytes);
+        for (index, line) in content.lines().enumerate() {
+            if let Some(include) = cpp_include_path(line) {
+                if generated_headers.iter().any(|header| header == include) {
+                    include_evidence.push(HeaderIncludeEvidence {
+                        generated_header: include.to_owned(),
+                        source: source.clone(),
+                        line: index + 1,
+                    });
+                }
+            }
+        }
+    }
+    include_evidence.sort();
+    for header in generated_headers {
+        if !include_evidence
+            .iter()
+            .any(|evidence| evidence.generated_header == *header)
+        {
+            return Err(BuildBridgeError::MissingGeneratedHeaderInclude(
+                header.clone(),
+            ));
+        }
+    }
+
+    Ok(Some(ConsumerProvenance {
+        target_name: options.target_name.clone(),
+        sources,
+        deps,
+        public_deps,
+        visibility,
+        generated_header_includes: include_evidence,
+    }))
+}
+
+fn is_cpp_compilation_unit(source: &str) -> bool {
+    matches!(
+        Path::new(source)
+            .extension()
+            .and_then(|extension| extension.to_str()),
+        Some("cc" | "cpp" | "cxx" | "mm")
+    )
+}
+
+fn cpp_include_path(line: &str) -> Option<&str> {
+    let suffix = line.trim_start().strip_prefix("#include")?.trim_start();
+    let (opening, closing) = match suffix.as_bytes().first()? {
+        b'"' => ('"', '"'),
+        b'<' => ('<', '>'),
+        _ => return None,
+    };
+    let inner = &suffix[opening.len_utf8()..];
+    let end = inner.find(closing)?;
+    Some(&inner[..end])
+}
+
 fn active_dependencies<'a>(
     package: &'a CargoPackage,
     active_optional: &BTreeSet<String>,
@@ -700,20 +931,24 @@ fn map_dependencies(
 }
 
 fn render_build_gn(inputs: &RenderInputs<'_>) -> String {
-    let mut private_deps: BTreeSet<_> = inputs
+    let mut private_deps: Vec<_> = inputs
         .dependencies
         .iter()
         .filter(|dependency| !dependency.public)
         .map(|dependency| dependency.gn_label.clone())
         .collect();
     private_deps.extend(inputs.additional_deps.iter().cloned());
-    let mut public_deps: BTreeSet<_> = inputs
+    private_deps.sort_by(|left, right| gn_label_cmp(left, right));
+    private_deps.dedup();
+    let mut public_deps: Vec<_> = inputs
         .dependencies
         .iter()
         .filter(|dependency| dependency.public)
         .map(|dependency| dependency.gn_label.clone())
         .collect();
     public_deps.extend(inputs.additional_public_deps.iter().cloned());
+    public_deps.sort_by(|left, right| gn_label_cmp(left, right));
+    public_deps.dedup();
 
     let mut output = String::from(
         "# Generated by Chromifer from Cargo metadata.\n# Re-run `chromifer generate-gn` instead of editing this file.\n\nimport(\"//build/rust/rust_static_library.gni\")\n\n",
@@ -767,6 +1002,40 @@ fn render_build_gn(inputs: &RenderInputs<'_>) -> String {
         );
     }
     output.push_str("}\n");
+    if let Some(consumer) = inputs.consumer {
+        output.push('\n');
+        output.push_str(&format!(
+            "source_set(\"{}\") {{\n",
+            escape_gn(&consumer.target_name)
+        ));
+        render_list(
+            &mut output,
+            "sources",
+            consumer.sources.iter().map(String::as_str),
+        );
+        if !consumer.deps.is_empty() {
+            render_list(
+                &mut output,
+                "deps",
+                consumer.deps.iter().map(String::as_str),
+            );
+        }
+        if !consumer.public_deps.is_empty() {
+            render_list(
+                &mut output,
+                "public_deps",
+                consumer.public_deps.iter().map(String::as_str),
+            );
+        }
+        if !consumer.visibility.is_empty() {
+            render_list(
+                &mut output,
+                "visibility",
+                consumer.visibility.iter().map(String::as_str),
+            );
+        }
+        output.push_str("}\n");
+    }
     output
 }
 
@@ -784,11 +1053,18 @@ fn render_list<'a>(output: &mut String, name: &str, values: impl Iterator<Item =
 }
 
 fn normalize_labels(values: &[String]) -> Result<Vec<String>, BuildBridgeError> {
-    let values = sorted_unique(values);
+    let mut values = sorted_unique(values);
     for label in &values {
         validate_label(label)?;
     }
+    values.sort_by(|left, right| gn_label_cmp(left, right));
     Ok(values)
+}
+
+fn gn_label_cmp(left: &str, right: &str) -> std::cmp::Ordering {
+    let left_kind = usize::from(!left.starts_with(':'));
+    let right_kind = usize::from(!right.starts_with(':'));
+    left_kind.cmp(&right_kind).then(left.cmp(right))
 }
 
 fn validate_dependency_partition(
@@ -808,6 +1084,15 @@ fn validate_dependency_partition(
         .map(|dependency| dependency.gn_label.as_str())
         .collect();
     public.extend(additional_public_deps.iter().map(String::as_str));
+    validate_label_partition(
+        &private.into_iter().map(str::to_owned).collect::<Vec<_>>(),
+        &public.into_iter().map(str::to_owned).collect::<Vec<_>>(),
+    )
+}
+
+fn validate_label_partition(private: &[String], public: &[String]) -> Result<(), BuildBridgeError> {
+    let private: BTreeSet<_> = private.iter().map(String::as_str).collect();
+    let public: BTreeSet<_> = public.iter().map(String::as_str).collect();
     if let Some(label) = private.intersection(&public).next() {
         return Err(BuildBridgeError::ConflictingGnDependency(
             (*label).to_owned(),
@@ -966,6 +1251,8 @@ mod tests {
             no_default_features: false,
             extra_sources: vec![],
             allow_unsafe: false,
+            gn_package_path: None,
+            consumer: None,
             force: false,
             check: false,
         }
@@ -1260,5 +1547,165 @@ mod tests {
     #[test]
     fn gn_string_escaping_preserves_literal_dollar_signs() {
         assert_eq!(escape_gn("src/$generated.rs"), "src/\\$generated.rs");
+    }
+
+    #[test]
+    fn generates_cpp_consumer_and_records_generated_header_contract() {
+        let tree = TempTree::new();
+        tree.write(
+            "cxx/Cargo.toml",
+            "[package]\nname='cxx'\nversion='1.0.0'\nedition='2021'\n[lib]\npath='lib.rs'\n",
+        );
+        tree.write("cxx/lib.rs", "pub fn placeholder() {}\n");
+        package(
+            &tree,
+            "[package]\nname='bridge'\nversion='0.1.0'\nedition='2021'\n[dependencies]\ncxx={path='cxx'}\n",
+            "#[cxx::bridge]\nmod ffi {}\n",
+        );
+        tree.write(
+            "consumer/bridge.cc",
+            "#include \"services/network/rust/src/lib.rs.h\"\nint UseBridge() { return 0; }\n",
+        );
+        tree.write("consumer/bridge.h", "int UseBridge();\n");
+        let mut options = options(&tree);
+        options.gn_package_path = Some("//services/network/rust".into());
+        options.consumer = Some(ConsumerOptions {
+            target_name: "bridge_cpp".into(),
+            sources: vec!["consumer/bridge.h".into(), "consumer/bridge.cc".into()],
+            deps: vec!["//base".into()],
+            public_deps: vec![],
+            visibility: vec!["//services/network:*".into()],
+        });
+
+        let generated = generate_bridge(&options).unwrap();
+        assert!(generated.build_gn.contains("source_set(\"bridge_cpp\")"));
+        assert!(generated.build_gn.contains("\":bridge\""));
+        assert_eq!(generated.summary.generated_cxx_header_count, 1);
+        assert_eq!(generated.summary.consumer_source_count, 2);
+        let consumer = generated
+            .provenance_json
+            .contains("services/network/rust/src/lib.rs.h");
+        assert!(consumer);
+        assert!(generated.build_gn.contains("\"//base\""));
+    }
+
+    #[test]
+    fn rejects_missing_generated_header_include_and_missing_package_path() {
+        let tree = TempTree::new();
+        tree.write(
+            "cxx/Cargo.toml",
+            "[package]\nname='cxx'\nversion='1.0.0'\nedition='2021'\n[lib]\npath='lib.rs'\n",
+        );
+        tree.write("cxx/lib.rs", "pub fn placeholder() {}\n");
+        package(
+            &tree,
+            "[package]\nname='bridge'\nversion='0.1.0'\nedition='2021'\n[dependencies]\ncxx={path='cxx'}\n",
+            "#[cxx::bridge]\nmod ffi {}\n",
+        );
+        tree.write("consumer.cc", "int UseBridge() { return 0; }\n");
+        let mut options = options(&tree);
+        options.consumer = Some(ConsumerOptions {
+            target_name: "bridge_cpp".into(),
+            sources: vec!["consumer.cc".into()],
+            deps: vec![],
+            public_deps: vec![],
+            visibility: vec![],
+        });
+        assert!(matches!(
+            generate_bridge(&options),
+            Err(BuildBridgeError::IncompleteConsumerConfiguration)
+        ));
+
+        options.gn_package_path = Some("//services/network/rust".into());
+        assert!(matches!(
+            generate_bridge(&options),
+            Err(BuildBridgeError::MissingGeneratedHeaderInclude(header))
+                if header == "services/network/rust/src/lib.rs.h"
+        ));
+    }
+
+    #[test]
+    fn rejects_consumer_without_cxx_or_compilation_unit() {
+        let tree = TempTree::new();
+        package(
+            &tree,
+            "[package]\nname='pure-rust'\nversion='0.1.0'\nedition='2021'\n",
+            "pub fn pure() {}\n",
+        );
+        tree.write("consumer.cc", "int UseBridge() { return 0; }\n");
+        let mut options = options(&tree);
+        options.gn_package_path = Some("//services/example/rust".into());
+        options.consumer = Some(ConsumerOptions {
+            target_name: "consumer".into(),
+            sources: vec!["consumer.cc".into()],
+            deps: vec![],
+            public_deps: vec![],
+            visibility: vec![],
+        });
+        assert!(matches!(
+            generate_bridge(&options),
+            Err(BuildBridgeError::ConsumerWithoutCxxBridge)
+        ));
+
+        tree.write(
+            "cxx/Cargo.toml",
+            "[package]\nname='cxx'\nversion='1.0.0'\nedition='2021'\n[lib]\npath='lib.rs'\n",
+        );
+        tree.write("cxx/lib.rs", "pub fn placeholder() {}\n");
+        tree.write(
+            "Cargo.toml",
+            "[package]\nname='bridge'\nversion='0.1.0'\nedition='2021'\n[dependencies]\ncxx={path='cxx'}\n",
+        );
+        tree.write("src/lib.rs", "#[cxx::bridge]\nmod ffi {}\n");
+        tree.write(
+            "consumer.h",
+            "#include \"services/example/rust/src/lib.rs.h\"\n",
+        );
+        options.consumer.as_mut().unwrap().sources = vec!["consumer.h".into()];
+        assert!(matches!(
+            generate_bridge(&options),
+            Err(BuildBridgeError::MissingConsumerCompilationUnit)
+        ));
+    }
+
+    #[test]
+    fn rejects_consumer_target_and_dependency_partition_conflicts() {
+        let tree = TempTree::new();
+        tree.write(
+            "cxx/Cargo.toml",
+            "[package]\nname='cxx'\nversion='1.0.0'\nedition='2021'\n[lib]\npath='lib.rs'\n",
+        );
+        tree.write("cxx/lib.rs", "pub fn placeholder() {}\n");
+        package(
+            &tree,
+            "[package]\nname='bridge'\nversion='0.1.0'\nedition='2021'\n[dependencies]\ncxx={path='cxx'}\n",
+            "#[cxx::bridge]\nmod ffi {}\n",
+        );
+        tree.write(
+            "consumer.cc",
+            "#include \"services/example/rust/src/lib.rs.h\"\n",
+        );
+        let mut options = options(&tree);
+        options.gn_package_path = Some("//services/example/rust".into());
+        options.consumer = Some(ConsumerOptions {
+            target_name: "bridge".into(),
+            sources: vec!["consumer.cc".into()],
+            deps: vec![],
+            public_deps: vec![],
+            visibility: vec![],
+        });
+        assert!(matches!(
+            generate_bridge(&options),
+            Err(BuildBridgeError::ConsumerTargetCollision(name)) if name == "bridge"
+        ));
+
+        let consumer = options.consumer.as_mut().unwrap();
+        consumer.target_name = "bridge_cpp".into();
+        consumer.deps = vec!["//base".into()];
+        consumer.public_deps = vec!["//base".into()];
+        assert!(matches!(
+            generate_bridge(&options),
+            Err(BuildBridgeError::ConflictingGnDependency(label)) if label == "//base"
+        ));
     }
 }

@@ -63,6 +63,8 @@ The migration planner verifies the presence and references of gates. The evidenc
 
 First-party Cargo libraries are projected into Chromium's `rust_static_library` template. The bridge records Cargo manifest digest, source inventory, edition, features, CXX bridge files, dependency mappings, visibility, unsafe policy, and the generated BUILD.gn digest. Cargo dependencies never become GN dependencies by name inference: every active dependency requires an explicit GN label, while CXX's own machinery is supplied through `cxx_bindings`.
 
+For CXX migrations, the same BUILD.gn can contain a generated C++ `source_set`. Chromifer derives each generated header from the Chromium package path and Rust bridge source, verifies that the declared consumer sources actually include every header, records file-and-line evidence, and gives the consumer a private dependency on the Rust target.
+
 Target-specific Cargo dependencies are currently rejected because unconditional translation would change platform semantics. Generated files support a check-only mode and are intended to be committed beside the Rust package.
 
 ## Upstream strategy

@@ -81,6 +81,14 @@ cargo run -p chromifer -- generate-gn \
   path/to/Cargo.toml \
   path/to/BUILD.gn \
   --visibility //services/example:*
+
+# Add a C++ consumer for a CXX bridge:
+cargo run -p chromifer -- generate-gn \
+  path/to/Cargo.toml \
+  path/to/BUILD.gn \
+  --gn-package-path //services/example/rust \
+  --consumer-target example_bridge_cpp \
+  --consumer-source consumer/example_bridge.cc
 ```
 
 Execute and verify compatibility evidence:

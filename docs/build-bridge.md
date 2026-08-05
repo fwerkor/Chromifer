@@ -54,7 +54,7 @@ The generator rejects absolute paths, parent traversal, and missing files.
 
 ## CXX bridges and unsafe policy
 
-CXX bridge files are detected by the presence of `cxx::bridge` in generated source inventory:
+CXX bridge files are detected from Rust attributes beginning with `#[cxx::bridge` in the generated source inventory:
 
 ```rust
 #[cxx::bridge]
@@ -71,6 +71,43 @@ allow_unsafe = true
 ```
 
 The `cxx` Cargo dependency is not emitted as a GN dependency because Chromium's `cxx_bindings` integration adds the required CXX machinery. For pure Rust crates, unsafe remains disabled unless `--allow-unsafe` is explicit.
+
+## C++ consumer generation
+
+A CXX Rust target can be accompanied by a generated C++ `source_set`:
+
+```bash
+chromifer generate-gn Cargo.toml BUILD.gn \
+  --gn-package-path //services/network/rust \
+  --consumer-target network_bridge_cpp \
+  --consumer-source consumer/network_bridge.cc \
+  --consumer-source consumer/network_bridge.h \
+  --consumer-dep //base \
+  --consumer-visibility //services/network:*
+```
+
+For a bridge source `src/lib.rs` under `//services/network/rust`, Chromium generates the CXX header:
+
+```text
+services/network/rust/src/lib.rs.h
+```
+
+The consumer source inventory must contain an actual include of every generated header:
+
+```cpp
+#include "services/network/rust/src/lib.rs.h"
+```
+
+Both quoted and angle-bracket includes are recognized. Chromifer records the source file and line for each include in `chromifer-build.json`. Generation fails when:
+
+- the Chromium package path is absent or malformed;
+- no CXX bridge exists;
+- the consumer has no compilable `.cc`, `.cpp`, `.cxx`, or `.mm` file;
+- any expected generated header is not included;
+- the consumer and Rust targets have the same name;
+- a dependency is both private and public.
+
+The generated consumer automatically receives a private dependency on `:<rust_target>`. Chromium's Rust target exports the CXX-generated dependency information needed by a C++ dependent. Additional private/public dependencies and visibility remain explicit.
 
 ## Cargo dependency mapping
 
@@ -137,7 +174,7 @@ This stage generates a first-party Rust target. It does not yet:
 
 - translate target-specific Cargo dependencies into GN conditions;
 - preserve dependency crate feature configurations;
-- generate the C++ consumer `source_set`;
+- select subsets of multiple CXX bridges for separate consumer targets;
 - generate Mojo interfaces;
 - map Cargo build scripts;
 - vendor crates.io dependencies into Chromium;

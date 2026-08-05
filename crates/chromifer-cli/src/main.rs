@@ -6,7 +6,7 @@ use std::path::PathBuf;
 use std::process::ExitCode;
 use std::time::Duration;
 
-use chromifer_build::{GenerateOptions, generate_and_write};
+use chromifer_build::{ConsumerOptions, GenerateOptions, generate_and_write};
 use chromifer_components::{
     AnalysisOptions, CandidateConcern, ComponentAnalysis, analyze_components,
 };
@@ -152,6 +152,24 @@ enum Command {
         /// Permit unsafe Rust even when no CXX bridge is detected.
         #[arg(long)]
         allow_unsafe: bool,
+        /// Chromium repository package path, for example `//services/network/rust`.
+        #[arg(long)]
+        gn_package_path: Option<String>,
+        /// Generate a C++ source_set with this target name.
+        #[arg(long)]
+        consumer_target: Option<String>,
+        /// Package-relative C++ consumer source. Repeatable.
+        #[arg(long = "consumer-source")]
+        consumer_sources: Vec<String>,
+        /// Additional private GN dependency for the C++ consumer. Repeatable.
+        #[arg(long = "consumer-dep")]
+        consumer_deps: Vec<String>,
+        /// Additional public GN dependency for the C++ consumer. Repeatable.
+        #[arg(long = "consumer-public-dep")]
+        consumer_public_deps: Vec<String>,
+        /// Restrict C++ consumer visibility. Repeatable.
+        #[arg(long = "consumer-visibility")]
+        consumer_visibility: Vec<String>,
         /// Cargo executable used for metadata extraction.
         #[arg(long, default_value = "cargo")]
         cargo: PathBuf,
@@ -438,11 +456,34 @@ fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
             no_default_features,
             extra_sources,
             allow_unsafe,
+            gn_package_path,
+            consumer_target,
+            consumer_sources,
+            consumer_deps,
+            consumer_public_deps,
+            consumer_visibility,
             cargo,
             force,
             check,
             json,
         } => {
+            let consumer_requested = consumer_target.is_some()
+                || !consumer_sources.is_empty()
+                || !consumer_deps.is_empty()
+                || !consumer_public_deps.is_empty()
+                || !consumer_visibility.is_empty();
+            let consumer = if consumer_requested {
+                Some(ConsumerOptions {
+                    target_name: consumer_target
+                        .ok_or("C++ consumer options require --consumer-target")?,
+                    sources: consumer_sources,
+                    deps: consumer_deps,
+                    public_deps: consumer_public_deps,
+                    visibility: consumer_visibility,
+                })
+            } else {
+                None
+            };
             let generated = generate_and_write(&GenerateOptions {
                 cargo,
                 cargo_manifest,
@@ -458,6 +499,8 @@ fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
                 no_default_features,
                 extra_sources,
                 allow_unsafe,
+                gn_package_path,
+                consumer,
                 force,
                 check,
             })?;
@@ -480,13 +523,20 @@ fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
                     generated.summary.version
                 );
                 println!(
-                    "target {}: {} source(s), {} CXX binding(s), {} mapped dependency(ies), allow_unsafe={}",
+                    "target {}: {} source(s), {} CXX binding(s), {} generated header(s), {} mapped dependency(ies), allow_unsafe={}",
                     generated.summary.target_name,
                     generated.summary.source_count,
                     generated.summary.cxx_binding_count,
+                    generated.summary.generated_cxx_header_count,
                     generated.summary.mapped_dependency_count,
                     generated.summary.allow_unsafe
                 );
+                if let Some(consumer) = &generated.summary.consumer_target {
+                    println!(
+                        "consumer {consumer}: {} source(s)",
+                        generated.summary.consumer_source_count
+                    );
+                }
             }
         }
         Command::RunGates {
