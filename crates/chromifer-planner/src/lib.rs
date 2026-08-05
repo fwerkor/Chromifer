@@ -1,6 +1,6 @@
 #![forbid(unsafe_code)]
 
-use chromifer_manifest::{Boundary, Manifest, MigrationState, Module};
+use chromifer_manifest::{Boundary, BoundaryReviewKind, Manifest, MigrationState, Module};
 use serde::Serialize;
 use thiserror::Error;
 
@@ -37,6 +37,23 @@ pub enum Blocker {
         dependent: String,
         boundary: Boundary,
         dependent_state: MigrationState,
+    },
+    UnresolvedModuleReview {
+        review_kind: BoundaryReviewKind,
+        file: String,
+        line: usize,
+    },
+    UnresolvedOutgoingBoundaryReview {
+        dependency: String,
+        review_kind: BoundaryReviewKind,
+        file: String,
+        line: usize,
+    },
+    UnresolvedIncomingBoundaryReview {
+        dependent: String,
+        review_kind: BoundaryReviewKind,
+        file: String,
+        line: usize,
     },
 }
 
@@ -85,6 +102,13 @@ pub fn assess_transition(
 
     let mut cross_language_edges = 0;
     if target == MigrationState::RustOwned {
+        for review in module.reviews.iter().filter(|review| !review.resolved) {
+            blockers.push(Blocker::UnresolvedModuleReview {
+                review_kind: review.kind,
+                file: review.file.clone(),
+                line: review.line,
+            });
+        }
         assess_outgoing_boundaries(manifest, module, &mut blockers, &mut cross_language_edges);
         assess_incoming_boundaries(manifest, module, &mut blockers, &mut cross_language_edges);
     }
@@ -132,6 +156,14 @@ fn assess_outgoing_boundaries(
         let Some(target) = manifest.module(&dependency.module) else {
             continue;
         };
+        for review in dependency.reviews.iter().filter(|review| !review.resolved) {
+            blockers.push(Blocker::UnresolvedOutgoingBoundaryReview {
+                dependency: target.id.clone(),
+                review_kind: review.kind,
+                file: review.file.clone(),
+                line: review.line,
+            });
+        }
         if target.state == MigrationState::RustOwned {
             if dependency.boundary != Boundary::Rust {
                 *cross_language_edges += 1;
@@ -162,6 +194,14 @@ fn assess_incoming_boundaries(
             .iter()
             .filter(|dependency| dependency.module == module.id)
         {
+            for review in dependency.reviews.iter().filter(|review| !review.resolved) {
+                blockers.push(Blocker::UnresolvedIncomingBoundaryReview {
+                    dependent: dependent.id.clone(),
+                    review_kind: review.kind,
+                    file: review.file.clone(),
+                    line: review.line,
+                });
+            }
             if dependent.state == MigrationState::RustOwned {
                 if dependency.boundary != Boundary::Rust {
                     *cross_language_edges += 1;
@@ -183,7 +223,9 @@ fn assess_incoming_boundaries(
 
 #[cfg(test)]
 mod tests {
-    use chromifer_manifest::{CompatibilityGate, Dependency, Module, Project, Target};
+    use chromifer_manifest::{
+        BoundaryReview, BoundaryReviewKind, CompatibilityGate, Dependency, Module, Project, Target,
+    };
 
     use super::*;
 
@@ -209,8 +251,10 @@ mod tests {
                     owner: "foundation".into(),
                     source_label: None,
                     source_type: None,
+                    sources: vec![],
                     state: MigrationState::LegacyCpp,
                     gates: vec!["unit".into()],
+                    reviews: vec![],
                     dependencies: vec![],
                 },
                 Module {
@@ -219,11 +263,15 @@ mod tests {
                     owner: "services".into(),
                     source_label: None,
                     source_type: None,
+                    sources: vec![],
                     state: MigrationState::Bridged,
                     gates: vec!["unit".into()],
+                    reviews: vec![],
                     dependencies: vec![Dependency {
                         module: "base".into(),
                         boundary: Boundary::Cxx,
+                        evidence: vec![],
+                        reviews: vec![],
                     }],
                 },
                 Module {
@@ -232,11 +280,15 @@ mod tests {
                     owner: "content".into(),
                     source_label: None,
                     source_type: None,
+                    sources: vec![],
                     state: MigrationState::LegacyCpp,
                     gates: vec!["unit".into()],
+                    reviews: vec![],
                     dependencies: vec![Dependency {
                         module: "network".into(),
                         boundary: Boundary::Mojo,
+                        evidence: vec![],
+                        reviews: vec![],
                     }],
                 },
             ],
@@ -278,6 +330,81 @@ mod tests {
             Blocker::UnsafeOutgoingBoundary { dependency, boundary, .. }
                 if dependency == "base" && *boundary == Boundary::Unclassified
         )));
+    }
+
+    #[test]
+    fn blocks_unresolved_callback_and_observer_reviews() {
+        let mut manifest = manifest();
+        manifest.modules[1].reviews.push(BoundaryReview {
+            kind: BoundaryReviewKind::Callback,
+            file: "services/network/context.cc".into(),
+            line: 17,
+            detail: "base::OnceCallback<void()> completion".into(),
+            resolved: false,
+        });
+        manifest.modules[1].dependencies[0]
+            .reviews
+            .push(BoundaryReview {
+                kind: BoundaryReviewKind::Observer,
+                file: "services/network/context.cc".into(),
+                line: 29,
+                detail: "base::ScopedObservation<Base, BaseObserver> observation".into(),
+                resolved: false,
+            });
+        manifest.modules[2].dependencies[0]
+            .reviews
+            .push(BoundaryReview {
+                kind: BoundaryReviewKind::Callback,
+                file: "content/browser/network_client.cc".into(),
+                line: 41,
+                detail: "base::RepeatingCallback<void()> callback".into(),
+                resolved: false,
+            });
+
+        let assessment =
+            assess_transition(&manifest, "network", MigrationState::RustOwned).unwrap();
+        assert!(!assessment.allowed);
+        assert!(assessment.blockers.iter().any(|blocker| matches!(
+            blocker,
+            Blocker::UnresolvedModuleReview {
+                review_kind: BoundaryReviewKind::Callback,
+                ..
+            }
+        )));
+        assert!(assessment.blockers.iter().any(|blocker| matches!(
+            blocker,
+            Blocker::UnresolvedOutgoingBoundaryReview {
+                dependency,
+                review_kind: BoundaryReviewKind::Observer,
+                ..
+            } if dependency == "base"
+        )));
+        assert!(assessment.blockers.iter().any(|blocker| matches!(
+            blocker,
+            Blocker::UnresolvedIncomingBoundaryReview {
+                dependent,
+                review_kind: BoundaryReviewKind::Callback,
+                ..
+            } if dependent == "browser"
+        )));
+    }
+
+    #[test]
+    fn resolved_reviews_do_not_block_rust_ownership() {
+        let mut manifest = manifest();
+        manifest.modules[1].dependencies[0]
+            .reviews
+            .push(BoundaryReview {
+                kind: BoundaryReviewKind::Callback,
+                file: "services/network/context.cc".into(),
+                line: 17,
+                detail: "base::OnceCallback<void()> completion".into(),
+                resolved: true,
+            });
+
+        let assessment =
+            assess_transition(&manifest, "network", MigrationState::RustOwned).unwrap();
+        assert!(assessment.allowed);
     }
 
     #[test]

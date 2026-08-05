@@ -39,6 +39,7 @@ targets = ["linux-x64", "windows-x64", "macos-arm64"]
 id = "base_runtime"
 path = "base"
 owner = "foundation"
+sources = ["base/base.cc", "base/base.h"]
 state = "legacy_cpp"
 gates = ["base-unit"]
 
@@ -46,6 +47,7 @@ gates = ["base-unit"]
 id = "network_service"
 path = "services/network"
 owner = "browser-services"
+sources = ["services/network/network_service.cc", "services/network/network_service.h"]
 state = "bridged"
 gates = ["network-unit"]
 
@@ -57,6 +59,7 @@ boundary = "cxx"
 id = "content_browser"
 path = "content/browser"
 owner = "process-security-kernel"
+sources = ["content/browser/browser_main_loop.cc"]
 state = "legacy_cpp"
 gates = ["content-browser"]
 
@@ -72,6 +75,7 @@ boundary = "mojo"
 id = "blink_runtime"
 path = "third_party/blink"
 owner = "web-runtime"
+sources = ["third_party/blink/renderer/core/core.cc"]
 state = "legacy_cpp"
 gates = ["content-browser"]
 

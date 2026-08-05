@@ -42,7 +42,7 @@ The generated manifest records:
 - GN build directory and default toolchain;
 - requested roots and filtering flags;
 - one deterministic module ID per imported GN source target;
-- each module's exact GN label and target type;
+- each module's exact GN label, target type, and root-relative source list;
 - dependency edges after meta-target contraction;
 - the number of dependencies omitted by the selected policy.
 
@@ -98,16 +98,19 @@ A compatibility gate is mandatory when inference creates a non-legacy module. Th
 
 `--all-toolchains` is useful for build-system analysis, but it can create multiple modules for the same source target compiled under different toolchains. It should not be enabled by default for migration planning.
 
+## 3. Scan source boundaries
+
+The imported source lists can be analyzed against the same checkout:
+
+```bash
+cargo run -p chromifer -- scan-boundaries \
+  chromium-inventory.toml \
+  /path/to/chromium/src \
+  chromium-boundaries.toml
+```
+
+The scanner records high-confidence CXX, C ABI, and Mojo evidence and flags callback or observer contracts for explicit review. See [source-scan.md](source-scan.md) for classification rules and limitations.
+
 ## Current limitations
 
-GN describes the build graph, not source-level ownership or ABI semantics. The importer therefore does not yet infer:
-
-- CXX bridge declarations;
-- Mojo interface ownership;
-- callback and observer crossings;
-- generated-code ownership;
-- source-level unsafe operations;
-- which tests exercise each target;
-- higher-level component grouping across several GN targets.
-
-Those analyses are the remaining Chromium inventory work. The initial importer establishes a reproducible target graph on which they can operate.
+GN still does not describe higher-level component ownership, which tests exercise each edge, or whether several fine-grained targets should migrate together. Generated files may also be absent until their build actions run. The importer establishes the reproducible target and source inventory on which those later analyses operate.

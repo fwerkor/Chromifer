@@ -59,6 +59,7 @@ dependencies = [
  "chromifer-gn",
  "chromifer-manifest",
  "chromifer-planner",
+ "chromifer-source",
  "clap",
  "serde_json",
 ]
@@ -85,6 +86,15 @@ dependencies = [
 
 [[package]]
 name = "chromifer-planner"
+version = "0.1.0"
+dependencies = [
+ "chromifer-manifest",
+ "serde",
+ "thiserror",
+]
+
+[[package]]
+name = "chromifer-source"
 version = "0.1.0"
 dependencies = [
  "chromifer-manifest",

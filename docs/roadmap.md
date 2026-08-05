@@ -14,11 +14,13 @@ Acceptance criteria:
 ## M1 — Chromium inventory
 
 - import GN target metadata from a Chromium checkout; **implemented**
-- retain exact labels, target types, toolchain policy, roots, and omitted-edge counts; **implemented**
+- retain exact labels, target types, source lists, toolchain policy, roots, and omitted-edge counts; **implemented**
 - contract non-source GN meta targets into source-target dependency edges; **implemented**
+- detect high-confidence CXX, C ABI, and Mojo edge evidence; **implemented**
+- record callback and observer review obligations and enforce their resolution; **implemented**
+- emit a reproducible manifest with source locations; **implemented**
 - group source targets into migration components;
-- identify C++ ownership and callback crossings;
-- emit a reproducible manifest with source locations;
+- infer higher-level C++ ownership boundaries;
 - rank candidate components by boundary complexity and test coverage.
 
 ## M2 — Build-system bridge

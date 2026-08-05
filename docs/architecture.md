@@ -30,11 +30,13 @@ The first three layers are primary Rust migration targets. Web runtime, graphics
 - `mojo`: process boundary using Chromium Mojo interfaces.
 - `rust`: native Rust dependency.
 
-A boundary label is a claim that must eventually be supported by generated inventory data and boundary-specific tests. GN imports initially use `unclassified` for language crossings because the build graph does not prove which ABI is used.
+A boundary label is a claim that must be supported by source evidence and boundary-specific tests. GN imports initially use `unclassified` for language crossings because the build graph does not prove which ABI is used. The source scanner can attach file-and-line evidence for high-confidence CXX, C ABI, and Mojo crossings, but it never treats a textual match as proof of ownership semantics.
+
+Callback and observer findings are separate review obligations. They describe lifetime, cancellation, reentrancy, thread-affinity, or destruction-order risks that remain even when the transport mechanism is audited. An unresolved finding blocks `rust_owned`; a reviewer must preserve the finding and mark it resolved after auditing the contract.
 
 ## Inventory provenance
 
-Generated manifests retain the GN build directory, default toolchain, selected roots, filtering flags, state-inference policy, and omitted dependency count. Each imported module also retains its exact GN label and target type. This makes later source analysis traceable to one Chromium revision and one generated build configuration.
+Generated manifests retain the GN build directory, default toolchain, selected roots, filtering flags, state-inference policy, and omitted dependency count. Each imported module also retains its exact GN label, target type, and root-relative source list. Source evidence records the file, line, mechanism, and review status. This makes later analysis traceable to one Chromium revision and one generated build configuration.
 
 GN groups, actions, and other targets without compilable sources are contracted by default: a source target depending on a group is connected to the nearest source targets reachable through that group. The original meta targets can be retained when build-system analysis requires them.
 

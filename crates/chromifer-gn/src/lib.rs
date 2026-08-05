@@ -219,6 +219,8 @@ pub fn import_gn_project(
             .map(|dependency_label| Dependency {
                 module: ids[&dependency_label].clone(),
                 boundary: infer_boundary(state, states[&dependency_label], options.infer_state),
+                evidence: Vec::new(),
+                reviews: Vec::new(),
             })
             .collect();
         dependencies.sort_by(|left, right| left.module.cmp(&right.module));
@@ -229,12 +231,14 @@ pub fn import_gn_project(
             owner: inferred_owner(label),
             source_label: Some(label.clone()),
             source_type: Some(target.target_type.clone()),
+            sources: normalized_sources(label, target),
             state,
             gates: options
                 .gate
                 .as_ref()
                 .map(|gate| vec![gate.id.clone()])
                 .unwrap_or_default(),
+            reviews: Vec::new(),
             dependencies,
         });
     }
@@ -514,6 +518,30 @@ fn source_extension(source: &str) -> Option<String> {
         .map(str::to_ascii_lowercase)
 }
 
+fn normalized_sources(label: &str, target: &GnTarget) -> Vec<String> {
+    let mut sources = BTreeSet::new();
+    for source in target.sources.iter().chain(target.crate_root.iter()) {
+        sources.insert(normalize_source(label, source));
+    }
+    sources.into_iter().collect()
+}
+
+fn normalize_source(label: &str, source: &str) -> String {
+    let source = source.replace('\\', "/");
+    if source.starts_with("//") {
+        return source.trim_start_matches("//").to_owned();
+    }
+    if source.starts_with('/') {
+        return source.trim_start_matches('/').to_owned();
+    }
+    let path = label_path(label);
+    if path == "." || source.starts_with(&format!("{path}/")) {
+        source
+    } else {
+        format!("{path}/{source}")
+    }
+}
+
 fn infer_boundary(
     source: MigrationState,
     dependency: MigrationState,
@@ -655,6 +683,7 @@ mod tests {
         );
 
         let browser = output.manifest.module("app_browser").unwrap();
+        assert_eq!(browser.sources, vec!["app/main.cc"]);
         let dependencies: Vec<_> = browser
             .dependencies
             .iter()
@@ -701,6 +730,7 @@ mod tests {
             .module("services_network_network_service")
             .unwrap();
         let parser = output.manifest.module("rust_parser").unwrap();
+        assert_eq!(parser.sources, vec!["rust/parser.rs"]);
         assert_eq!(network.state, MigrationState::Bridged);
         assert_eq!(parser.state, MigrationState::RustOwned);
         assert!(network.dependencies.iter().any(|dependency| {

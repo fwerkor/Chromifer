@@ -12,5 +12,6 @@ authors.workspace = true
 chromifer-gn = { path = "../chromifer-gn" }
 chromifer-manifest = { path = "../chromifer-manifest" }
 chromifer-planner = { path = "../chromifer-planner" }
+chromifer-source = { path = "../chromifer-source" }
 clap.workspace = true
 serde_json.workspace = true

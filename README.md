@@ -22,7 +22,8 @@ The initial workspace provides:
 - `chromifer-manifest`: parses and validates migration manifests.
 - `chromifer-gn`: imports GN JSON project graphs into reproducible manifests.
 - `chromifer-planner`: computes legal next transitions and explains blocked ones.
-- `chromifer`: command-line interface for validation and planning.
+- `chromifer-source`: scans source files for CXX, C ABI, Mojo, callback, and observer evidence.
+- `chromifer`: command-line interface for import, scanning, validation, and planning.
 - `examples/chromium.toml`: a small model of the intended Chromium component graph.
 - `examples/gn-project.json`: a representative GN export used by tests and examples.
 
@@ -44,6 +45,15 @@ cargo run -p chromifer -- import-gn \
   --root //app:browser
 ```
 
+Annotate an imported manifest with source-level boundary evidence:
+
+```bash
+cargo run -p chromifer -- scan-boundaries \
+  chromium-inventory.toml \
+  /path/to/chromium/src \
+  chromium-boundaries.toml
+```
+
 JSON output is available for automation:
 
 ```bash
@@ -60,7 +70,8 @@ A transition to `rust_owned` is legal only when:
 
 1. the component declares compatibility gates;
 2. all cross-language dependency edges use an audited boundary (`cxx`, `c_abi`, or `mojo`);
-3. no legacy dependent reaches the component through a private C++ interface.
+3. no callback or observer review remains unresolved;
+4. no legacy dependent reaches the component through a private C++ interface.
 
 The planner is deliberately conservative. A false block costs engineering time; a false approval can create an untestable browser fork.
 
@@ -72,11 +83,13 @@ GN imports follow the same rule. Cross-language edges inferred only from source 
 crates/
   chromifer-manifest/  Manifest model and structural validation
   chromifer-gn/        GN JSON graph importer
+  chromifer-source/    Source boundary evidence scanner
   chromifer-planner/   Transition safety analysis
   chromifer-cli/       Command-line frontend
 docs/
   architecture.md      Target architecture and migration policy
   gn-import.md         Chromium GN export and import workflow
+  source-scan.md       Source evidence and review workflow
   roadmap.md           Milestones and acceptance criteria
 examples/
   chromium.toml        Example migration manifest
@@ -87,4 +100,4 @@ examples/
 
 The project initially targets Chromium's browser framework, service layer, process/security orchestration, and platform adapters. Rewriting Blink or V8 is explicitly outside the first phases.
 
-See [docs/gn-import.md](docs/gn-import.md) for the inventory workflow and [docs/roadmap.md](docs/roadmap.md) for the staged plan.
+See [docs/gn-import.md](docs/gn-import.md) for graph import, [docs/source-scan.md](docs/source-scan.md) for boundary evidence, and [docs/roadmap.md](docs/roadmap.md) for the staged plan.

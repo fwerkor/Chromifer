@@ -7,6 +7,7 @@ use std::process::ExitCode;
 use chromifer_gn::{GateOptions, ImportOptions, import_gn_file};
 use chromifer_manifest::{Manifest, MigrationState};
 use chromifer_planner::{Blocker, assess_transition, migration_frontier};
+use chromifer_source::scan_manifest;
 use clap::{Parser, Subcommand};
 
 #[derive(Debug, Parser)]
@@ -57,6 +58,21 @@ enum Command {
         #[arg(long)]
         force: bool,
         /// Print the import summary as JSON.
+        #[arg(long)]
+        json: bool,
+    },
+    /// Scan imported source files and annotate dependency boundaries with evidence.
+    ScanBoundaries {
+        /// Input manifest containing module source lists.
+        manifest: PathBuf,
+        /// Chromium checkout root matching the manifest baseline.
+        source_root: PathBuf,
+        /// Annotated output manifest.
+        output: PathBuf,
+        /// Replace an existing output file.
+        #[arg(long)]
+        force: bool,
+        /// Print the scan summary as JSON.
         #[arg(long)]
         json: bool,
     },
@@ -162,6 +178,68 @@ fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
                 }
             }
         }
+        Command::ScanBoundaries {
+            manifest,
+            source_root,
+            output,
+            force,
+            json,
+        } => {
+            if output.exists() && !force {
+                return Err(format!(
+                    "output `{}` already exists; pass --force to replace it",
+                    output.display()
+                )
+                .into());
+            }
+            let manifest = Manifest::load(&manifest)?;
+            let scanned = scan_manifest(&manifest, &source_root)?;
+            fs::write(&output, scanned.manifest.to_toml_pretty()?)?;
+
+            if json {
+                println!("{}", serde_json::to_string_pretty(&scanned.summary)?);
+            } else {
+                println!(
+                    "scanned {} file(s) across {} module(s); updated {} boundary edge(s)",
+                    scanned.summary.scanned_files,
+                    scanned.summary.scanned_modules,
+                    scanned.summary.updated_boundaries.len()
+                );
+                println!(
+                    "reviews: {} edge, {} module; conflicts: {}; missing sources: {}",
+                    scanned.summary.edge_reviews,
+                    scanned.summary.module_reviews,
+                    scanned.summary.conflicts.len(),
+                    scanned.summary.missing_sources.len()
+                );
+                for update in &scanned.summary.updated_boundaries {
+                    println!(
+                        "  - {} -> {}: {} -> {} ({} evidence item(s))",
+                        update.module,
+                        update.dependency,
+                        update.from,
+                        update.to,
+                        update.evidence_count
+                    );
+                }
+                for conflict in &scanned.summary.conflicts {
+                    let detected = conflict
+                        .detected
+                        .iter()
+                        .map(ToString::to_string)
+                        .collect::<Vec<_>>()
+                        .join(", ");
+                    println!(
+                        "  - conflict {} -> {}: current {}, detected [{}]",
+                        conflict.module, conflict.dependency, conflict.current, detected
+                    );
+                }
+                for missing in &scanned.summary.missing_sources {
+                    println!("  - missing {}: {}", missing.module, missing.file);
+                }
+                println!("wrote annotated manifest to {}", output.display());
+            }
+        }
         Command::Validate { manifest } => {
             let manifest = Manifest::load(&manifest)?;
             println!(
@@ -251,6 +329,27 @@ fn display_blocker(blocker: &Blocker) -> String {
             dependent_state,
         } => format!(
             "incoming edge from `{dependent}` ({dependent_state}) uses unsafe boundary `{boundary}`"
+        ),
+        Blocker::UnresolvedModuleReview {
+            review_kind,
+            file,
+            line,
+        } => format!("unresolved {review_kind} review at {file}:{line}"),
+        Blocker::UnresolvedOutgoingBoundaryReview {
+            dependency,
+            review_kind,
+            file,
+            line,
+        } => format!(
+            "outgoing edge to `{dependency}` has unresolved {review_kind} review at {file}:{line}"
+        ),
+        Blocker::UnresolvedIncomingBoundaryReview {
+            dependent,
+            review_kind,
+            file,
+            line,
+        } => format!(
+            "incoming edge from `{dependent}` has unresolved {review_kind} review at {file}:{line}"
         ),
     }
 }

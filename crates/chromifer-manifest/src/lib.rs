@@ -76,9 +76,13 @@ pub struct Module {
     pub source_label: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub source_type: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub sources: Vec<String>,
     pub state: MigrationState,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub gates: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub reviews: Vec<BoundaryReview>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub dependencies: Vec<Dependency>,
 }
@@ -87,6 +91,63 @@ pub struct Module {
 pub struct Dependency {
     pub module: String,
     pub boundary: Boundary,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub evidence: Vec<BoundaryEvidence>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub reviews: Vec<BoundaryReview>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+pub struct BoundaryEvidence {
+    pub kind: BoundaryEvidenceKind,
+    pub file: String,
+    pub line: usize,
+    pub detail: String,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum BoundaryEvidenceKind {
+    CxxGeneratedHeader,
+    CxxBridgeInclude,
+    CAbiSymbol,
+    MojoGeneratedHeader,
+}
+
+impl BoundaryEvidenceKind {
+    pub const fn boundary(self) -> Boundary {
+        match self {
+            Self::CxxGeneratedHeader | Self::CxxBridgeInclude => Boundary::Cxx,
+            Self::CAbiSymbol => Boundary::CAbi,
+            Self::MojoGeneratedHeader => Boundary::Mojo,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+pub struct BoundaryReview {
+    pub kind: BoundaryReviewKind,
+    pub file: String,
+    pub line: usize,
+    pub detail: String,
+    #[serde(default)]
+    pub resolved: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum BoundaryReviewKind {
+    Callback,
+    Observer,
+}
+
+impl fmt::Display for BoundaryReviewKind {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(match self {
+            Self::Callback => "callback",
+            Self::Observer => "observer",
+        })
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
@@ -227,6 +288,13 @@ pub enum ValidationError {
     SelfDependency { module: String },
     #[error("module `{module}` has duplicate dependency `{dependency}`")]
     DuplicateDependency { module: String, dependency: String },
+    #[error("{kind} `{id}` has an invalid source location in `{file}` at line {line}")]
+    InvalidSourceLocation {
+        kind: &'static str,
+        id: String,
+        file: String,
+        line: usize,
+    },
     #[error("module dependency cycle detected: {cycle}")]
     DependencyCycle { cycle: String },
     #[error("module `{module}` in state `{state}` must declare at least one compatibility gate")]
@@ -329,6 +397,19 @@ impl Manifest {
         for module in &self.modules {
             check_nonempty("module", &module.id, "path", &module.path, &mut errors);
             check_nonempty("module", &module.id, "owner", &module.owner, &mut errors);
+            for source in &module.sources {
+                check_nonempty("module", &module.id, "source", source, &mut errors);
+            }
+            for review in &module.reviews {
+                check_source_location(
+                    "module review",
+                    &module.id,
+                    &review.file,
+                    review.line,
+                    &review.detail,
+                    &mut errors,
+                );
+            }
 
             if module.state != MigrationState::LegacyCpp && module.gates.is_empty() {
                 errors.push(ValidationError::MissingCompatibilityGate {
@@ -363,6 +444,26 @@ impl Manifest {
                         module: module.id.clone(),
                         dependency: dependency.module.clone(),
                     });
+                }
+                for evidence in &dependency.evidence {
+                    check_source_location(
+                        "boundary evidence",
+                        &format!("{} -> {}", module.id, dependency.module),
+                        &evidence.file,
+                        evidence.line,
+                        &evidence.detail,
+                        &mut errors,
+                    );
+                }
+                for review in &dependency.reviews {
+                    check_source_location(
+                        "boundary review",
+                        &format!("{} -> {}", module.id, dependency.module),
+                        &review.file,
+                        review.line,
+                        &review.detail,
+                        &mut errors,
+                    );
                 }
             }
         }
@@ -422,6 +523,24 @@ fn check_nonempty(
             kind,
             id: id.to_owned(),
             field,
+        });
+    }
+}
+
+fn check_source_location(
+    kind: &'static str,
+    id: &str,
+    file: &str,
+    line: usize,
+    detail: &str,
+    errors: &mut Vec<ValidationError>,
+) {
+    if file.trim().is_empty() || detail.trim().is_empty() || line == 0 {
+        errors.push(ValidationError::InvalidSourceLocation {
+            kind,
+            id: id.to_owned(),
+            file: file.to_owned(),
+            line,
         });
     }
 }
@@ -517,8 +636,10 @@ mod tests {
                     owner: "foundation".into(),
                     source_label: None,
                     source_type: None,
+                    sources: vec![],
                     state: MigrationState::LegacyCpp,
                     gates: vec![],
+                    reviews: vec![],
                     dependencies: vec![],
                 },
                 Module {
@@ -527,11 +648,15 @@ mod tests {
                     owner: "services".into(),
                     source_label: None,
                     source_type: None,
+                    sources: vec![],
                     state: MigrationState::Bridged,
                     gates: vec!["unit".into()],
+                    reviews: vec![],
                     dependencies: vec![Dependency {
                         module: "base".into(),
                         boundary: Boundary::Cxx,
+                        evidence: vec![],
+                        reviews: vec![],
                     }],
                 },
             ],
@@ -550,6 +675,8 @@ mod tests {
         manifest.modules[1].dependencies.push(Dependency {
             module: "missing".into(),
             boundary: Boundary::Mojo,
+            evidence: vec![],
+            reviews: vec![],
         });
 
         let errors = manifest.validate().unwrap_err();
@@ -569,6 +696,8 @@ mod tests {
         manifest.modules[0].dependencies.push(Dependency {
             module: "network".into(),
             boundary: Boundary::CppInternal,
+            evidence: vec![],
+            reviews: vec![],
         });
 
         let errors = manifest.validate().unwrap_err();
@@ -589,6 +718,26 @@ mod tests {
         assert!(errors.0.iter().any(|error| matches!(
             error,
             ValidationError::MissingCompatibilityGate { module, .. } if module == "network"
+        )));
+    }
+
+    #[test]
+    fn rejects_invalid_boundary_evidence_locations() {
+        let mut manifest = valid_manifest();
+        manifest.modules[1].dependencies[0]
+            .evidence
+            .push(BoundaryEvidence {
+                kind: BoundaryEvidenceKind::CxxGeneratedHeader,
+                file: "services/network/bridge.cc".into(),
+                line: 0,
+                detail: "generated bridge header".into(),
+            });
+
+        let errors = manifest.validate().unwrap_err();
+        assert!(errors.0.iter().any(|error| matches!(
+            error,
+            ValidationError::InvalidSourceLocation { kind, .. }
+                if *kind == "boundary evidence"
         )));
     }
 

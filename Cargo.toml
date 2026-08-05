@@ -4,6 +4,7 @@ members = [
     "crates/chromifer-gn",
     "crates/chromifer-manifest",
     "crates/chromifer-planner",
+    "crates/chromifer-source",
 ]
 resolver = "3"
 
