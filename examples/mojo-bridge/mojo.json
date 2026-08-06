@@ -1,0 +1,19 @@
+{
+  "schema_version": 1,
+  "gn_package_path": "//examples/mojo-bridge",
+  "targets": [
+    {
+      "name": "common",
+      "sources": ["common.mojom"],
+      "visibility": ["//examples/mojo-bridge:*"]
+    },
+    {
+      "name": "service",
+      "sources": ["service.mojom"],
+      "external_imports": {
+        "mojo/public/mojom/base/time.mojom": "//mojo/public/mojom/base:base"
+      },
+      "visibility": ["//examples/mojo-bridge:*"]
+    }
+  ]
+}

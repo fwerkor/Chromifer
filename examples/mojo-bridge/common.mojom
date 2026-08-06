@@ -1,0 +1,11 @@
+module chromifer.example.mojom;
+
+struct Pair {
+  int32 left;
+  int32 right;
+};
+
+enum Operation {
+  kAdd,
+  kSubtract,
+};

@@ -1,0 +1,9 @@
+module chromifer.example.mojom;
+
+import "examples/mojo-bridge/common.mojom";
+import "mojo/public/mojom/base/time.mojom";
+
+interface Calculator {
+  Calculate(Pair value, Operation operation) =>
+      (int32 result, mojo_base.mojom.Time completed_at);
+};

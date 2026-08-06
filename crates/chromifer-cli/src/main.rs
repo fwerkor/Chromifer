@@ -14,6 +14,7 @@ use chromifer_components::{
 use chromifer_evidence::{RunOptions, run_gates, verify_evidence};
 use chromifer_gn::{GateOptions, ImportOptions, import_gn_file};
 use chromifer_manifest::{Manifest, MigrationState};
+use chromifer_mojo::{MojoGenerateOptions, generate_and_write as generate_mojo};
 use chromifer_owners::scan_ownership;
 use chromifer_planner::{Blocker, assess_transition, migration_frontier};
 use chromifer_source::scan_manifest;
@@ -202,6 +203,24 @@ enum Command {
         #[arg(long = "extra-source")]
         extra_sources: Vec<String>,
         /// Replace existing header and provenance files.
+        #[arg(long, conflicts_with = "check")]
+        force: bool,
+        /// Verify generated files are current without modifying them.
+        #[arg(long, conflicts_with = "force")]
+        check: bool,
+        /// Print generation summary as JSON.
+        #[arg(long)]
+        json: bool,
+    },
+    /// Validate a multi-target Mojom contract and generate Chromium GN targets.
+    GenerateMojo {
+        /// Package root containing Mojom sources and the contract.
+        package_root: PathBuf,
+        /// Explicit multi-target Mojo contract JSON inside the package root.
+        contract: PathBuf,
+        /// Must be BUILD.gn in the package root.
+        output: PathBuf,
+        /// Replace existing BUILD.gn and provenance files.
         #[arg(long, conflicts_with = "check")]
         force: bool,
         /// Verify generated files are current without modifying them.
@@ -609,6 +628,47 @@ fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
                     generated.summary.symbol_count,
                     generated.summary.source_count,
                     generated.summary.header_guard
+                );
+            }
+        }
+        Command::GenerateMojo {
+            package_root,
+            contract,
+            output,
+            force,
+            check,
+            json,
+        } => {
+            let generated = generate_mojo(&MojoGenerateOptions {
+                package_root,
+                contract,
+                output,
+                force,
+                check,
+            })?;
+            if json {
+                println!("{}", serde_json::to_string_pretty(&generated.summary)?);
+            } else if generated.summary.checked {
+                println!(
+                    "current: {} and {} match Mojo contract {}",
+                    generated.summary.output,
+                    generated.summary.provenance,
+                    generated.summary.contract
+                );
+            } else {
+                println!(
+                    "generated {} and {} from {}",
+                    generated.summary.output,
+                    generated.summary.provenance,
+                    generated.summary.contract
+                );
+                println!(
+                    "validated {} Mojom target(s), {} source(s), {} import(s), and {} declaration(s) under {}",
+                    generated.summary.target_count,
+                    generated.summary.source_count,
+                    generated.summary.import_count,
+                    generated.summary.declaration_count,
+                    generated.summary.gn_package_path
                 );
             }
         }

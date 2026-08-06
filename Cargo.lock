@@ -77,6 +77,7 @@ dependencies = [
  "chromifer-evidence",
  "chromifer-gn",
  "chromifer-manifest",
+ "chromifer-mojo",
  "chromifer-owners",
  "chromifer-planner",
  "chromifer-source",
@@ -146,6 +147,17 @@ dependencies = [
  "serde",
  "thiserror",
  "toml",
+]
+
+[[package]]
+name = "chromifer-mojo"
+version = "0.1.0"
+dependencies = [
+ "chromifer-manifest",
+ "serde",
+ "serde_json",
+ "sha2",
+ "thiserror",
 ]
 
 [[package]]

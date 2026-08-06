@@ -22,6 +22,7 @@ The initial workspace provides:
 - `chromifer-manifest`: parses and validates migration manifests.
 - `chromifer-build`: generates Chromium `rust_static_library` targets from Cargo metadata.
 - `chromifer-cabi`: validates explicit Rust C ABI contracts and generates C headers.
+- `chromifer-mojo`: validates Mojom target/import contracts and generates C++ and Rust binding targets.
 - `chromifer-gn`: imports GN JSON project graphs into reproducible manifests.
 - `chromifer-components`: aggregates GN targets and ranks migration candidates.
 - `chromifer-owners`: resolves Chromium OWNERS hierarchy and per-source provenance.
@@ -105,6 +106,12 @@ cargo run -p chromifer -- generate-gn \
   --consumer-target example_c_abi \
   --consumer-source consumer/example.cc \
   --consumer-header include/api.h
+
+# Generate C++ and Rust Mojo binding targets:
+cargo run -p chromifer -- generate-mojo \
+  path/to/mojom-package \
+  path/to/mojom-package/mojo.json \
+  path/to/mojom-package/BUILD.gn
 ```
 
 Execute and verify compatibility evidence:
@@ -150,6 +157,7 @@ crates/
   chromifer-manifest/  Manifest model and structural validation
   chromifer-build/     Cargo-to-Chromium GN bridge generation
   chromifer-cabi/      Explicit C ABI validation and header generation
+  chromifer-mojo/      Mojom target graph and Rust binding generation
   chromifer-gn/        GN JSON graph importer
   chromifer-source/    Source boundary evidence scanner
   chromifer-owners/    Chromium OWNERS hierarchy scanner
@@ -166,15 +174,17 @@ docs/
   gate-evidence.md     Gate execution and evidence verification
   build-bridge.md      Cargo-to-Chromium GN generation
   c-abi.md             Explicit Rust C ABI contracts
+  mojo.md              Mojo target, import, and binding contracts
   roadmap.md           Milestones and acceptance criteria
 examples/
   chromium.toml        Example migration manifest
   gn-project.json      Example GN JSON project graph
   c-abi-bridge/        Generated C ABI and C++ consumer example
+  mojo-bridge/         Multi-target C++ and Rust Mojo binding example
 ```
 
 ## Scope
 
 The project initially targets Chromium's browser framework, service layer, process/security orchestration, and platform adapters. Rewriting Blink or V8 is explicitly outside the first phases.
 
-See [docs/gn-import.md](docs/gn-import.md) for graph import, [docs/source-scan.md](docs/source-scan.md) for boundary evidence, [docs/owners-scan.md](docs/owners-scan.md) for ownership, [docs/component-ranking.md](docs/component-ranking.md) for component analysis, [docs/gate-evidence.md](docs/gate-evidence.md) for executable evidence, [docs/build-bridge.md](docs/build-bridge.md) for Chromium GN generation, [docs/c-abi.md](docs/c-abi.md) for explicit C ABI contracts, and [docs/roadmap.md](docs/roadmap.md) for the staged plan.
+See [docs/gn-import.md](docs/gn-import.md) for graph import, [docs/source-scan.md](docs/source-scan.md) for boundary evidence, [docs/owners-scan.md](docs/owners-scan.md) for ownership, [docs/component-ranking.md](docs/component-ranking.md) for component analysis, [docs/gate-evidence.md](docs/gate-evidence.md) for executable evidence, [docs/build-bridge.md](docs/build-bridge.md) for Chromium GN generation, [docs/c-abi.md](docs/c-abi.md) for explicit C ABI contracts, [docs/mojo.md](docs/mojo.md) for Mojo target contracts, and [docs/roadmap.md](docs/roadmap.md) for the staged plan.

@@ -39,11 +39,12 @@ Acceptance criteria:
 - translate a proven Cargo `cfg` OS/architecture subset into GN conditions; **implemented**
 - extend condition translation to additional exact Cargo/Chromium mappings;
 - establish an explicit C ABI contract, Rust export validator, generated header, and GN consumer integration; **implemented**
-- establish Mojo boundary templates;
+- establish multi-target Mojo contracts, import resolution, C++/Rust targets, and deterministic provenance; **implemented**
+- validate generated bindings and endpoint behavior in a real Chromium checkout;
 - enforce that `unsafe` appears only in designated bridge crates;
 - build generated bridge examples on Linux, Windows, and macOS.
 
-Evidence execution is available before the build bridge, but current gates still depend on commands supplied by the manifest. The first M2 generator now emits first-party Rust GN targets and deterministic provenance; subsequent work will generate C++ consumer targets and build/test gate definitions from the bridge model.
+Evidence execution is available before the build bridge, but current gates still depend on commands supplied by the manifest. M2 now emits first-party Rust targets, CXX and C ABI consumers, and multi-target Mojo bindings with deterministic provenance. The next integration step is to derive build/test gates from those contracts and execute them against a pinned Chromium checkout.
 
 ## M3 — First production component
 

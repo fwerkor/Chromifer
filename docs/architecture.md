@@ -67,6 +67,8 @@ For CXX migrations, the same BUILD.gn can contain a generated C++ `source_set`. 
 
 For C ABI migrations, an explicit JSON contract is authoritative for exported symbol names and signatures. Chromifer parses Rust source syntax, requires a matching public `no_mangle` `extern "C"` definition for every contract symbol, rejects uncontracted or duplicate exports, generates a deterministic C header, and records contract, source, symbol, and header digests. The generated header can be attached to the same C++ consumer model, which verifies the repository-root include path before generating GN.
 
+For Mojo migrations, a multi-target JSON contract assigns every package-local `.mojom` source to one target and maps every external import to an exact GN label. Chromifer derives local `public_deps`, rejects unowned local imports and target cycles, inventories top-level declarations, reserves Chromium's generated target namespace, and emits `mojom()` targets with `generate_rust = true`. Provenance records the C++ and `_rust` labels, source digests, import lines, declarations, and resolved dependency graph; Chromium's real Mojom parser and generators remain authoritative for complete IDL and runtime validation.
+
 Target-specific Cargo dependencies pass through a strict `cfg(...)` parser. Only OS and CPU predicates with an explicit Chromium GN equivalent, plus `all/any/not`, are translated; the original Cargo condition and canonical GN expression remain in provenance. Inexact families such as bare `unix`, arbitrary target triples, and unknown keys or values are rejected rather than linked unconditionally. Generated files support a check-only mode and are intended to be committed beside the Rust package.
 
 ## Upstream strategy

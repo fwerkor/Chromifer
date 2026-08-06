@@ -1,0 +1,91 @@
+{
+  "schema_version": 1,
+  "contract_sha256": "2008d4a96a23fac5cb084ceb9d701761abba4f23c65004005463fd1b62c2ac28",
+  "contract_path": "mojo.json",
+  "build_gn_sha256": "6c246bb94508cd858ef3b09e61c6e9dc7133be42864926811141ab7302a7095e",
+  "build_gn_path": "BUILD.gn",
+  "gn_package_path": "//examples/mojo-bridge",
+  "targets": [
+    {
+      "name": "common",
+      "cpp_label": "//examples/mojo-bridge:common",
+      "rust_label": "//examples/mojo-bridge:common_rust",
+      "sources": [
+        {
+          "source": "common.mojom",
+          "sha256": "89d7146c8b2832299f66ad54ce90082dbb69bbee7732606c79733bc8e595a953",
+          "module": "chromifer.example.mojom"
+        }
+      ],
+      "imports": [],
+      "declarations": [
+        {
+          "source": "common.mojom",
+          "line": 3,
+          "kind": "struct",
+          "name": "Pair",
+          "module": "chromifer.example.mojom"
+        },
+        {
+          "source": "common.mojom",
+          "line": 8,
+          "kind": "enum",
+          "name": "Operation",
+          "module": "chromifer.example.mojom"
+        }
+      ],
+      "public_deps": [],
+      "parser_deps": [],
+      "visibility": [
+        "//examples/mojo-bridge:*"
+      ],
+      "testonly": false
+    },
+    {
+      "name": "service",
+      "cpp_label": "//examples/mojo-bridge:service",
+      "rust_label": "//examples/mojo-bridge:service_rust",
+      "sources": [
+        {
+          "source": "service.mojom",
+          "sha256": "8b2556edc484561d2506c165abff7fbad548af8e232866fe0e6851b56cbc0b53",
+          "module": "chromifer.example.mojom"
+        }
+      ],
+      "imports": [
+        {
+          "source": "service.mojom",
+          "line": 3,
+          "path": "examples/mojo-bridge/common.mojom",
+          "dependency_label": ":common",
+          "local": true
+        },
+        {
+          "source": "service.mojom",
+          "line": 4,
+          "path": "mojo/public/mojom/base/time.mojom",
+          "dependency_label": "//mojo/public/mojom/base",
+          "local": false
+        }
+      ],
+      "declarations": [
+        {
+          "source": "service.mojom",
+          "line": 6,
+          "kind": "interface",
+          "name": "Calculator",
+          "module": "chromifer.example.mojom"
+        }
+      ],
+      "public_deps": [
+        ":common",
+        "//mojo/public/mojom/base"
+      ],
+      "parser_deps": [],
+      "visibility": [
+        "//examples/mojo-bridge:*"
+      ],
+      "testonly": false
+    }
+  ]
+}

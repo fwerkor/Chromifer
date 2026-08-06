@@ -48,3 +48,10 @@ jobs:
             --check
           cargo check --manifest-path examples/c-abi-bridge/Cargo.toml
           c++ -std=c++17 -I. -fsyntax-only examples/c-abi-bridge/consumer/smoke.cc
+      - name: Generated Mojo bridge is current
+        run: |
+          cargo run -p chromifer -- generate-mojo \
+            examples/mojo-bridge \
+            examples/mojo-bridge/mojo.json \
+            examples/mojo-bridge/BUILD.gn \
+            --check

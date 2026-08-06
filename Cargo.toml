@@ -3,6 +3,7 @@ members = [
     "crates/chromifer-cli",
     "crates/chromifer-build",
     "crates/chromifer-cabi",
+    "crates/chromifer-mojo",
     "crates/chromifer-components",
     "crates/chromifer-evidence",
     "crates/chromifer-gn",
