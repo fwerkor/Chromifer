@@ -124,7 +124,7 @@ The portable derived gate does not add `--gn` because depot_tools locations are 
 
 Reads a GN endpoint integration contract and reconstructs `run-gn-integration . <source-root> <contract>`. Inputs include the contract, every declared GN checkout input, build provenance, C ABI provenance, generated `BUILD.gn`, Rust sources, generated C++ consumer, required C header, C ABI contract, and endpoint source.
 
-The direct gate resolves GN and Ninja from the runner environment, plus Rustc for `host_adapter`. `run-gn-integration` records and rechecks every tool it directly owns; the outer evidence executor independently attests the Cargo executable used to launch the gate.
+The direct gate resolves GN and Ninja from the runner environment. In `host_adapter` mode it also resolves the CLI-selected Rustc; in `existing` mode the contract names a source-relative native Rustc that must be included in `source_inputs`. `run-gn-integration` records and rechecks every declared tool; the outer evidence executor independently attests the Cargo executable used to launch the gate.
 
 ## Generated manifest
 

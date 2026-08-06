@@ -137,6 +137,14 @@ cargo run -p chromifer -- run-gn-integration \
   examples/integration/c-abi.json \
   --gn /path/to/gn
 
+# Prepare and verify the same endpoint through Chromium's native Rust template:
+examples/integration/prepare-chromium-native.sh \
+  /path/to/chromium-workspace \
+  --full
+examples/integration/run-chromium-native.sh \
+  /path/to/chromium-workspace \
+  --check
+
 # Derive and execute structured checks from committed provenance:
 cargo run -p chromifer -- derive-gates \
   . \

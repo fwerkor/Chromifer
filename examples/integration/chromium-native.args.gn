@@ -1,0 +1,7 @@
+is_debug = false
+is_component_build = false
+symbol_level = 0
+blink_symbol_level = 0
+enable_rust = true
+use_remoteexec = false
+treat_warnings_as_errors = false

@@ -12,7 +12,7 @@ This stage is stronger than formatting or static syntax checks:
 6. the executable calls the Rust export and its exit status is checked;
 7. every temporary source overlay is removed;
 8. GN and Ninja identities are rechecked after execution;
-9. Rustc identity is also rechecked when the host adapter directly owns compiler invocation.
+9. Rustc identity is rechecked either from the host adapter or from the native checkout contract.
 
 ## Command
 
@@ -114,9 +114,42 @@ The adapter exists only for the integration run and is removed afterward.
 
 ### `existing`
 
-A full Chromium checkout already provides `//build/rust/rust_static_library.gni`. With `rust_template` set to `existing`, Chromifer requires that non-symlinked template, requires it in `source_inputs`, and does not install or modify it. Rustc identity is omitted in this mode because the existing GN toolchain, rather than Chromifer's host adapter, owns compiler selection.
+A Chromium checkout provides `//build/rust/rust_static_library.gni`. With `rust_template` set to `existing`, Chromifer requires that non-symlinked template, requires it in `source_inputs`, and does not install or modify it. The contract must also declare `native_rustc` and include that source-relative executable in `source_inputs`. Chromifer resolves, hashes, versions, and rechecks the native compiler even though Chromium's GN toolchain owns the invocation.
 
-The current repository CI proves the `host_adapter` path using upstream GN itself. Executing the `existing` mode against a pinned full Chromium checkout remains the next integration stage; this document does not claim that full Chromium build has already completed.
+The repository CI proves the lightweight `host_adapter` path using upstream GN. A separate pinned Chromium workflow proves `existing` mode against Chromium's own Rust template and toolchain without adding a 22 GiB checkout to normal pull-request CI.
+
+## Chromium-native workflow
+
+The native workflow pins:
+
+- Chromium `008cdad85f0721c89b42ef4dcaabcee615482609`;
+- depot_tools `0a0574531b3b3ac9d478141874f2dab24cad64ab`;
+- Chromium GN `2509 (64cfb8344ec3)`;
+- Ninja `1.12.1`;
+- Chromium Rustc `1.98.0-nightly (b99844963...)`;
+- the exact GN arguments and proven source closure.
+
+Prepare a workspace:
+
+```bash
+examples/integration/prepare-chromium-native.sh \
+  /path/to/chromium-workspace \
+  --full
+```
+
+The preparation script initializes filtered repositories at exact detached revisions, applies the committed sparse source closure, performs a revision-pinned `gclient sync --nohooks`, generates Chromium's `LASTCHANGE` files, and installs the committed `args.gn`. `--full` then expands the same revision into a complete source worktree; omitting it retains the proven sparse closure for lower disk use. Both materializations produce the same locked project and endpoint digests.
+
+Run and verify the endpoint:
+
+```bash
+examples/integration/run-chromium-native.sh \
+  /path/to/chromium-workspace \
+  --check
+```
+
+Use `--update` only when intentionally refreshing the committed checkout lock and report. The check mode rebuilds and runs the endpoint, verifies the deterministic checkout lock, and compares a newly generated path-independent report with `chromium-native-report.json`.
+
+The native checkout lock binds the source revision, clean status, `.gclient`, `DEPS`, `LASTCHANGE`, native Rust template, Rustc, GN, Ninja, `args.gn`, `build.ninja`, normalized `project.json`, default toolchain, and required target semantics. The report additionally binds the endpoint result and all three tool identities without retaining host absolute paths.
 
 ## Materialized files
 
@@ -189,8 +222,10 @@ With GN `2509 (64cfb8344ec3)`, Ninja `1.11.1`, and Rustc `1.88.0`, the fixture g
 
 The endpoint calls `ChromiferCAbiSmoke()`, which calls the Rust export `chromifer_add(20, 22)` through the generated C header and returns success only when the result is 42.
 
+The Chromium-native run uses revision `008cdad85f0721c89b42ef4dcaabcee615482609`, its native `rust_static_library.gni`, Chromium Rustc `1.98.0-nightly`, Clang 23, and Ninja `1.12.1`. GN records 3,583 targets in the isolated project graph. The resulting executable is 1,261,216 bytes, has SHA-256 `f1016cbd83a876b7b08bdd9e809da0a0a0a9f2b76ea25994307ed4c95c3b58a7`, and exits with status 0.
+
 ## Trust boundary
 
-This proves that committed Chromifer generators can produce a Rust/C ABI package that survives real GN graph evaluation, Ninja compilation, native linking, and endpoint execution. It uses upstream GN and real host compilers.
+This proves that committed Chromifer generators can produce a Rust/C ABI package that survives both the lightweight upstream-GN harness and Chromium's native Rust GN template, local standard-library build, bundled Rustc, Clang linker, Ninja build, and endpoint execution.
 
-It does not yet prove compatibility with every Chromium Rust template revision, Chromium's full toolchain wrappers, component builds, sanitizers, cross-compilation, or browser test infrastructure. Those require execution in pinned full Chromium checkouts and platform-specific builders.
+It does not prove compatibility with every Chromium revision, component builds, sanitizers, cross-compilation, browser tests, or non-Linux builders. Those remain platform- and revision-specific gates.

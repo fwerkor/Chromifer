@@ -75,6 +75,8 @@ jobs:
           echo /tmp/chromifer-gn/out >> "$GITHUB_PATH"
       - name: Real GN endpoint integration
         run: examples/integration/run-smoke.sh
+      - name: Chromium native report is consistent
+        run: python3 examples/integration/verify-chromium-native-report.py
       - name: Structured contract gates pass
         run: |
           cargo run -p chromifer -- derive-gates \

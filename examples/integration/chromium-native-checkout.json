@@ -1,0 +1,31 @@
+{
+  "schema_version": 1,
+  "source_dir": "src",
+  "revision": "008cdad85f0721c89b42ef4dcaabcee615482609",
+  "require_clean": true,
+  "metadata_files": [
+    {"path": ".gclient"},
+    {"path": "PINNED_REVISION"},
+    {"path": "src/DEPS"},
+    {"path": "src/build/util/LASTCHANGE"},
+    {"path": "src/build/util/LASTCHANGE.committime"},
+    {"path": "src/build/rust/rust_static_library.gni"},
+    {"path": "src/build/rust/gni_impl/rust_target.gni"},
+    {"path": "src/buildtools/linux64/gn"},
+    {"path": "src/third_party/ninja/ninja"},
+    {"path": "src/third_party/rust-toolchain/bin/rustc"},
+    {"path": "src/third_party/rust-toolchain/VERSION"}
+  ],
+  "gn_outputs": [
+    {
+      "id": "linux-native-rust",
+      "directory": "src/out/ChromiferNative",
+      "required_targets": [
+        "//examples/c-abi-bridge:chromifer_c_abi_example",
+        "//examples/c-abi-bridge:c_abi_smoke",
+        "//examples/c-abi-bridge:c_abi_endpoint"
+      ],
+      "expected_default_toolchain": "//build/toolchain/linux:clang_x64"
+    }
+  ]
+}

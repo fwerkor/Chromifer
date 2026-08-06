@@ -1,0 +1,24 @@
+{
+  "schema_version": 1,
+  "package_root": "examples/c-abi-bridge",
+  "build_provenance": "examples/c-abi-bridge/chromifer-build.json",
+  "c_abi_provenance": "examples/c-abi-bridge/include/api.h.chromifer.json",
+  "destination": "examples/c-abi-bridge",
+  "source_inputs": [
+    ".gn",
+    "build/config/BUILDCONFIG.gn",
+    "build/config/rust.gni",
+    "build/rust/gni_impl/rust_target.gni",
+    "build/rust/rust_static_library.gni",
+    "build/toolchain/linux/BUILD.gn",
+    "out/ChromiferNative/args.gn",
+    "third_party/rust-toolchain/bin/rustc"
+  ],
+  "endpoint_source": "consumer/main.cc",
+  "endpoint_target": "c_abi_endpoint",
+  "integration_target": "integration",
+  "out_dir": "out/ChromiferNative",
+  "rust_template": "existing",
+  "native_rustc": "third_party/rust-toolchain/bin/rustc",
+  "expected_exit_code": 0
+}

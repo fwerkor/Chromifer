@@ -46,6 +46,8 @@ pub struct IntegrationContract {
     #[serde(default)]
     pub rust_template: RustTemplateMode,
     #[serde(default)]
+    pub native_rustc: Option<String>,
+    #[serde(default)]
     pub expected_exit_code: i32,
 }
 
@@ -256,7 +258,7 @@ pub fn run_integration(
         &c_abi_provenance,
     )?;
 
-    let tools = ToolchainRuntime::new(options, &source_root, contract.rust_template)?;
+    let tools = ToolchainRuntime::new(options, &source_root, &contract)?;
     let consumer = build_provenance.consumer.as_ref().ok_or_else(|| {
         IntegrationError::InvalidContract("build provenance has no C++ consumer".into())
     })?;
@@ -370,16 +372,22 @@ impl ToolchainRuntime {
     fn new(
         options: &IntegrationOptions,
         cwd: &Path,
-        rust_template: RustTemplateMode,
+        contract: &IntegrationContract,
     ) -> Result<Self, IntegrationError> {
+        let rustc = match contract.rust_template {
+            RustTemplateMode::HostAdapter => {
+                Some(resolve_tool(&options.rustc, cwd, &["--version"])?)
+            }
+            RustTemplateMode::Existing => contract
+                .native_rustc
+                .as_ref()
+                .map(|path| resolve_tool(Path::new(path), cwd, &["--version"]))
+                .transpose()?,
+        };
         Ok(Self {
             gn: resolve_tool(&options.gn, cwd, &["--version"])?,
             ninja: resolve_tool(&options.ninja, cwd, &["--version"])?,
-            rustc: if rust_template == RustTemplateMode::HostAdapter {
-                Some(resolve_tool(&options.rustc, cwd, &["--version"])?)
-            } else {
-                None
-            },
+            rustc,
         })
     }
 
@@ -454,6 +462,13 @@ fn validate_contract(contract: &IntegrationContract) -> Result<(), IntegrationEr
             ))
         })?;
     }
+    if let Some(native_rustc) = &contract.native_rustc {
+        normalized_exact(native_rustc).map_err(|_| {
+            IntegrationError::InvalidContract(format!(
+                "native_rustc `{native_rustc}` is not a normalized relative path"
+            ))
+        })?;
+    }
     if contract.source_inputs.is_empty() {
         return Err(IntegrationError::InvalidContract(
             "source_inputs must declare the GN checkout files required by the integration".into(),
@@ -477,6 +492,11 @@ fn validate_contract(contract: &IntegrationContract) -> Result<(), IntegrationEr
             "host_adapter currently supports Linux only".into(),
         ));
     }
+    if contract.rust_template == RustTemplateMode::HostAdapter && contract.native_rustc.is_some() {
+        return Err(IntegrationError::InvalidContract(
+            "native_rustc is only valid with existing Rust template mode".into(),
+        ));
+    }
     if contract.rust_template == RustTemplateMode::Existing
         && !source_inputs.contains("build/rust/rust_static_library.gni")
     {
@@ -484,6 +504,18 @@ fn validate_contract(contract: &IntegrationContract) -> Result<(), IntegrationEr
             "existing Rust template mode must list `build/rust/rust_static_library.gni` in source_inputs"
                 .into(),
         ));
+    }
+    if contract.rust_template == RustTemplateMode::Existing {
+        let native_rustc = contract.native_rustc.as_ref().ok_or_else(|| {
+            IntegrationError::InvalidContract(
+                "existing Rust template mode must declare native_rustc".into(),
+            )
+        })?;
+        if !source_inputs.contains(native_rustc) {
+            return Err(IntegrationError::InvalidContract(
+                "native_rustc must also appear in source_inputs".into(),
+            ));
+        }
     }
     if !contract.out_dir.starts_with("out/") {
         return Err(IntegrationError::InvalidContract(
@@ -1030,6 +1062,7 @@ mod tests {
             integration_target: "integration".into(),
             out_dir: "out/ChromiferIntegration".into(),
             rust_template: RustTemplateMode::HostAdapter,
+            native_rustc: None,
             expected_exit_code: 0,
         };
         assert!(validate_contract(&valid).is_ok());
@@ -1039,6 +1072,12 @@ mod tests {
         existing
             .source_inputs
             .push("build/rust/rust_static_library.gni".into());
+        assert!(validate_contract(&existing).is_err());
+        existing.native_rustc = Some("third_party/rust-toolchain/bin/rustc".into());
+        assert!(validate_contract(&existing).is_err());
+        existing
+            .source_inputs
+            .push("third_party/rust-toolchain/bin/rustc".into());
         assert!(validate_contract(&existing).is_ok());
 
         let mut invalid = valid.clone();

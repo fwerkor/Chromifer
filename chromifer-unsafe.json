@@ -226,7 +226,7 @@
       "sources": [
         {
           "source": "src/lib.rs",
-          "sha256": "a8a7449f03f5945c9c20191a4dd8da897d96dca78cfebb4300ae522d08ad86fa"
+          "sha256": "ff2d624ec4b087b60cfbe2929cd3b3a37e8e4e706c4def360d37386eaf4da9f7"
         }
       ],
       "unsafe_occurrences": [],

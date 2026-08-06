@@ -1,0 +1,75 @@
+{
+  "checkout_contract_sha256": "9a28afa15fd74b6b91ebdcba9cc440344348371ebe54a5fbcf3c94a77579ec30",
+  "checkout_lock_sha256": "60c93be0866de7b2a5bf9fbff427404a6a5bc15598f450c0ef15257c4085d220",
+  "chromium_revision": "008cdad85f0721c89b42ef4dcaabcee615482609",
+  "depot_tools_revision": "0a0574531b3b3ac9d478141874f2dab24cad64ab",
+  "endpoint": {
+    "bytes": 1261216,
+    "exit_code": 0,
+    "sha256": "f1016cbd83a876b7b08bdd9e809da0a0a0a9f2b76ea25994307ed4c95c3b58a7",
+    "target": "//examples/c-abi-bridge:c_abi_endpoint"
+  },
+  "gn_args_sha256": "840be624249ed1515d6f92205dc6a0aa21af7834c5f5277be57f4f41f478e764",
+  "gn_output": {
+    "args_sha256": "840be624249ed1515d6f92205dc6a0aa21af7834c5f5277be57f4f41f478e764",
+    "build_sha256": "d72e25eb6ef97bd1e2bea182ff598be53881c100de6ca7197931174374fd3308",
+    "default_toolchain": "//build/toolchain/linux:clang_x64",
+    "id": "linux-native-rust",
+    "project_semantic_sha256": "76cc6e949dd3dee6e650aead59b6c288d165f8e842d4e2a70d31245d7b5734d5",
+    "required_targets": [
+      {
+        "dependency_count": 3,
+        "label": "//examples/c-abi-bridge:c_abi_endpoint",
+        "source_count": 1,
+        "target_type": "executable",
+        "testonly": false,
+        "toolchain": "//build/toolchain/linux:clang_x64"
+      },
+      {
+        "dependency_count": 2,
+        "label": "//examples/c-abi-bridge:c_abi_smoke",
+        "source_count": 1,
+        "target_type": "source_set",
+        "testonly": false,
+        "toolchain": "//build/toolchain/linux:clang_x64"
+      },
+      {
+        "dependency_count": 3,
+        "label": "//examples/c-abi-bridge:chromifer_c_abi_example",
+        "source_count": 1,
+        "target_type": "rust_library",
+        "testonly": false,
+        "toolchain": "//build/toolchain/linux:clang_x64"
+      }
+    ],
+    "target_count": 3583
+  },
+  "integration_contract_sha256": "4c1fa97da6cfbe688f944aaf3b317a0dec5408260259c7a69e988a4214f3e0ba",
+  "schema_version": 1,
+  "source": {
+    "clean": true,
+    "status_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "submodule_status_sha256": "f03f4e7bff11c29494380b0af2bb4be734e8ff6943fd1cec75ee90326729114e"
+  },
+  "sparse_paths_sha256": "defbd989578f98cec027445dfea6074d3e2e194cb5d0ddfffc2a66e2a9f86702",
+  "tools": {
+    "gn": {
+      "bytes": 8868760,
+      "path": "buildtools/linux64/gn",
+      "sha256": "bceccbf1c98bb125972314dc6ad31699063389a91a75d330f13708725eb605f8",
+      "version": "2509 (64cfb8344ec3)"
+    },
+    "ninja": {
+      "bytes": 416480,
+      "path": "third_party/ninja/ninja",
+      "sha256": "09f0e5a8a2cf762b24b4d3ed464ffb2529e650d2efc36bab31da36aa93791efc",
+      "version": "1.12.1"
+    },
+    "rustc": {
+      "bytes": 316584,
+      "path": "third_party/rust-toolchain/bin/rustc",
+      "sha256": "9078440b2892b06836ab784b585c6456f813279041659af06beefe743b656b5f",
+      "version": "rustc 1.98.0-nightly (b99844963 2026-06-16) (b998449636a48e2c4a362809085b600a0174e1f2-6-llvmorg-23-init-19482-g53d18800 chromium)"
+    }
+  }
+}
