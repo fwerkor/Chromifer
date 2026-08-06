@@ -11,7 +11,7 @@ use chromifer_cabi::{CAbiGenerateOptions, generate_and_write as generate_c_abi};
 use chromifer_components::{
     AnalysisOptions, CandidateConcern, ComponentAnalysis, analyze_components,
 };
-use chromifer_evidence::{RunOptions, run_gates, verify_evidence};
+use chromifer_evidence::{RunOptions, run_gates, verify_evidence, verify_evidence_with_workdir};
 use chromifer_gates::{DeriveGateOptions, derive_and_write as derive_gates};
 use chromifer_gn::{GateOptions, ImportOptions, import_gn_file};
 use chromifer_manifest::{Manifest, MigrationState};
@@ -296,6 +296,18 @@ enum Command {
         /// Maximum stdout/stderr tail bytes embedded in the evidence JSON.
         #[arg(long, default_value_t = 8192)]
         max_tail_bytes: usize,
+        /// Record Git revision, dirty state, submodules, and the Git executable identity.
+        #[arg(long)]
+        attest_checkout: bool,
+        /// Require the attested checkout to be at this exact Git revision.
+        #[arg(long, requires = "attest_checkout")]
+        expected_revision: Option<String>,
+        /// Refuse to run gates when the attested checkout is dirty.
+        #[arg(long, requires = "attest_checkout")]
+        require_clean_checkout: bool,
+        /// Resolve and hash every direct gate executable before and after execution.
+        #[arg(long)]
+        attest_executables: bool,
         /// Print the complete evidence run as JSON.
         #[arg(long)]
         json: bool,
@@ -308,6 +320,9 @@ enum Command {
         evidence: PathBuf,
         /// Root directory containing the evidence bundle's `logs/` paths.
         artifact_root: PathBuf,
+        /// Re-check recorded checkout and executable identities against this live worktree.
+        #[arg(long)]
+        workdir: Option<PathBuf>,
         /// Print the verification summary as JSON.
         #[arg(long)]
         json: bool,
@@ -806,6 +821,10 @@ fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
             fail_fast,
             timeout_seconds,
             max_tail_bytes,
+            attest_checkout,
+            expected_revision,
+            require_clean_checkout,
+            attest_executables,
             json,
         } => {
             let manifest_bytes = fs::read(&manifest)?;
@@ -821,17 +840,42 @@ fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
                     fail_fast,
                     timeout: Duration::from_secs(timeout_seconds),
                     max_tail_bytes,
+                    attest_checkout,
+                    expected_revision,
+                    require_clean_checkout,
+                    attest_executables,
                 },
             )?;
             if json {
                 println!("{}", serde_json::to_string_pretty(&run)?);
             } else {
                 println!("evidence {}: {}", run.digest, run.path.display());
+                if let Some(checkout) = &run.bundle.checkout {
+                    if let Some(snapshot) = &checkout.before {
+                        println!(
+                            "  checkout: revision={} dirty={} submodules={}",
+                            snapshot.revision,
+                            snapshot.dirty,
+                            snapshot.submodules.len()
+                        );
+                    }
+                    if let Some(error) = &checkout.error {
+                        println!("  checkout error: {error}");
+                    }
+                }
                 for gate in &run.bundle.gates {
                     println!(
                         "  - {}: {:?} exit={:?} duration={}ms",
                         gate.gate, gate.status, gate.exit_code, gate.duration_ms
                     );
+                    if let Some(executable) = &gate.executable {
+                        println!(
+                            "    executable: {} -> {} sha256={}",
+                            executable.invocation_path,
+                            executable.resolved_path,
+                            executable.after.sha256
+                        );
+                    }
                 }
                 for gate in &run.bundle.skipped_gates {
                     println!("  - {gate}: skipped by fail-fast");
@@ -839,7 +883,7 @@ fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
             }
             if !run.bundle.passed {
                 return Err(format!(
-                    "one or more compatibility gates failed; evidence was written to {}",
+                    "compatibility evidence did not pass; evidence was written to {}",
                     run.path.display()
                 )
                 .into());
@@ -849,17 +893,34 @@ fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
             manifest,
             evidence,
             artifact_root,
+            workdir,
             json,
         } => {
             let manifest_bytes = fs::read(&manifest)?;
             let manifest = Manifest::load(&manifest)?;
-            let summary = verify_evidence(&manifest, &manifest_bytes, &evidence, &artifact_root)?;
+            let summary = if let Some(workdir) = workdir.as_deref() {
+                verify_evidence_with_workdir(
+                    &manifest,
+                    &manifest_bytes,
+                    &evidence,
+                    &artifact_root,
+                    Some(workdir),
+                )?
+            } else {
+                verify_evidence(&manifest, &manifest_bytes, &evidence, &artifact_root)?
+            };
             if json {
                 println!("{}", serde_json::to_string_pretty(&summary)?);
             } else {
                 println!(
-                    "verified evidence {}: {} gate result(s), {} distinct log artifact(s), passed={}",
-                    summary.digest, summary.gate_count, summary.log_count, summary.passed
+                    "verified evidence {}: {} gate result(s), {} distinct log artifact(s), passed={}, checkout_attested={}, executables_attested={}, live_attestation_verified={}",
+                    summary.digest,
+                    summary.gate_count,
+                    summary.log_count,
+                    summary.passed,
+                    summary.checkout_attested,
+                    summary.executables_attested,
+                    summary.live_attestation_verified
                 );
             }
         }

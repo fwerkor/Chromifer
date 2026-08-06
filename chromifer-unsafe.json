@@ -26,7 +26,7 @@
       "sources": [
         {
           "source": "src/main.rs",
-          "sha256": "1d52dcbcd705707a07c127051e4f865b3b878f20d95f01013963e83cf8764cb5"
+          "sha256": "ee97557ad1f7f39054d9d7bcbf90611fcd4ff4ba16d6a8501855f41ad076702b"
         }
       ],
       "unsafe_occurrences": [],
@@ -126,7 +126,7 @@
       "sources": [
         {
           "source": "src/lib.rs",
-          "sha256": "5344c212fcc11e92630b3b98bed0e125c995f3b26393045364e8e0222ec7f0c3"
+          "sha256": "4fdc3af02611cf01257318460f99d298dc08505c5f1d950e992b017bc722d929"
         }
       ],
       "unsafe_occurrences": [],

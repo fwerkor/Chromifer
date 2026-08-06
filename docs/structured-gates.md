@@ -145,10 +145,10 @@ cargo run -p chromifer -- verify-evidence \
   evidence-root
 ```
 
-Evidence schema version 2 records the exact execution form, argument vector, input paths and digests, declared platform targets, status, timing, and content-addressed stdout/stderr. Verification compares the execution definition and input contract with the current manifest before accepting the logs.
+Evidence schema version 3 records the exact execution form, argument vector, input paths and digests, declared platform targets, status, timing, content-addressed stdout/stderr, and optional checkout/tool attestations. Verification compares the execution definition and input contract with the current manifest before accepting the logs.
 
 `examples/gates` derives four real checks from this repository's Rust GN, C ABI, Mojo, and unsafe provenance. All four are executed through the same evidence runner in CI.
 
 ## Trust boundary
 
-The derivation proves that a check command and its declared inputs correspond to committed Chromifer provenance. It does not prove that the selected executable is trustworthy, that PATH resolution selected the intended binary, or that an external Chromium checkout matches a claimed revision. Pinned tool binaries, checkout attestations, isolated runners, and signed evidence remain separate requirements.
+The derivation proves that a check command and its declared inputs correspond to committed Chromifer provenance. Checkout and executable attestations can additionally bind a run to the selected revision and tool binaries. They still do not prove that the host or initial filesystem state was trustworthy. Isolated runners, signed evidence, and transparency-backed source attestations remain separate requirements.

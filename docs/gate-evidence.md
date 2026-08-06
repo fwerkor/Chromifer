@@ -23,12 +23,13 @@ evidence-root/
   .tmp/
 ```
 
-The evidence JSON schema version 2 records:
+The evidence JSON schema version 3 records:
 
 - project and exact baseline;
 - SHA-256 of the exact manifest bytes;
 - host OS, architecture, and the legacy shell implementation;
 - working directory and selected gate IDs;
+- optional Git checkout and executable identity attestations;
 - per-gate shell command or direct program/argument vector;
 - declared input paths and SHA-256 values;
 - declared platform targets;
@@ -81,9 +82,13 @@ Verification checks:
 5. executed and skipped gate sets exactly partition the selected gates;
 6. overall pass status matches recorded gate statuses;
 7. every referenced log path is safe and repository-relative;
-8. every log's byte count and SHA-256 match its current contents.
+8. every log's byte count and SHA-256 match its current contents;
+9. checkout before/after snapshots and Git executable identities are internally consistent;
+10. direct executable invocation paths, canonical targets, and before/after hashes are consistent.
 
-Renaming evidence, editing JSON, changing a gate program, argument, input contract, manifest byte, or log causes verification to fail.
+Passing `--workdir` also compares the recorded final checkout and executables with the current machine. See [attestation.md](attestation.md).
+
+Renaming evidence, editing JSON, changing a gate program, argument, input contract, manifest byte, checkout attestation, executable identity, or log causes verification to fail.
 
 Structured checks can be derived from committed Chromifer provenance instead of being written manually. See [structured-gates.md](structured-gates.md).
 
@@ -109,4 +114,4 @@ For a `rust_owned` transition, every compatibility gate declared by the module m
 
 ## Trust boundary
 
-Content addressing detects accidental or malicious modification after generation. It does not prove that the host itself was trustworthy, that a command tested the intended behavior, or that the baseline source checkout matched the manifest beyond the recorded identifier. Signed attestations and isolated runners are later work.
+Content addressing and checkout/tool attestations detect changes within and after generation. They do not prove that the host, filesystem, Git process, or initial checkout was trustworthy, or that a command tested the intended behavior. Signed runner identity, isolated builders, and transparency logs remain later work.

@@ -25,8 +25,10 @@ Acceptance criteria:
 - infer Chromium `OWNERS` hierarchy beyond the manifest's current owner field; **implemented**
 - execute compatibility gates and persist content-addressed results and logs; **implemented**
 - verify evidence against exact manifest bytes, gate definitions, and log digests; **implemented**
+- attest exact Git revision, dirty state, recursive submodules, and Git executable identity; **implemented**
+- attest direct gate executable entry paths and canonical binary hashes before and after execution; **implemented**
 - measure source coverage rather than declaration proxies;
-- sign evidence with isolated runner identity and source-checkout attestation.
+- sign evidence with isolated runner identity and transparency-backed source attestation.
 
 ## M2 — Build-system bridge
 
@@ -45,7 +47,7 @@ Acceptance criteria:
 - enforce safe packages, designated bridge sources, local unsafe allowances, and deterministic audit evidence; **implemented**
 - build generated bridge examples on Linux, Windows, and macOS.
 
-M2 now emits first-party Rust targets, CXX and C ABI consumers, multi-target Mojo bindings, unsafe-policy evidence, and direct compatibility gates derived from their committed provenance. The next integration step is to execute generated bindings and endpoint behavior against a pinned Chromium checkout and expand the platform matrix.
+M2 now emits first-party Rust targets, CXX and C ABI consumers, multi-target Mojo bindings, unsafe-policy evidence, structured direct gates, and checkout/tool attestations derived from committed provenance. The next integration step is to execute generated bindings and endpoint behavior against a pinned real Chromium checkout and expand the platform matrix.
 
 ## M3 — First production component
 

@@ -76,13 +76,19 @@ jobs:
             examples/gates/generated.toml \
             --check
           rm -rf /tmp/chromifer-gate-evidence
+          revision=$(git rev-parse HEAD)
           cargo run -p chromifer -- run-gates \
             examples/gates/generated.toml \
             . \
             /tmp/chromifer-gate-evidence \
+            --attest-checkout \
+            --expected-revision "$revision" \
+            --require-clean-checkout \
+            --attest-executables \
             --json > /tmp/chromifer-gate-run.json
           evidence=$(python3 -c 'import json; print(json.load(open("/tmp/chromifer-gate-run.json"))["path"])')
           cargo run -p chromifer -- verify-evidence \
             examples/gates/generated.toml \
             "$evidence" \
-            /tmp/chromifer-gate-evidence
+            /tmp/chromifer-gate-evidence \
+            --workdir .
