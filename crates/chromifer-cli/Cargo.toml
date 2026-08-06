@@ -13,6 +13,7 @@ chromifer-build = { path = "../chromifer-build" }
 chromifer-cabi = { path = "../chromifer-cabi" }
 chromifer-components = { path = "../chromifer-components" }
 chromifer-evidence = { path = "../chromifer-evidence" }
+chromifer-gates = { path = "../chromifer-gates" }
 chromifer-gn = { path = "../chromifer-gn" }
 chromifer-manifest = { path = "../chromifer-manifest" }
 chromifer-mojo = { path = "../chromifer-mojo" }

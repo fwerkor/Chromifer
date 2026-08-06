@@ -24,6 +24,7 @@ The initial workspace provides:
 - `chromifer-cabi`: validates explicit Rust C ABI contracts and generates C headers.
 - `chromifer-mojo`: validates Mojom target/import contracts and generates C++ and Rust binding targets.
 - `chromifer-safety`: audits Cargo workspaces against exact safe/bridge unsafe-code policies.
+- `chromifer-gates`: derives direct compatibility gates and hashed inputs from committed provenance.
 - `chromifer-gn`: imports GN JSON project graphs into reproducible manifests.
 - `chromifer-components`: aggregates GN targets and ranks migration candidates.
 - `chromifer-owners`: resolves Chromium OWNERS hierarchy and per-source provenance.
@@ -119,6 +120,18 @@ cargo run -p chromifer -- audit-unsafe \
   Cargo.toml \
   unsafe-policy.json \
   chromifer-unsafe.json
+
+# Derive and execute structured checks from committed provenance:
+cargo run -p chromifer -- derive-gates \
+  . \
+  examples/gates/base.toml \
+  examples/gates/gates.json \
+  examples/gates/generated.toml
+
+cargo run -p chromifer -- run-gates \
+  examples/gates/generated.toml \
+  . \
+  evidence-root
 ```
 
 Execute and verify compatibility evidence:
@@ -166,6 +179,7 @@ crates/
   chromifer-cabi/      Explicit C ABI validation and header generation
   chromifer-mojo/      Mojom target graph and Rust binding generation
   chromifer-safety/    Workspace unsafe-code policy and evidence audit
+  chromifer-gates/     Provenance-to-structured-gate derivation
   chromifer-gn/        GN JSON graph importer
   chromifer-source/    Source boundary evidence scanner
   chromifer-owners/    Chromium OWNERS hierarchy scanner
@@ -184,16 +198,18 @@ docs/
   c-abi.md             Explicit Rust C ABI contracts
   mojo.md              Mojo target, import, and binding contracts
   unsafe-policy.md     Safe/bridge package policy and unsafe evidence
+  structured-gates.md  Direct gate derivation and hashed input contracts
   roadmap.md           Milestones and acceptance criteria
 examples/
   chromium.toml        Example migration manifest
   gn-project.json      Example GN JSON project graph
   c-abi-bridge/        Generated C ABI and C++ consumer example
   mojo-bridge/         Multi-target C++ and Rust Mojo binding example
+  gates/               Provenance-derived gate manifest and contract
 ```
 
 ## Scope
 
 The project initially targets Chromium's browser framework, service layer, process/security orchestration, and platform adapters. Rewriting Blink or V8 is explicitly outside the first phases.
 
-See [docs/gn-import.md](docs/gn-import.md) for graph import, [docs/source-scan.md](docs/source-scan.md) for boundary evidence, [docs/owners-scan.md](docs/owners-scan.md) for ownership, [docs/component-ranking.md](docs/component-ranking.md) for component analysis, [docs/gate-evidence.md](docs/gate-evidence.md) for executable evidence, [docs/build-bridge.md](docs/build-bridge.md) for Chromium GN generation, [docs/c-abi.md](docs/c-abi.md) for explicit C ABI contracts, [docs/mojo.md](docs/mojo.md) for Mojo target contracts, [docs/unsafe-policy.md](docs/unsafe-policy.md) for workspace unsafe-code enforcement, and [docs/roadmap.md](docs/roadmap.md) for the staged plan.
+See [docs/gn-import.md](docs/gn-import.md) for graph import, [docs/source-scan.md](docs/source-scan.md) for boundary evidence, [docs/owners-scan.md](docs/owners-scan.md) for ownership, [docs/component-ranking.md](docs/component-ranking.md) for component analysis, [docs/gate-evidence.md](docs/gate-evidence.md) for executable evidence, [docs/structured-gates.md](docs/structured-gates.md) for provenance-derived direct checks, [docs/build-bridge.md](docs/build-bridge.md) for Chromium GN generation, [docs/c-abi.md](docs/c-abi.md) for explicit C ABI contracts, [docs/mojo.md](docs/mojo.md) for Mojo target contracts, [docs/unsafe-policy.md](docs/unsafe-policy.md) for workspace unsafe-code enforcement, and [docs/roadmap.md](docs/roadmap.md) for the staged plan.

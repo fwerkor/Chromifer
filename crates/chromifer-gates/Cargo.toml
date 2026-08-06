@@ -1,0 +1,21 @@
+[package]
+name = "chromifer-gates"
+description = "Derive structured compatibility gates from committed Chromifer provenance"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[dependencies]
+chromifer-build = { path = "../chromifer-build" }
+chromifer-cabi = { path = "../chromifer-cabi" }
+chromifer-manifest = { path = "../chromifer-manifest" }
+chromifer-mojo = { path = "../chromifer-mojo" }
+chromifer-safety = { path = "../chromifer-safety" }
+serde.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+thiserror.workspace = true
+toml.workspace = true

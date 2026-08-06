@@ -89,7 +89,7 @@ pub enum AbiType {
     MutVoidPtr,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CAbiProvenance {
     pub schema_version: u32,
     pub contract_sha256: String,
@@ -101,13 +101,13 @@ pub struct CAbiProvenance {
     pub symbols: Vec<ExportEvidence>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 pub struct SourceDigest {
     pub source: String,
     pub sha256: String,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 pub struct ExportEvidence {
     pub name: String,
     pub source: String,

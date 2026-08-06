@@ -23,13 +23,15 @@ evidence-root/
   .tmp/
 ```
 
-The evidence JSON records:
+The evidence JSON schema version 2 records:
 
 - project and exact baseline;
 - SHA-256 of the exact manifest bytes;
-- host OS, architecture, and shell;
+- host OS, architecture, and the legacy shell implementation;
 - working directory and selected gate IDs;
-- per-gate command and declared targets;
+- per-gate shell command or direct program/argument vector;
+- declared input paths and SHA-256 values;
+- declared platform targets;
 - start time, duration, exit code, and status;
 - stdout/stderr byte counts, SHA-256, relative artifact paths, and bounded tails;
 - skipped gates after fail-fast;
@@ -43,7 +45,9 @@ cargo run -p chromifer -- run-gates \
   --max-tail-bytes 16384
 ```
 
-A failed or timed-out gate still produces a complete evidence bundle. The CLI writes the evidence path before returning a nonzero exit status.
+A direct gate is launched without a shell. Before either direct or legacy shell execution, every declared input is read relative to the work directory and checked against its manifest SHA-256. Missing or changed inputs are recorded as `launch_failed`, and the process is not started. Inputs are checked again after completion; execution-time input drift fails the gate even when the process exits successfully.
+
+A failed, unlaunchable, or timed-out gate still produces a complete evidence bundle. The CLI writes the evidence path before returning a nonzero exit status.
 
 ## Timeouts
 
@@ -55,7 +59,7 @@ cargo run -p chromifer -- run-gates \
   --timeout-seconds 1800
 ```
 
-The executor terminates the launched shell when the timeout expires and records `timed_out`. Commands that deliberately detach background descendants remain responsible for their own cleanup; gate commands should run foreground test processes.
+The executor terminates the launched process when the timeout expires and records `timed_out`. Legacy shell commands that deliberately detach background descendants remain responsible for their own cleanup; gates should run foreground test processes.
 
 ## Verification
 
@@ -73,13 +77,15 @@ Verification checks:
 1. the evidence filename equals the SHA-256 of its exact JSON bytes;
 2. schema version, project, baseline, and manifest SHA-256 match;
 3. every selected gate still exists;
-4. commands and declared targets have not changed;
+4. execution definitions, hashed inputs, and declared targets have not changed;
 5. executed and skipped gate sets exactly partition the selected gates;
 6. overall pass status matches recorded gate statuses;
 7. every referenced log path is safe and repository-relative;
 8. every log's byte count and SHA-256 match its current contents.
 
-Renaming evidence, editing JSON, changing a gate command, changing the manifest bytes, or modifying a log causes verification to fail.
+Renaming evidence, editing JSON, changing a gate program, argument, input contract, manifest byte, or log causes verification to fail.
+
+Structured checks can be derived from committed Chromifer provenance instead of being written manually. See [structured-gates.md](structured-gates.md).
 
 ## Transition checks
 

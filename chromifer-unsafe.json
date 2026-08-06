@@ -1,16 +1,16 @@
 {
   "schema_version": 1,
-  "cargo_manifest_sha256": "77ff915f811828fa234733549048b26366b14859e9ff592de8943ed53af834f9",
+  "cargo_manifest_sha256": "bf465b16dc81015920ab105955cb8cc38959c51a8a422a0bec67cb4a50dbc2f7",
   "cargo_manifest_path": "Cargo.toml",
-  "cargo_lock_sha256": "01d9dcdb3809bf1abb1d8c3cf0a4fb40bd1e56f37452d70c28910503d782984a",
+  "cargo_lock_sha256": "d43d4020ce88ce9b6bd5aa56bbe84fc0bc4c1fadb1abaa568b3c4a8a4fab5f7c",
   "cargo_lock_path": "Cargo.lock",
-  "policy_sha256": "b5f5ff5feb66b24bafdd451263c20bb548ed31d7912e75be67184d472da9c563",
+  "policy_sha256": "f438a36755a49db28b25f43d47a8fc8bcc9f0d7ada1aa74acd91878657ab3703",
   "policy_path": "unsafe-policy.json",
   "packages": [
     {
       "package": "chromifer",
       "manifest_path": "crates/chromifer-cli/Cargo.toml",
-      "manifest_sha256": "6fcf3afaff6c32f283e5ed8f9b5a85ae52e76654a01273becaaa1baad238e534",
+      "manifest_sha256": "d0ed9c590f16fa3a67f36628ab3c82b105115b048e79b32287889b1b8703d672",
       "mode": "safe",
       "allowed_sources": [],
       "crate_roots": [
@@ -26,7 +26,7 @@
       "sources": [
         {
           "source": "src/main.rs",
-          "sha256": "6bfed6f24366212062c452987b1688553f428f86fdff9dfbaa24803fe3c07ed8"
+          "sha256": "1d52dcbcd705707a07c127051e4f865b3b878f20d95f01013963e83cf8764cb5"
         }
       ],
       "unsafe_occurrences": [],
@@ -51,7 +51,7 @@
       "sources": [
         {
           "source": "src/lib.rs",
-          "sha256": "20124ff890f5289b8e4932e6f90d83d183cec8cb594dbd91cf5d633607d84302"
+          "sha256": "0a00bf75a5dc88edbf359c5ea27b489ff481fa9e67efca4d6ca8c2abac8d8991"
         }
       ],
       "unsafe_occurrences": [],
@@ -76,7 +76,7 @@
       "sources": [
         {
           "source": "src/lib.rs",
-          "sha256": "9e3c2599b1bbaa10b66fb8463bcc07d0d3fda0acec8f3389bcaa7a15d4f28fb7"
+          "sha256": "30ad3ae0ec8dc1a4d5c2303aa8513395cda93e5f298d7f0721aa1ad4593656b8"
         }
       ],
       "unsafe_occurrences": [],
@@ -101,7 +101,7 @@
       "sources": [
         {
           "source": "src/lib.rs",
-          "sha256": "7b843af3a9693e869b474f9b8c8f51d318b07edae608a1aae3bf0961296d2fee"
+          "sha256": "59a7ad69c4be35ed2820d35985232b0cc1908e7620046d50e705f650f13f03ef"
         }
       ],
       "unsafe_occurrences": [],
@@ -126,7 +126,32 @@
       "sources": [
         {
           "source": "src/lib.rs",
-          "sha256": "fc70b1ad8014184a3ec5f58d36dc9380f7e6a771497c3d5fc9a07cc5b51600b1"
+          "sha256": "5344c212fcc11e92630b3b98bed0e125c995f3b26393045364e8e0222ec7f0c3"
+        }
+      ],
+      "unsafe_occurrences": [],
+      "lint_allowances": []
+    },
+    {
+      "package": "chromifer-gates",
+      "manifest_path": "crates/chromifer-gates/Cargo.toml",
+      "manifest_sha256": "0884cccb9a0d89bb54c62d6e7b97e7de444ea83b3bd1d668e9cff5649de03494",
+      "mode": "safe",
+      "allowed_sources": [],
+      "crate_roots": [
+        {
+          "source": "src/lib.rs",
+          "targets": [
+            "chromifer_gates (lib)"
+          ],
+          "unsafe_code_lint": "forbid",
+          "unsafe_op_in_unsafe_fn_lint": "missing"
+        }
+      ],
+      "sources": [
+        {
+          "source": "src/lib.rs",
+          "sha256": "5cdb144e5112469d0f37c0a1176d0b18a48a6829f29d77669a467b1e9edb05a2"
         }
       ],
       "unsafe_occurrences": [],
@@ -151,7 +176,7 @@
       "sources": [
         {
           "source": "src/lib.rs",
-          "sha256": "9bc651952514b3bd5892fdee55401b27269e84af1051af96bc2a8e550be1288d"
+          "sha256": "e0038426fa0fcebac1071018177e38489c08d936f094f659fe746bd3bef2378c"
         }
       ],
       "unsafe_occurrences": [],
@@ -176,7 +201,7 @@
       "sources": [
         {
           "source": "src/lib.rs",
-          "sha256": "b46c8cab45bf84f59b8afa09c18d8d73f453076381fa3249b5a6ca623f6f0de6"
+          "sha256": "5a1679c762bbd706cdb17829d10e724c92cf64436bb7b997938387f2b28bc908"
         }
       ],
       "unsafe_occurrences": [],
@@ -251,7 +276,7 @@
       "sources": [
         {
           "source": "src/lib.rs",
-          "sha256": "fbe10d0bbb299fc9e34392212f70cf4286ac7e94dd550a4c2d849c409216865a"
+          "sha256": "61bf8abee1eba8c045beafe69360ba5772f8549039164af7c8933325b39e28f5"
         }
       ],
       "unsafe_occurrences": [],

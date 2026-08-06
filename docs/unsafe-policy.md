@@ -120,6 +120,6 @@ The report contains no timestamp or host-specific absolute source path. Changes 
 
 ## Repository examples
 
-The Chromifer workspace is audited as twelve safe packages by `unsafe-policy.json` and has no unsafe occurrence. `examples/c-abi-bridge` demonstrates a bridge package with an exact source allowlist, two local allowances, and three inventoried occurrences. Both committed reports are checked by CI.
+The Chromifer workspace is audited with every workspace package in safe mode by `unsafe-policy.json` and has no unsafe occurrence. `examples/c-abi-bridge` demonstrates a bridge package with an exact source allowlist, two local allowances, and three inventoried occurrences. Both committed reports are checked by CI.
 
 This audit complements the C ABI and build contracts. It proves where unsafe syntax exists and how narrowly it is scoped; it does not prove pointer validity, ownership, lifetime, threading, or semantic correctness. Those properties remain the responsibility of the boundary contract and executable compatibility gates.

@@ -1,0 +1,35 @@
+schema_version = 1
+
+[project]
+name = "Chromifer generated gate example"
+upstream = "https://github.com/fwerkor/Chromifer"
+baseline = "workspace"
+
+[[targets]]
+id = "host"
+description = "Current host used for generated artifact checks"
+required = true
+
+[[modules]]
+id = "rust_bridge"
+path = "examples/rust-bridge"
+owner = "chromifer"
+state = "legacy_cpp"
+
+[[modules]]
+id = "c_abi_bridge"
+path = "examples/c-abi-bridge"
+owner = "chromifer"
+state = "legacy_cpp"
+
+[[modules]]
+id = "mojo_bridge"
+path = "examples/mojo-bridge"
+owner = "chromifer"
+state = "legacy_cpp"
+
+[[modules]]
+id = "unsafe_policy"
+path = "."
+owner = "chromifer"
+state = "legacy_cpp"

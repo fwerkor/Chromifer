@@ -5,8 +5,8 @@ use std::fs;
 use std::path::Path;
 
 use chromifer_manifest::{
-    Boundary, CompatibilityGate, Dependency, InventoryMetadata, Manifest, MigrationState, Module,
-    Project, Target, ValidationErrors,
+    Boundary, CompatibilityGate, Dependency, GateExecution, InventoryMetadata, Manifest,
+    MigrationState, Module, Project, Target, ValidationErrors,
 };
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
@@ -256,7 +256,10 @@ pub fn import_gn_project(
                 }],
                 vec![CompatibilityGate {
                     id: gate.id.clone(),
-                    command: gate.command.clone(),
+                    execution: GateExecution::Shell {
+                        command: gate.command.clone(),
+                    },
+                    inputs: vec![],
                     targets: vec![gate.target_id.clone()],
                 }],
             )

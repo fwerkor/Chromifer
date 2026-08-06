@@ -85,12 +85,87 @@ pub struct Target {
     pub required: bool,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct CompatibilityGate {
     pub id: String,
-    pub command: String,
+    #[serde(flatten)]
+    pub execution: GateExecution,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub inputs: Vec<GateInput>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub targets: Vec<String>,
+}
+
+impl<'de> Deserialize<'de> for CompatibilityGate {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        #[derive(Deserialize)]
+        #[serde(deny_unknown_fields)]
+        struct WireGate {
+            id: String,
+            #[serde(default)]
+            command: Option<String>,
+            #[serde(default)]
+            program: Option<String>,
+            #[serde(default)]
+            args: Vec<String>,
+            #[serde(default)]
+            inputs: Vec<GateInput>,
+            #[serde(default)]
+            targets: Vec<String>,
+        }
+
+        let wire = WireGate::deserialize(deserializer)?;
+        let execution = match (wire.command, wire.program) {
+            (Some(command), None) if wire.args.is_empty() => GateExecution::Shell { command },
+            (None, Some(program)) => GateExecution::Direct {
+                program,
+                args: wire.args,
+            },
+            (Some(_), None) => {
+                return Err(serde::de::Error::custom(
+                    "shell gate must not declare direct-execution args",
+                ));
+            }
+            (Some(_), Some(_)) => {
+                return Err(serde::de::Error::custom(
+                    "gate must declare exactly one of `command` or `program`",
+                ));
+            }
+            (None, None) => {
+                return Err(serde::de::Error::custom(
+                    "gate must declare exactly one of `command` or `program`",
+                ));
+            }
+        };
+        Ok(Self {
+            id: wire.id,
+            execution,
+            inputs: wire.inputs,
+            targets: wire.targets,
+        })
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum GateExecution {
+    Shell {
+        command: String,
+    },
+    Direct {
+        program: String,
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        args: Vec<String>,
+    },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+pub struct GateInput {
+    pub path: String,
+    pub sha256: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -339,6 +414,18 @@ pub enum ValidationError {
     },
     #[error("gate `{gate}` references unknown target `{target}`")]
     UnknownTarget { gate: String, target: String },
+    #[error("gate `{gate}` has an invalid execution definition: {detail}")]
+    InvalidGateExecution { gate: String, detail: String },
+    #[error("gate `{gate}` has invalid input path `{path}`")]
+    InvalidGateInputPath { gate: String, path: String },
+    #[error("gate `{gate}` has invalid SHA-256 `{sha256}` for input `{path}`")]
+    InvalidGateInputDigest {
+        gate: String,
+        path: String,
+        sha256: String,
+    },
+    #[error("gate `{gate}` contains duplicate input `{path}`")]
+    DuplicateGateInput { gate: String, path: String },
     #[error("module `{module}` references unknown gate `{gate}`")]
     UnknownGate { module: String, gate: String },
     #[error("module `{module}` references unknown dependency `{dependency}`")]
@@ -444,7 +531,35 @@ impl Manifest {
         }
 
         for gate in &self.gates {
-            check_nonempty("gate", &gate.id, "command", &gate.command, &mut errors);
+            validate_gate_execution(gate, &mut errors);
+            let mut input_paths = BTreeSet::new();
+            for input in &gate.inputs {
+                let normalized = normalize_repo_relative_path(&input.path);
+                if normalized.as_deref() != Some(input.path.as_str()) {
+                    errors.push(ValidationError::InvalidGateInputPath {
+                        gate: gate.id.clone(),
+                        path: input.path.clone(),
+                    });
+                }
+                if input.sha256.len() != 64
+                    || !input
+                        .sha256
+                        .bytes()
+                        .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+                {
+                    errors.push(ValidationError::InvalidGateInputDigest {
+                        gate: gate.id.clone(),
+                        path: input.path.clone(),
+                        sha256: input.sha256.clone(),
+                    });
+                }
+                if !input_paths.insert(input.path.as_str()) {
+                    errors.push(ValidationError::DuplicateGateInput {
+                        gate: gate.id.clone(),
+                        path: input.path.clone(),
+                    });
+                }
+            }
             for target in &gate.targets {
                 if !target_ids.contains(target) {
                     errors.push(ValidationError::UnknownTarget {
@@ -636,6 +751,37 @@ fn collect_ids<'a>(
     found
 }
 
+fn validate_gate_execution(gate: &CompatibilityGate, errors: &mut Vec<ValidationError>) {
+    let invalid = match &gate.execution {
+        GateExecution::Shell { command } => {
+            if command.trim().is_empty() {
+                Some("shell command must not be empty".to_owned())
+            } else if command.contains('\0') {
+                Some("shell command must not contain NUL".to_owned())
+            } else {
+                None
+            }
+        }
+        GateExecution::Direct { program, args } => {
+            if program.trim().is_empty() {
+                Some("program must not be empty".to_owned())
+            } else if program.contains('\0') {
+                Some("program must not contain NUL".to_owned())
+            } else if args.iter().any(|argument| argument.contains('\0')) {
+                Some("arguments must not contain NUL".to_owned())
+            } else {
+                None
+            }
+        }
+    };
+    if let Some(detail) = invalid {
+        errors.push(ValidationError::InvalidGateExecution {
+            gate: gate.id.clone(),
+            detail,
+        });
+    }
+}
+
 fn check_nonempty(
     kind: &'static str,
     id: &str,
@@ -751,7 +897,10 @@ mod tests {
             }],
             gates: vec![CompatibilityGate {
                 id: "unit".into(),
-                command: "autoninja -C out/Default unit_tests".into(),
+                execution: GateExecution::Shell {
+                    command: "autoninja -C out/Default unit_tests".into(),
+                },
+                inputs: vec![],
                 targets: vec!["linux".into()],
             }],
             modules: vec![
@@ -793,6 +942,114 @@ mod tests {
     #[test]
     fn accepts_valid_manifest() {
         assert_eq!(valid_manifest().validate(), Ok(()));
+    }
+
+    #[test]
+    fn accepts_direct_gates_and_legacy_shell_toml() {
+        let mut manifest = valid_manifest();
+        manifest.gates[0].execution = GateExecution::Direct {
+            program: "cargo".into(),
+            args: vec!["test".into(), "--locked".into()],
+        };
+        manifest.gates[0].inputs = vec![GateInput {
+            path: "Cargo.lock".into(),
+            sha256: "a".repeat(64),
+        }];
+        assert_eq!(manifest.validate(), Ok(()));
+
+        let legacy: Manifest = toml::from_str(
+            r#"
+schema_version = 1
+
+[project]
+name = "Chromifer"
+upstream = "chromium/src"
+baseline = "main"
+
+[[gates]]
+id = "legacy"
+command = "echo compatibility"
+"#,
+        )
+        .unwrap();
+        assert_eq!(legacy.validate(), Ok(()));
+        assert!(matches!(
+            legacy.gates[0].execution,
+            GateExecution::Shell { .. }
+        ));
+    }
+
+    #[test]
+    fn rejects_ambiguous_or_unknown_gate_execution_fields() {
+        let ambiguous = r#"
+schema_version = 1
+
+[project]
+name = "Chromifer"
+upstream = "chromium/src"
+baseline = "main"
+
+[[gates]]
+id = "ambiguous"
+command = "echo shell"
+program = "printf"
+args = ["direct"]
+"#;
+        assert!(toml::from_str::<Manifest>(ambiguous).is_err());
+
+        let shell_with_args = ambiguous.replace("program = \"printf\"\n", "");
+        assert!(toml::from_str::<Manifest>(&shell_with_args).is_err());
+
+        let unknown = ambiguous.replace(
+            "program = \"printf\"\nargs = [\"direct\"]\n",
+            "mystery = true\n",
+        );
+        assert!(toml::from_str::<Manifest>(&unknown).is_err());
+    }
+
+    #[test]
+    fn rejects_invalid_direct_gates_and_input_contracts() {
+        let mut manifest = valid_manifest();
+        manifest.gates[0].execution = GateExecution::Direct {
+            program: String::new(),
+            args: vec!["bad\0argument".into()],
+        };
+        manifest.gates[0].inputs = vec![
+            GateInput {
+                path: "../Cargo.lock".into(),
+                sha256: "not-a-digest".into(),
+            },
+            GateInput {
+                path: "../Cargo.lock".into(),
+                sha256: "b".repeat(64),
+            },
+        ];
+
+        let errors = manifest.validate().unwrap_err();
+        assert!(
+            errors
+                .0
+                .iter()
+                .any(|error| matches!(error, ValidationError::InvalidGateExecution { .. }))
+        );
+        assert!(
+            errors
+                .0
+                .iter()
+                .any(|error| matches!(error, ValidationError::InvalidGateInputPath { .. }))
+        );
+        assert!(
+            errors
+                .0
+                .iter()
+                .any(|error| matches!(error, ValidationError::InvalidGateInputDigest { .. }))
+        );
+        assert!(
+            errors
+                .0
+                .iter()
+                .any(|error| matches!(error, ValidationError::DuplicateGateInput { .. }))
+        );
     }
 
     #[test]

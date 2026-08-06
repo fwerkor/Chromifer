@@ -9,12 +9,12 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::thread;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
-use chromifer_manifest::{CompatibilityGate, Manifest};
+use chromifer_manifest::{CompatibilityGate, GateExecution, GateInput, Manifest};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use thiserror::Error;
 
-const EVIDENCE_SCHEMA_VERSION: u32 = 1;
+const EVIDENCE_SCHEMA_VERSION: u32 = 2;
 static NEXT_TEMP: AtomicU64 = AtomicU64::new(1);
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -64,7 +64,9 @@ pub struct HostFingerprint {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct GateEvidence {
     pub gate: String,
-    pub command: String,
+    pub execution: GateExecution,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub inputs: Vec<GateInput>,
     pub declared_targets: Vec<String>,
     pub status: GateStatus,
     pub exit_code: Option<i32>,
@@ -74,6 +76,8 @@ pub struct GateEvidence {
     pub stderr: OutputArtifact,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub launch_error: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub input_error: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -301,7 +305,10 @@ pub fn verify_evidence(
         let definition = manifest
             .gate(&gate.gate)
             .ok_or_else(|| EvidenceError::EvidenceUnknownGate(gate.gate.clone()))?;
-        if gate.command != definition.command || gate.declared_targets != definition.targets {
+        if gate.execution != definition.execution
+            || gate.inputs != definition.inputs
+            || gate.declared_targets != definition.targets
+        {
             return Err(EvidenceError::GateDefinitionMismatch(gate.gate.clone()));
         }
         verify_artifact(&gate.stdout, artifact_root)?;
@@ -422,63 +429,84 @@ fn execute_gate(
     let stderr_file = create_temp(&stderr_temp)?;
     let timer = Instant::now();
 
-    let mut command = shell_command(&gate.command);
-    command
-        .current_dir(&options.workdir)
-        .stdout(Stdio::from(stdout_file))
-        .stderr(Stdio::from(stderr_file));
+    let mut input_error = verify_gate_inputs(gate, &options.workdir);
+    let inputs_verified = input_error.is_none();
+    let (mut status, exit_code, launch_error) = if input_error.is_some() {
+        (GateStatus::LaunchFailed, None, None)
+    } else {
+        let mut command = gate_command(&gate.execution);
+        command
+            .current_dir(&options.workdir)
+            .stdout(Stdio::from(stdout_file))
+            .stderr(Stdio::from(stderr_file));
 
-    let (status, exit_code, launch_error) = match command.spawn() {
-        Ok(mut child) => {
-            let mut timed_out = false;
-            let exit = loop {
-                if let Some(status) =
-                    child
-                        .try_wait()
-                        .map_err(|source| EvidenceError::InspectProcess {
-                            gate: gate.id.clone(),
-                            source,
-                        })?
-                {
-                    break status;
-                }
-                if timer.elapsed() >= options.timeout {
-                    timed_out = true;
-                    match child.kill() {
-                        Ok(()) => {
-                            break child.wait().map_err(|source| {
-                                EvidenceError::InspectProcess {
-                                    gate: gate.id.clone(),
-                                    source,
-                                }
-                            })?;
-                        }
-                        Err(kill_error) => {
-                            if let Some(status) = child.try_wait().map_err(|source| {
-                                EvidenceError::InspectProcess {
-                                    gate: gate.id.clone(),
-                                    source,
-                                }
-                            })? {
-                                break status;
-                            }
-                            return Err(EvidenceError::InspectProcess {
+        match command.spawn() {
+            Ok(mut child) => {
+                let mut timed_out = false;
+                let exit = loop {
+                    if let Some(status) =
+                        child
+                            .try_wait()
+                            .map_err(|source| EvidenceError::InspectProcess {
                                 gate: gate.id.clone(),
-                                source: kill_error,
-                            });
+                                source,
+                            })?
+                    {
+                        break status;
+                    }
+                    if timer.elapsed() >= options.timeout {
+                        timed_out = true;
+                        match child.kill() {
+                            Ok(()) => {
+                                break child.wait().map_err(|source| {
+                                    EvidenceError::InspectProcess {
+                                        gate: gate.id.clone(),
+                                        source,
+                                    }
+                                })?;
+                            }
+                            Err(kill_error) => {
+                                if let Some(status) = child.try_wait().map_err(|source| {
+                                    EvidenceError::InspectProcess {
+                                        gate: gate.id.clone(),
+                                        source,
+                                    }
+                                })? {
+                                    break status;
+                                }
+                                return Err(EvidenceError::InspectProcess {
+                                    gate: gate.id.clone(),
+                                    source: kill_error,
+                                });
+                            }
                         }
                     }
-                }
-                thread::sleep(Duration::from_millis(20));
-            };
-            (classify_status(exit, timed_out), exit.code(), None)
+                    thread::sleep(Duration::from_millis(20));
+                };
+                (classify_status(exit, timed_out), exit.code(), None)
+            }
+            Err(error) => (GateStatus::LaunchFailed, None, Some(error.to_string())),
         }
-        Err(error) => (GateStatus::LaunchFailed, None, Some(error.to_string())),
     };
+
+    if inputs_verified {
+        if let Some(error) = verify_gate_inputs(gate, &options.workdir) {
+            if status == GateStatus::Passed {
+                status = GateStatus::Failed;
+            }
+            input_error = Some(error);
+        }
+    }
 
     let stdout_bytes = read_output(&stdout_temp)?;
     let mut stderr_bytes = read_output(&stderr_temp)?;
     if let Some(error) = &launch_error {
+        if !stderr_bytes.is_empty() {
+            stderr_bytes.push(b'\n');
+        }
+        stderr_bytes.extend_from_slice(error.as_bytes());
+    }
+    if let Some(error) = &input_error {
         if !stderr_bytes.is_empty() {
             stderr_bytes.push(b'\n');
         }
@@ -491,7 +519,8 @@ fn execute_gate(
 
     Ok(GateEvidence {
         gate: gate.id.clone(),
-        command: gate.command.clone(),
+        execution: gate.execution.clone(),
+        inputs: gate.inputs.clone(),
         declared_targets: gate.targets.clone(),
         status,
         exit_code,
@@ -500,7 +529,73 @@ fn execute_gate(
         stdout,
         stderr,
         launch_error,
+        input_error,
     })
+}
+
+fn verify_gate_inputs(gate: &CompatibilityGate, workdir: &Path) -> Option<String> {
+    let canonical_workdir = match workdir.canonicalize() {
+        Ok(path) => path,
+        Err(error) => return Some(format!("working directory could not be resolved: {error}")),
+    };
+    for input in &gate.inputs {
+        let path = workdir.join(&input.path);
+        let metadata = match fs::symlink_metadata(&path) {
+            Ok(metadata) => metadata,
+            Err(error) => {
+                return Some(format!(
+                    "gate input `{}` could not be inspected: {error}",
+                    input.path
+                ));
+            }
+        };
+        if metadata.file_type().is_symlink() {
+            return Some(format!("gate input `{}` must not be a symlink", input.path));
+        }
+        let canonical = match path.canonicalize() {
+            Ok(path) => path,
+            Err(error) => {
+                return Some(format!(
+                    "gate input `{}` could not be resolved: {error}",
+                    input.path
+                ));
+            }
+        };
+        if !canonical.starts_with(&canonical_workdir) || !canonical.is_file() {
+            return Some(format!(
+                "gate input `{}` resolves outside the working directory or is not a file",
+                input.path
+            ));
+        }
+        let bytes = match fs::read(&canonical) {
+            Ok(bytes) => bytes,
+            Err(error) => {
+                return Some(format!(
+                    "gate input `{}` could not be read: {error}",
+                    input.path
+                ));
+            }
+        };
+        let actual = sha256_hex(&bytes);
+        if actual != input.sha256 {
+            return Some(format!(
+                "gate input `{}` has SHA-256 {actual}; expected {}",
+                input.path, input.sha256
+            ));
+        }
+    }
+    None
+}
+
+fn gate_command(execution: &GateExecution) -> Command {
+    match execution {
+        GateExecution::Shell { command } => shell_command(command),
+        GateExecution::Direct { program, args } => {
+            let mut command = Command::new(program);
+            command.args(args);
+            command
+        }
+    }
 }
 
 fn classify_status(status: ExitStatus, timed_out: bool) -> GateStatus {
@@ -715,17 +810,26 @@ mod tests {
             gates: vec![
                 CompatibilityGate {
                     id: "pass".into(),
-                    command: passing_command(),
+                    execution: GateExecution::Shell {
+                        command: passing_command(),
+                    },
+                    inputs: vec![],
                     targets: vec![],
                 },
                 CompatibilityGate {
                     id: "fail".into(),
-                    command: failing_command(),
+                    execution: GateExecution::Shell {
+                        command: failing_command(),
+                    },
+                    inputs: vec![],
                     targets: vec![],
                 },
                 CompatibilityGate {
                     id: "slow".into(),
-                    command: slow_command(),
+                    execution: GateExecution::Shell {
+                        command: slow_command(),
+                    },
+                    inputs: vec![],
                     targets: vec![],
                 },
             ],
@@ -755,6 +859,121 @@ mod tests {
             timeout: Duration::from_secs(5),
             max_tail_bytes: 1024,
         }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn direct_gate_preserves_argument_boundaries_without_shell_interpretation() {
+        let tree = TempTree::new();
+        let mut manifest = manifest();
+        manifest.gates[0].execution = GateExecution::Direct {
+            program: "printf".into(),
+            args: vec!["%s".into(), "literal;printf injected".into()],
+        };
+        let mut options = options(&tree);
+        options.module_ids.clear();
+        options.gate_ids = vec!["pass".into()];
+
+        let run = run_gates(&manifest, b"manifest", &options).unwrap();
+        assert_eq!(run.bundle.gates[0].status, GateStatus::Passed);
+        assert_eq!(run.bundle.gates[0].stdout.tail, "literal;printf injected");
+        assert!(matches!(
+            run.bundle.gates[0].execution,
+            GateExecution::Direct { .. }
+        ));
+    }
+
+    #[test]
+    fn gate_inputs_are_verified_before_process_launch() {
+        let tree = TempTree::new();
+        fs::write(tree.root.join("contract.json"), b"contract-v1").unwrap();
+        let mut manifest = manifest();
+        manifest.gates[0].inputs = vec![GateInput {
+            path: "contract.json".into(),
+            sha256: sha256_hex(b"contract-v1"),
+        }];
+        let mut options = options(&tree);
+        options.module_ids.clear();
+        options.gate_ids = vec!["pass".into()];
+
+        let passed = run_gates(&manifest, b"manifest", &options).unwrap();
+        assert_eq!(passed.bundle.gates[0].status, GateStatus::Passed);
+        assert_eq!(passed.bundle.gates[0].inputs, manifest.gates[0].inputs);
+
+        fs::write(tree.root.join("contract.json"), b"contract-v2").unwrap();
+        let blocked = run_gates(&manifest, b"manifest", &options).unwrap();
+        assert_eq!(blocked.bundle.gates[0].status, GateStatus::LaunchFailed);
+        assert_eq!(blocked.bundle.gates[0].exit_code, None);
+        assert!(
+            blocked.bundle.gates[0]
+                .input_error
+                .as_deref()
+                .is_some_and(|error| error.contains("expected"))
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn gate_inputs_reject_symlinks_even_when_the_digest_matches() {
+        use std::os::unix::fs::symlink;
+
+        let tree = TempTree::new();
+        let outside = TempTree::new();
+        fs::write(outside.root.join("contract.json"), b"contract-v1").unwrap();
+        symlink(
+            outside.root.join("contract.json"),
+            tree.root.join("contract.json"),
+        )
+        .unwrap();
+        let mut manifest = manifest();
+        manifest.gates[0].inputs = vec![GateInput {
+            path: "contract.json".into(),
+            sha256: sha256_hex(b"contract-v1"),
+        }];
+        let mut options = options(&tree);
+        options.module_ids.clear();
+        options.gate_ids = vec!["pass".into()];
+
+        let blocked = run_gates(&manifest, b"manifest", &options).unwrap();
+        assert_eq!(blocked.bundle.gates[0].status, GateStatus::LaunchFailed);
+        assert!(
+            blocked.bundle.gates[0]
+                .input_error
+                .as_deref()
+                .is_some_and(|error| error.contains("must not be a symlink"))
+        );
+    }
+
+    #[test]
+    fn gate_input_drift_during_execution_fails_a_successful_process() {
+        let tree = TempTree::new();
+        fs::write(tree.root.join("contract.json"), b"contract-v1").unwrap();
+        let mut manifest = manifest();
+        manifest.gates[0].execution = GateExecution::Shell {
+            command: if cfg!(windows) {
+                "echo contract-v2>contract.json".into()
+            } else {
+                "printf contract-v2 > contract.json".into()
+            },
+        };
+        manifest.gates[0].inputs = vec![GateInput {
+            path: "contract.json".into(),
+            sha256: sha256_hex(b"contract-v1"),
+        }];
+        let mut options = options(&tree);
+        options.module_ids.clear();
+        options.gate_ids = vec!["pass".into()];
+
+        let blocked = run_gates(&manifest, b"manifest", &options).unwrap();
+        assert_eq!(blocked.bundle.gates[0].exit_code, Some(0));
+        assert_eq!(blocked.bundle.gates[0].status, GateStatus::Failed);
+        assert!(blocked.bundle.gates[0].launch_error.is_none());
+        assert!(
+            blocked.bundle.gates[0]
+                .input_error
+                .as_deref()
+                .is_some_and(|error| error.contains("expected"))
+        );
     }
 
     #[test]
@@ -841,10 +1060,12 @@ mod tests {
     fn output_tail_is_bounded_but_full_log_is_preserved() {
         let tree = TempTree::new();
         let mut manifest = manifest();
-        manifest.gates[0].command = if cfg!(windows) {
-            "echo 0123456789".into()
-        } else {
-            "printf 0123456789".into()
+        manifest.gates[0].execution = GateExecution::Shell {
+            command: if cfg!(windows) {
+                "echo 0123456789".into()
+            } else {
+                "printf 0123456789".into()
+            },
         };
         let mut options = options(&tree);
         options.module_ids.clear();
@@ -935,7 +1156,9 @@ mod tests {
         ));
 
         let mut changed = manifest.clone();
-        changed.gates[0].command = "different command".into();
+        changed.gates[0].execution = GateExecution::Shell {
+            command: "different command".into(),
+        };
         assert!(matches!(
             verify_evidence(
                 &changed,

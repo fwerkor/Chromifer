@@ -70,7 +70,7 @@ pub struct GeneratedBridge {
     pub summary: GenerateSummary,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct BridgeProvenance {
     pub schema_version: u32,
     pub package: String,
@@ -96,7 +96,7 @@ pub struct BridgeProvenance {
     pub build_gn_sha256: String,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ConsumerProvenance {
     pub target_name: String,
     pub sources: Vec<String>,
@@ -107,14 +107,14 @@ pub struct ConsumerProvenance {
     pub header_includes: Vec<HeaderIncludeEvidence>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 pub struct HeaderIncludeEvidence {
     pub header: String,
     pub source: String,
     pub line: usize,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 pub struct MappedDependency {
     pub cargo_name: String,
     pub package_name: String,

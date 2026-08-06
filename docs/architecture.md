@@ -44,11 +44,11 @@ Source targets are then grouped into component proposals by owner and directory 
 
 The owner key is refined from Chromium OWNERS files when available. Per-source primary and inherited owners are stored separately from the project's architectural owner label, including `set noparent`, per-file rules, and included owner files.
 
-Candidate ranking uses compatibility-gate declaration coverage only as a proxy. Actual execution is recorded separately as content-addressed evidence: the exact manifest digest, commands, results, timings, and full output logs are hashed and can be re-verified before a transition check consumes them. Source coverage and signed runner attestations remain separate requirements.
+Candidate ranking uses compatibility-gate declaration coverage only as a proxy. Actual execution is recorded separately as content-addressed evidence: the exact manifest digest, execution definitions, hashed inputs, results, timings, and full output logs can be re-verified before a transition check consumes them. Source coverage and signed runner attestations remain separate requirements.
 
 ## Compatibility contracts
 
-Every component leaving `legacy_cpp` must identify executable gates. Gates are commands, not prose. Planned gate classes include:
+Every component leaving `legacy_cpp` must identify executable gates. Gates are commands, not prose. Legacy manifests may retain shell command strings; generated gates use a program and argument vector so shell syntax cannot alter argument boundaries. Planned gate classes include:
 
 - Chromium unit and browser tests;
 - Web Platform Tests;
@@ -57,7 +57,9 @@ Every component leaving `legacy_cpp` must identify executable gates. Gates are c
 - platform build matrices;
 - binary and IPC compatibility checks.
 
-The migration planner verifies the presence and references of gates. The evidence executor runs selected gates, preserves full content-addressed logs, and writes a content-addressed JSON bundle. Verification recomputes the bundle digest, manifest digest, gate definitions, result consistency, and every referenced log digest before the evidence can support a transition check.
+The migration planner verifies the presence and references of gates. The evidence executor verifies each declared input digest before launch, runs selected gates, preserves full content-addressed logs, and writes a content-addressed JSON bundle. Verification recomputes the bundle digest, manifest digest, execution and input definitions, result consistency, and every referenced log digest before the evidence can support a transition check.
+
+Build contracts do not require maintainers to duplicate generator commands in migration manifests. `derive-gates` reads committed Rust GN, C ABI, Mojo, and unsafe provenance, verifies every referenced digest, reconstructs direct `--check` argument vectors, attaches the resulting gates to selected modules, and includes the source manifest and derivation contract in every gate's input set.
 
 ## Build bridge
 

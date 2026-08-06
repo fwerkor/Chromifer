@@ -67,3 +67,22 @@ jobs:
             examples/mojo-bridge/mojo.json \
             examples/mojo-bridge/BUILD.gn \
             --check
+      - name: Structured contract gates pass
+        run: |
+          cargo run -p chromifer -- derive-gates \
+            . \
+            examples/gates/base.toml \
+            examples/gates/gates.json \
+            examples/gates/generated.toml \
+            --check
+          rm -rf /tmp/chromifer-gate-evidence
+          cargo run -p chromifer -- run-gates \
+            examples/gates/generated.toml \
+            . \
+            /tmp/chromifer-gate-evidence \
+            --json > /tmp/chromifer-gate-run.json
+          evidence=$(python3 -c 'import json; print(json.load(open("/tmp/chromifer-gate-run.json"))["path"])')
+          cargo run -p chromifer -- verify-evidence \
+            examples/gates/generated.toml \
+            "$evidence" \
+            /tmp/chromifer-gate-evidence

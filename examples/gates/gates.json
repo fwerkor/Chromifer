@@ -1,0 +1,41 @@
+{
+  "schema_version": 1,
+  "runner": {
+    "program": "cargo",
+    "args": ["run", "--locked", "-q", "-p", "chromifer", "--"]
+  },
+  "checks": [
+    {
+      "kind": "rust_gn",
+      "id": "rust-bridge-current",
+      "cargo_manifest": "examples/rust-bridge/Cargo.toml",
+      "provenance": "examples/rust-bridge/chromifer-build.json",
+      "modules": ["rust_bridge"],
+      "targets": ["host"]
+    },
+    {
+      "kind": "c_abi",
+      "id": "c-abi-current",
+      "package_root": "examples/c-abi-bridge",
+      "provenance": "examples/c-abi-bridge/include/api.h.chromifer.json",
+      "modules": ["c_abi_bridge"],
+      "targets": ["host"]
+    },
+    {
+      "kind": "mojo",
+      "id": "mojo-current",
+      "package_root": "examples/mojo-bridge",
+      "provenance": "examples/mojo-bridge/chromifer-mojo.json",
+      "modules": ["mojo_bridge"],
+      "targets": ["host"]
+    },
+    {
+      "kind": "unsafe",
+      "id": "unsafe-policy-current",
+      "workspace_root": ".",
+      "report": "chromifer-unsafe.json",
+      "modules": ["unsafe_policy"],
+      "targets": ["host"]
+    }
+  ]
+}

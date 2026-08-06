@@ -3,6 +3,8 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 
+#[cfg(test)]
+use chromifer_manifest::GateExecution;
 use chromifer_manifest::{Boundary, Manifest, MigrationState, Module};
 use serde::Serialize;
 use thiserror::Error;
@@ -784,12 +786,18 @@ mod tests {
             gates: vec![
                 CompatibilityGate {
                     id: "all".into(),
-                    command: "tests".into(),
+                    execution: GateExecution::Shell {
+                        command: "tests".into(),
+                    },
+                    inputs: vec![],
                     targets: vec!["linux".into(), "windows".into()],
                 },
                 CompatibilityGate {
                     id: "linux-only".into(),
-                    command: "linux_tests".into(),
+                    execution: GateExecution::Shell {
+                        command: "linux_tests".into(),
+                    },
+                    inputs: vec![],
                     targets: vec!["linux".into()],
                 },
             ],

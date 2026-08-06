@@ -1,5 +1,7 @@
 #![forbid(unsafe_code)]
 
+#[cfg(test)]
+use chromifer_manifest::GateExecution;
 use chromifer_manifest::{Boundary, BoundaryReviewKind, Manifest, MigrationState, Module};
 use serde::Serialize;
 use thiserror::Error;
@@ -241,7 +243,10 @@ mod tests {
             targets: vec![],
             gates: vec![CompatibilityGate {
                 id: "unit".into(),
-                command: "unit_tests".into(),
+                execution: GateExecution::Shell {
+                    command: "unit_tests".into(),
+                },
+                inputs: vec![],
                 targets: vec![],
             }],
             modules: vec![

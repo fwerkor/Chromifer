@@ -12,6 +12,7 @@ use chromifer_components::{
     AnalysisOptions, CandidateConcern, ComponentAnalysis, analyze_components,
 };
 use chromifer_evidence::{RunOptions, run_gates, verify_evidence};
+use chromifer_gates::{DeriveGateOptions, derive_and_write as derive_gates};
 use chromifer_gn::{GateOptions, ImportOptions, import_gn_file};
 use chromifer_manifest::{Manifest, MigrationState};
 use chromifer_mojo::{MojoGenerateOptions, generate_and_write as generate_mojo};
@@ -249,6 +250,26 @@ enum Command {
         #[arg(long, conflicts_with = "force")]
         check: bool,
         /// Print the audit summary as JSON.
+        #[arg(long)]
+        json: bool,
+    },
+    /// Derive structured compatibility gates from committed build provenance.
+    DeriveGates {
+        /// Repository root used for every generated command and hashed input.
+        repo_root: PathBuf,
+        /// Source migration manifest receiving generated gate definitions.
+        manifest: PathBuf,
+        /// Gate contract selecting committed Rust, C ABI, Mojo, and unsafe provenance.
+        contract: PathBuf,
+        /// Generated migration manifest containing attached structured gates.
+        output: PathBuf,
+        /// Replace an existing generated manifest.
+        #[arg(long, conflicts_with = "check")]
+        force: bool,
+        /// Verify the generated manifest without modifying it.
+        #[arg(long, conflicts_with = "force")]
+        check: bool,
+        /// Print the derivation summary as JSON.
         #[arg(long)]
         json: bool,
     },
@@ -732,6 +753,47 @@ fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
                     generated.summary.crate_roots,
                     generated.summary.unsafe_occurrences,
                     generated.summary.lint_allowances
+                );
+            }
+        }
+        Command::DeriveGates {
+            repo_root,
+            manifest,
+            contract,
+            output,
+            force,
+            check,
+            json,
+        } => {
+            let generated = derive_gates(&DeriveGateOptions {
+                repo_root,
+                manifest,
+                contract,
+                output,
+                force,
+                check,
+            })?;
+            if json {
+                println!("{}", serde_json::to_string_pretty(&generated.summary)?);
+            } else if generated.summary.checked {
+                println!(
+                    "current: {} matches gate contract {} and source manifest {}",
+                    generated.summary.output,
+                    generated.summary.contract,
+                    generated.summary.source_manifest
+                );
+            } else {
+                println!(
+                    "generated {} from {} and {}",
+                    generated.summary.output,
+                    generated.summary.source_manifest,
+                    generated.summary.contract
+                );
+                println!(
+                    "derived {} gate(s), attached {} module(s), and declared {} hashed input(s)",
+                    generated.summary.generated_gates,
+                    generated.summary.attached_modules,
+                    generated.summary.declared_inputs
                 );
             }
         }
