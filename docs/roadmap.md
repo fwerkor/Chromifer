@@ -29,7 +29,7 @@ Acceptance criteria:
 - attest direct gate executable entry paths and canonical binary hashes before and after execution; **implemented**
 - lock nested Chromium source revision, gclient metadata, GN outputs, and required target semantics; **implemented**
 - validate required targets against live `gn desc` output; **implemented**
-- measure source coverage rather than declaration proxies;
+- measure source coverage rather than declaration proxies; **implemented**
 - sign evidence with isolated runner identity and transparency-backed source attestation.
 
 ## M2 — Build-system bridge

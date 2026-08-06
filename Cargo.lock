@@ -75,6 +75,7 @@ dependencies = [
  "chromifer-cabi",
  "chromifer-checkout",
  "chromifer-components",
+ "chromifer-coverage",
  "chromifer-evidence",
  "chromifer-gates",
  "chromifer-gn",
@@ -128,8 +129,20 @@ dependencies = [
 name = "chromifer-components"
 version = "0.1.0"
 dependencies = [
+ "chromifer-coverage",
  "chromifer-manifest",
  "serde",
+ "thiserror",
+]
+
+[[package]]
+name = "chromifer-coverage"
+version = "0.1.0"
+dependencies = [
+ "chromifer-manifest",
+ "serde",
+ "serde_json",
+ "sha2",
  "thiserror",
 ]
 

@@ -1,0 +1,34 @@
+{
+  "data": [
+    {
+      "files": [
+        {
+          "filename": "services/a/a.cc",
+          "summary": {
+            "lines": { "count": 10, "covered": 10, "percent": 100.0 },
+            "functions": { "count": 1, "covered": 1, "percent": 100.0 }
+          }
+        },
+        {
+          "filename": "services/a/a.h",
+          "summary": {
+            "lines": { "count": 0, "covered": 0, "percent": 0.0 },
+            "functions": { "count": 0, "covered": 0, "percent": 0.0 }
+          }
+        },
+        {
+          "filename": "services/b/b.cc",
+          "summary": {
+            "lines": { "count": 20, "covered": 5, "percent": 25.0 },
+            "functions": { "count": 1, "covered": 1, "percent": 100.0 }
+          }
+        }
+      ],
+      "totals": {
+        "lines": { "count": 30, "covered": 15, "percent": 50.0 }
+      }
+    }
+  ],
+  "type": "llvm.coverage.json.export",
+  "version": "2.0.1"
+}

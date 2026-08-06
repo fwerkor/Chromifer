@@ -3,6 +3,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 
+use chromifer_coverage::CoverageReport;
 #[cfg(test)]
 use chromifer_manifest::GateExecution;
 use chromifer_manifest::{Boundary, Manifest, MigrationState, Module};
@@ -42,6 +43,8 @@ pub struct ComponentSummary {
     pub states: StateCounts,
     pub gates: Vec<String>,
     pub test_coverage: TestCoverageProxy,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub source_coverage: Option<SourceCoverageMeasurement>,
     pub incoming_components: usize,
     pub outgoing_components: usize,
     pub unaudited_external_edges: usize,
@@ -67,6 +70,7 @@ pub struct RiskBreakdown {
     pub missing_gates: u32,
     pub scope: u32,
     pub missing_target_coverage: u32,
+    pub source_coverage: u32,
     pub total: u32,
 }
 
@@ -107,6 +111,17 @@ pub struct TestCoverageProxy {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct SourceCoverageMeasurement {
+    pub total_sources: usize,
+    pub measured_sources: usize,
+    pub missing_sources: Vec<String>,
+    pub covered_lines: u64,
+    pub total_lines: u64,
+    pub line_basis_points: u32,
+    pub effective_basis_points: u32,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct ComponentEdge {
     pub from: String,
     pub to: String,
@@ -140,6 +155,10 @@ pub enum CandidateConcern {
     MissingRequiredTargetCoverage {
         missing_pairs: usize,
         total_pairs: usize,
+    },
+    IncompleteSourceCoverage {
+        missing_sources: usize,
+        total_sources: usize,
     },
     MixedMigrationStates,
     DeferredScope {
@@ -208,9 +227,23 @@ struct IncidentMetrics {
     external_owner_edges: usize,
 }
 
+#[derive(Debug, Clone, Copy)]
+struct CoverageRiskPenalties {
+    target: u32,
+    source: u32,
+}
+
 pub fn analyze_components(
     manifest: &Manifest,
     options: &AnalysisOptions,
+) -> Result<ComponentAnalysis, AnalysisError> {
+    analyze_components_with_coverage(manifest, options, None)
+}
+
+pub fn analyze_components_with_coverage(
+    manifest: &Manifest,
+    options: &AnalysisOptions,
+    coverage: Option<&CoverageReport>,
 ) -> Result<ComponentAnalysis, AnalysisError> {
     if options.path_depth == 0 {
         return Err(AnalysisError::ZeroPathDepth);
@@ -235,6 +268,7 @@ pub fn analyze_components(
             group,
             id,
             incident.get(id).cloned().unwrap_or_default(),
+            coverage,
         ));
     }
     components.sort_by(|left, right| left.id.cmp(&right.id));
@@ -522,6 +556,7 @@ fn summarize_component(
     group: &GroupDraft<'_>,
     id: &str,
     incident: IncidentMetrics,
+    coverage: Option<&CoverageReport>,
 ) -> ComponentSummary {
     let mut states = StateCounts::default();
     let mut gates = BTreeSet::new();
@@ -533,6 +568,8 @@ fn summarize_component(
     }
 
     let test_coverage = test_coverage_proxy(manifest, &group.modules);
+    let source_coverage =
+        coverage.map(|coverage| measured_source_coverage(&source_files, coverage));
     let scope = migration_scope(&group.path);
     let mut concerns = Vec::new();
     if source_files.is_empty() {
@@ -546,6 +583,14 @@ fn summarize_component(
             missing_pairs: test_coverage.total_module_target_pairs
                 - test_coverage.covered_module_target_pairs,
             total_pairs: test_coverage.total_module_target_pairs,
+        });
+    }
+    if let Some(source_coverage) = &source_coverage
+        && !source_coverage.missing_sources.is_empty()
+    {
+        concerns.push(CandidateConcern::IncompleteSourceCoverage {
+            missing_sources: source_coverage.missing_sources.len(),
+            total_sources: source_coverage.total_sources,
         });
     }
     if states.is_mixed() {
@@ -570,7 +615,7 @@ fn summarize_component(
         group.modules.len(),
         source_files.len(),
         states,
-        &test_coverage,
+        coverage_risk_penalties(&test_coverage, source_coverage.as_ref()),
         gates.is_empty(),
         scope,
         &incident,
@@ -591,6 +636,7 @@ fn summarize_component(
         states,
         gates: gates.into_iter().collect(),
         test_coverage,
+        source_coverage,
         incoming_components: incident.incoming_components.len(),
         outgoing_components: incident.outgoing_components.len(),
         unaudited_external_edges: incident.unaudited_external_edges,
@@ -640,11 +686,49 @@ fn test_coverage_proxy(manifest: &Manifest, modules: &[&Module]) -> TestCoverage
     }
 }
 
+fn measured_source_coverage(
+    sources: &BTreeSet<String>,
+    coverage: &CoverageReport,
+) -> SourceCoverageMeasurement {
+    let mut measured_sources = 0_usize;
+    let mut missing_sources = Vec::new();
+    let mut total_lines = 0_u64;
+    let mut covered_lines = 0_u64;
+    for source in sources {
+        if let Some(file) = coverage.file(source) {
+            measured_sources += 1;
+            total_lines = total_lines.saturating_add(file.lines.count);
+            covered_lines = covered_lines.saturating_add(file.lines.covered);
+        } else {
+            missing_sources.push(source.clone());
+        }
+    }
+    let line_basis_points = ratio_basis_points(covered_lines, total_lines);
+    let measured_basis_points = ratio_basis_points(measured_sources as u64, sources.len() as u64);
+    SourceCoverageMeasurement {
+        total_sources: sources.len(),
+        measured_sources,
+        missing_sources,
+        covered_lines,
+        total_lines,
+        line_basis_points,
+        effective_basis_points: measured_basis_points.min(line_basis_points),
+    }
+}
+
+fn ratio_basis_points(numerator: u64, denominator: u64) -> u32 {
+    if denominator == 0 {
+        10_000
+    } else {
+        ((numerator.saturating_mul(10_000)) / denominator).min(10_000) as u32
+    }
+}
+
 fn calculate_risk(
     module_count: usize,
     source_files: usize,
     states: StateCounts,
-    coverage: &TestCoverageProxy,
+    coverage: CoverageRiskPenalties,
     no_gates: bool,
     scope: MigrationScope,
     incident: &IncidentMetrics,
@@ -669,15 +753,6 @@ fn calculate_risk(
         MigrationScope::DeferredRuntime => 40,
         MigrationScope::Other => 10,
     };
-    let uncovered = coverage
-        .total_module_target_pairs
-        .saturating_sub(coverage.covered_module_target_pairs);
-    let coverage_penalty = if coverage.total_module_target_pairs == 0 {
-        0
-    } else {
-        (uncovered as u64 * 25).div_ceil(coverage.total_module_target_pairs as u64) as u32
-    };
-
     let total = module_size
         .saturating_add(source_size)
         .saturating_add(topology)
@@ -686,7 +761,8 @@ fn calculate_risk(
         .saturating_add(mixed_state)
         .saturating_add(missing_gate)
         .saturating_add(scope_penalty)
-        .saturating_add(coverage_penalty)
+        .saturating_add(coverage.target)
+        .saturating_add(coverage.source)
         .min(100);
 
     RiskBreakdown {
@@ -698,8 +774,33 @@ fn calculate_risk(
         mixed_state,
         missing_gates: missing_gate,
         scope: scope_penalty,
-        missing_target_coverage: coverage_penalty,
+        missing_target_coverage: coverage.target,
+        source_coverage: coverage.source,
         total,
+    }
+}
+
+fn coverage_risk_penalties(
+    proxy: &TestCoverageProxy,
+    source: Option<&SourceCoverageMeasurement>,
+) -> CoverageRiskPenalties {
+    if let Some(source) = source {
+        let uncovered_basis_points = 10_000_u32.saturating_sub(source.effective_basis_points);
+        return CoverageRiskPenalties {
+            target: 0,
+            source: (u64::from(uncovered_basis_points) * 25).div_ceil(10_000) as u32,
+        };
+    }
+    let uncovered = proxy
+        .total_module_target_pairs
+        .saturating_sub(proxy.covered_module_target_pairs);
+    CoverageRiskPenalties {
+        target: if proxy.total_module_target_pairs == 0 {
+            0
+        } else {
+            (uncovered as u64 * 25).div_ceil(proxy.total_module_target_pairs as u64) as u32
+        },
+        source: 0,
     }
 }
 
@@ -722,6 +823,7 @@ fn migration_scope(path: &str) -> MigrationScope {
 
 #[cfg(test)]
 mod tests {
+    use chromifer_coverage::{CoverageTotals, FileCoverage, LineCoverage};
     use chromifer_manifest::{
         BoundaryReview, BoundaryReviewKind, CompatibilityGate, Dependency, ModuleOwnership,
         Project, Target,
@@ -967,6 +1069,109 @@ mod tests {
             CandidateConcern::MissingRequiredTargetCoverage {
                 missing_pairs: 1,
                 total_pairs: 2
+            }
+        )));
+    }
+
+    #[test]
+    fn measured_source_coverage_replaces_proxy_risk_penalty() {
+        let mut coverage = CoverageReport {
+            schema_version: 1,
+            manifest_sha256: "0".repeat(64),
+            baseline: "fixture-baseline".into(),
+            llvm_export_sha256: "1".repeat(64),
+            llvm_export_version: "2.0.1".into(),
+            files: vec![FileCoverage {
+                path: "services/storage/storage.cc".into(),
+                lines: LineCoverage {
+                    count: 10,
+                    covered: 5,
+                    basis_points: 5_000,
+                },
+            }],
+            modules: vec![],
+            totals: CoverageTotals {
+                manifest_sources: 1,
+                measured_sources: 1,
+                missing_sources: vec![],
+                lines: LineCoverage {
+                    count: 10,
+                    covered: 5,
+                    basis_points: 5_000,
+                },
+            },
+        };
+        for path in [
+            "services/network/core.cc",
+            "services/network/public.h",
+            "content/browser/browser.cc",
+            "base/base.cc",
+            "third_party/blink/core.cc",
+        ] {
+            coverage.files.push(FileCoverage {
+                path: path.into(),
+                lines: LineCoverage {
+                    count: 10,
+                    covered: 10,
+                    basis_points: 10_000,
+                },
+            });
+        }
+
+        let analysis = analyze_components_with_coverage(
+            &manifest(),
+            &AnalysisOptions::default(),
+            Some(&coverage),
+        )
+        .unwrap();
+        let storage = analysis
+            .components
+            .iter()
+            .find(|component| component.id == "services_storage")
+            .unwrap();
+        let measured = storage.source_coverage.as_ref().unwrap();
+        assert_eq!(measured.measured_sources, 1);
+        assert_eq!(measured.line_basis_points, 5_000);
+        assert_eq!(measured.effective_basis_points, 5_000);
+        assert_eq!(storage.risk.missing_target_coverage, 0);
+        assert_eq!(storage.risk.source_coverage, 13);
+    }
+
+    #[test]
+    fn incomplete_source_measurement_is_an_explicit_concern() {
+        let coverage = CoverageReport {
+            schema_version: 1,
+            manifest_sha256: "0".repeat(64),
+            baseline: "fixture-baseline".into(),
+            llvm_export_sha256: "1".repeat(64),
+            llvm_export_version: "2.0.1".into(),
+            files: vec![],
+            modules: vec![],
+            totals: CoverageTotals {
+                manifest_sources: 0,
+                measured_sources: 0,
+                missing_sources: vec![],
+                lines: LineCoverage::default(),
+            },
+        };
+        let analysis = analyze_components_with_coverage(
+            &manifest(),
+            &AnalysisOptions::default(),
+            Some(&coverage),
+        )
+        .unwrap();
+        let storage = analysis
+            .components
+            .iter()
+            .find(|component| component.id == "services_storage")
+            .unwrap();
+        assert!(!storage.eligible);
+        assert_eq!(storage.risk.source_coverage, 25);
+        assert!(storage.concerns.iter().any(|concern| matches!(
+            concern,
+            CandidateConcern::IncompleteSourceCoverage {
+                missing_sources: 1,
+                total_sources: 1
             }
         )));
     }

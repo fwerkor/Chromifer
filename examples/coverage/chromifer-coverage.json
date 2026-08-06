@@ -1,0 +1,67 @@
+{
+  "schema_version": 1,
+  "manifest_sha256": "cdd84aa498ff73f8b763d7dbccda10c8b5f55bbdc5804241fd67fbed44873516",
+  "baseline": "coverage-fixture@1",
+  "llvm_export_sha256": "5aa9c7da9708bda717932d75bb6522184a3c4b610bc0b0779c0be2afc02eae48",
+  "llvm_export_version": "2.0.1",
+  "files": [
+    {
+      "path": "services/a/a.cc",
+      "lines": {
+        "count": 10,
+        "covered": 10,
+        "basis_points": 10000
+      }
+    },
+    {
+      "path": "services/a/a.h",
+      "lines": {
+        "count": 0,
+        "covered": 0,
+        "basis_points": 10000
+      }
+    },
+    {
+      "path": "services/b/b.cc",
+      "lines": {
+        "count": 20,
+        "covered": 5,
+        "basis_points": 2500
+      }
+    }
+  ],
+  "modules": [
+    {
+      "module": "service_a",
+      "total_sources": 2,
+      "measured_sources": 2,
+      "missing_sources": [],
+      "lines": {
+        "count": 10,
+        "covered": 10,
+        "basis_points": 10000
+      }
+    },
+    {
+      "module": "service_b",
+      "total_sources": 1,
+      "measured_sources": 1,
+      "missing_sources": [],
+      "lines": {
+        "count": 20,
+        "covered": 5,
+        "basis_points": 2500
+      }
+    }
+  ],
+  "totals": {
+    "manifest_sources": 3,
+    "measured_sources": 3,
+    "missing_sources": [],
+    "lines": {
+      "count": 30,
+      "covered": 15,
+      "basis_points": 5000
+    }
+  }
+}

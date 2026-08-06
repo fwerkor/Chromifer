@@ -46,7 +46,7 @@ The policy is intentionally mechanical:
 
 This is a proposal generator, not a declaration of architectural truth. A maintainer can change `--path-depth` or later replace the proposal with an explicit component definition.
 
-## Compatibility coverage proxy
+## Compatibility and source coverage
 
 The analysis reports a strict `module × required target` gate-coverage proxy. A pair is covered only when that module references a defined compatibility gate that includes the required target.
 
@@ -59,7 +59,9 @@ This metric proves only that executable gates are declared. It does not prove th
 - branch or line coverage is sufficient;
 - performance and compatibility budgets pass.
 
-Actual gate results are produced by `run-gates` and verified by `verify-evidence`; they remain separate from this declaration-based ranking score.
+When `rank-components` receives `--coverage`, the report's measured source completeness and line coverage are also attached to each component. The measured score is the lower of the two percentages, so a report cannot look complete merely because a small measured subset has high line coverage. Missing manifest sources are an explicit readiness concern.
+
+With measured source coverage, its 0–25 point penalty replaces the declaration proxy's coverage penalty. The original module-target matrix remains in the analysis as a separate compatibility-declaration metric. Actual gate results are produced by `run-gates` and verified by `verify-evidence`; they remain separate from both measurements.
 
 ## Migration scopes
 
@@ -91,7 +93,8 @@ The score is deterministic and deliberately transparent. The analysis starts wit
 | Unresolved callback/observer review | 10 each, capped at 40 |
 | Mixed migration states inside one proposal | 20 |
 | No compatibility gates | 15 |
-| Missing required module-target gate pairs | proportional penalty from 0 to 25 |
+| Missing required module-target gate pairs | proportional penalty from 0 to 25 when measured source coverage is absent |
+| Measured source coverage gap | proportional penalty from 0 to 25 when `--coverage` is supplied |
 | Migration scope | table above |
 
 The total risk is capped at 100:
@@ -100,7 +103,7 @@ The total risk is capped at 100:
 readiness_score = 100 - risk_score
 ```
 
-A component is marked `ready` only when it has source files, compatibility gates, complete required-target gate declarations, one migration-state class, no unresolved callback/observer reviews, no private or unclassified external boundary, and is outside the explicitly deferred runtime scope.
+A component is marked `ready` only when it has source files, compatibility gates, complete required-target gate declarations, one migration-state class, no unresolved callback/observer reviews, no private or unclassified external boundary, and is outside the explicitly deferred runtime scope. When measured source coverage is supplied, every component source must also be represented in the report; line coverage below 100% affects risk without automatically blocking readiness.
 
 A high score is a triage result, not permission to merge a Rust replacement. The transition planner and executable compatibility gates remain authoritative.
 

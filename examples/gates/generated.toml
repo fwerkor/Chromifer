@@ -254,15 +254,15 @@ targets = ["host"]
 
 [[gates.inputs]]
 path = "Cargo.lock"
-sha256 = "b79501798ddb57385589260b36cfb6dd853206a16634582fbfff8fe31a3e684e"
+sha256 = "8240adadc6b6f3a09bc432e334a64223e4f3e44318a50a538de6487d0c9e6bd6"
 
 [[gates.inputs]]
 path = "Cargo.toml"
-sha256 = "fd6a69c1491f658c2ebbb666cd59090b73297f3d3ee6cb903d59609db361d972"
+sha256 = "8455b0280df9df56a29578c09bf3744199c68e3b52698bae730829da3a2aa208"
 
 [[gates.inputs]]
 path = "chromifer-unsafe.json"
-sha256 = "0b11d7f9dee3918448a73d232ec9e495af86a49bdc14ccbabd4c2ac68ffc43ab"
+sha256 = "e6a3989adf9cff03f669fc016496cbf7d6822ef7a6850a12d4d0dc2481745a5f"
 
 [[gates.inputs]]
 path = "crates/chromifer-build/Cargo.toml"
@@ -290,19 +290,27 @@ sha256 = "71d2e5b4a60019c09962018c819fac3c84deb7c4eaf9d5263b346e73c63a487d"
 
 [[gates.inputs]]
 path = "crates/chromifer-cli/Cargo.toml"
-sha256 = "634a79912ecded9b116af192a78153dab73eaa10757441c18fea1e3d46dad313"
+sha256 = "37fc7990df38c960958ce2f7c9c1de3f514d8b620e848fc871ed90eb419f95f9"
 
 [[gates.inputs]]
 path = "crates/chromifer-cli/src/main.rs"
-sha256 = "446621fce914b126bb1357caecc9ca21e70eb90e42c3099f38ac2da8167ab5a1"
+sha256 = "2533311eb7272c4c68b99b7551c1910652b629e9dd42f7791ca3066343abbf47"
 
 [[gates.inputs]]
 path = "crates/chromifer-components/Cargo.toml"
-sha256 = "e872d5696ba38b19177a5ff7019b3214370d3e8a6f6e2526e7dff67e3c5a7a21"
+sha256 = "2dd3737c2ebdd366d86b5bb0c8b190a64112da3e3beb640666b7a936e484bd5f"
 
 [[gates.inputs]]
 path = "crates/chromifer-components/src/lib.rs"
-sha256 = "59a7ad69c4be35ed2820d35985232b0cc1908e7620046d50e705f650f13f03ef"
+sha256 = "551e4ae19dff029d3ae1a7ff6fe9d9a39e3ae8e7bb7fbad1a97b183cc8fe013d"
+
+[[gates.inputs]]
+path = "crates/chromifer-coverage/Cargo.toml"
+sha256 = "fce3b543c076956a9139e1c1d73ca93d2a3346eb0d8511631c0cdbd0ab16ce60"
+
+[[gates.inputs]]
+path = "crates/chromifer-coverage/src/lib.rs"
+sha256 = "05a52a57da8b4382755dbd9849e1b5a88e6cac32e25546d02bcc2e2c46025661"
 
 [[gates.inputs]]
 path = "crates/chromifer-evidence/Cargo.toml"
@@ -394,7 +402,7 @@ sha256 = "d68fa6e99d46f0d5629a41d40c21007e1edf19362405c8fb2f7ba4d4448e8677"
 
 [[gates.inputs]]
 path = "unsafe-policy.json"
-sha256 = "f0011ee1a221788a6a950cccc6c55ab50c08ed6f5f70980629c7fbc0ea9ee8b6"
+sha256 = "9c3d249b39a3da955fc0b5d10bb745c4d0d3f3e2b028333dd67ff056f3205d5c"
 
 [[modules]]
 id = "rust_bridge"

@@ -23,6 +23,19 @@ jobs:
         run: cargo clippy --workspace --all-targets --all-features -- -D warnings
       - name: Test
         run: cargo test --workspace --all-features --locked
+      - name: Measured source coverage is current
+        run: |
+          cargo run -p chromifer -- summarize-coverage \
+            examples/coverage/manifest.toml \
+            examples/coverage/source \
+            examples/coverage/llvm-cov.json \
+            examples/coverage/chromifer-coverage.json \
+            --check
+          cargo run -p chromifer -- rank-components \
+            examples/coverage/manifest.toml \
+            --coverage examples/coverage/chromifer-coverage.json \
+            --json > /tmp/chromifer-coverage-ranking.json
+          python3 -c 'import json; d=json.load(open("/tmp/chromifer-coverage-ranking.json")); c={x["id"]:x for x in d["components"]}; assert c["services_a"]["risk"]["source_coverage"] == 0; assert c["services_b"]["risk"]["source_coverage"] == 19'
       - name: Unsafe policy is current
         run: |
           cargo run -p chromifer -- audit-unsafe \

@@ -22,6 +22,10 @@
       "mode": "safe"
     },
     {
+      "package": "chromifer-coverage",
+      "mode": "safe"
+    },
+    {
       "package": "chromifer-evidence",
       "mode": "safe"
     },

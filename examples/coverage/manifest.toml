@@ -1,0 +1,42 @@
+schema_version = 1
+
+[project]
+name = "coverage-fixture"
+upstream = "chromium"
+baseline = "coverage-fixture@1"
+
+[[targets]]
+id = "linux"
+description = "Linux"
+required = true
+
+[[targets]]
+id = "windows"
+description = "Windows"
+required = true
+
+[[gates]]
+id = "all-platforms"
+command = "true"
+targets = ["linux", "windows"]
+
+[[gates]]
+id = "linux-only"
+command = "true"
+targets = ["linux"]
+
+[[modules]]
+id = "service_a"
+path = "services/a"
+owner = "services"
+sources = ["services/a/a.cc", "services/a/a.h"]
+state = "bridged"
+gates = ["all-platforms"]
+
+[[modules]]
+id = "service_b"
+path = "services/b"
+owner = "services"
+sources = ["services/b/b.cc"]
+state = "legacy_cpp"
+gates = ["linux-only"]

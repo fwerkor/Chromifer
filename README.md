@@ -29,6 +29,7 @@ The initial workspace provides:
 - `chromifer-gn`: imports GN JSON project graphs into reproducible manifests.
 - `chromifer-integration`: builds generated Rust/C ABI packages through GN and Ninja and executes a C++ endpoint.
 - `chromifer-components`: aggregates GN targets and ranks migration candidates.
+- `chromifer-coverage`: binds LLVM line coverage to exact manifest source inventories.
 - `chromifer-owners`: resolves Chromium OWNERS hierarchy and per-source provenance.
 - `chromifer-evidence`: executes compatibility gates and verifies content-addressed evidence.
 - `chromifer-planner`: computes legal next transitions and explains blocked ones.
@@ -73,11 +74,18 @@ cargo run -p chromifer -- scan-owners \
   chromium-owned.toml
 ```
 
-Aggregate targets and rank migration candidates:
+Summarize measured source coverage and use it while ranking migration candidates:
 
 ```bash
+cargo run -p chromifer -- summarize-coverage \
+  chromium-owned.toml \
+  /path/to/chromium/src \
+  llvm-cov.json \
+  chromifer-coverage.json
+
 cargo run -p chromifer -- rank-components \
-  chromium-owned.toml
+  chromium-owned.toml \
+  --coverage chromifer-coverage.json
 ```
 
 Generate a Chromium Rust build target:
@@ -228,6 +236,7 @@ crates/
   chromifer-source/    Source boundary evidence scanner
   chromifer-owners/    Chromium OWNERS hierarchy scanner
   chromifer-components/ Target aggregation and candidate ranking
+  chromifer-coverage/  LLVM source coverage ingestion and aggregation
   chromifer-evidence/  Content-addressed gate execution evidence
   chromifer-planner/   Transition safety analysis
   chromifer-cli/       Command-line frontend
@@ -237,6 +246,7 @@ docs/
   source-scan.md       Source evidence and review workflow
   owners-scan.md       Chromium OWNERS hierarchy and provenance
   component-ranking.md Aggregation policy and scoring formula
+  coverage.md          Measured source coverage and ranking evidence
   gate-evidence.md     Gate execution and evidence verification
   attestation.md       Git checkout and executable identity evidence
   checkout-lock.md     Chromium source, gclient, and GN output lock
@@ -261,4 +271,4 @@ examples/
 
 The project initially targets Chromium's browser framework, service layer, process/security orchestration, and platform adapters. Rewriting Blink or V8 is explicitly outside the first phases.
 
-See [docs/gn-import.md](docs/gn-import.md) for graph import, [docs/source-scan.md](docs/source-scan.md) for boundary evidence, [docs/owners-scan.md](docs/owners-scan.md) for ownership, [docs/component-ranking.md](docs/component-ranking.md) for component analysis, [docs/gate-evidence.md](docs/gate-evidence.md) for executable evidence, [docs/attestation.md](docs/attestation.md) for checkout and tool identity, [docs/checkout-lock.md](docs/checkout-lock.md) for Chromium source and GN graph locking, [docs/gn-integration.md](docs/gn-integration.md) for real GN/Ninja endpoint execution, [docs/structured-gates.md](docs/structured-gates.md) for provenance-derived direct checks, [docs/build-bridge.md](docs/build-bridge.md) for Chromium GN generation, [docs/c-abi.md](docs/c-abi.md) for explicit C ABI contracts, [docs/mojo.md](docs/mojo.md) for Mojo target contracts, [docs/unsafe-policy.md](docs/unsafe-policy.md) for workspace unsafe-code enforcement, and [docs/roadmap.md](docs/roadmap.md) for the staged plan.
+See [docs/gn-import.md](docs/gn-import.md) for graph import, [docs/source-scan.md](docs/source-scan.md) for boundary evidence, [docs/owners-scan.md](docs/owners-scan.md) for ownership, [docs/component-ranking.md](docs/component-ranking.md) for component analysis, [docs/coverage.md](docs/coverage.md) for measured source coverage, [docs/gate-evidence.md](docs/gate-evidence.md) for executable evidence, [docs/attestation.md](docs/attestation.md) for checkout and tool identity, [docs/checkout-lock.md](docs/checkout-lock.md) for Chromium source and GN graph locking, [docs/gn-integration.md](docs/gn-integration.md) for real GN/Ninja endpoint execution, [docs/structured-gates.md](docs/structured-gates.md) for provenance-derived direct checks, [docs/build-bridge.md](docs/build-bridge.md) for Chromium GN generation, [docs/c-abi.md](docs/c-abi.md) for explicit C ABI contracts, [docs/mojo.md](docs/mojo.md) for Mojo target contracts, [docs/unsafe-policy.md](docs/unsafe-policy.md) for workspace unsafe-code enforcement, and [docs/roadmap.md](docs/roadmap.md) for the staged plan.

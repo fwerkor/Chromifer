@@ -1,6 +1,6 @@
 [package]
-name = "chromifer-components"
-description = "Deterministic GN target aggregation and migration candidate ranking for Chromifer"
+name = "chromifer-coverage"
+description = "LLVM source coverage ingestion and aggregation for Chromifer"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -9,7 +9,8 @@ repository.workspace = true
 authors.workspace = true
 
 [dependencies]
-chromifer-coverage = { path = "../chromifer-coverage" }
 chromifer-manifest = { path = "../chromifer-manifest" }
 serde.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
 thiserror.workspace = true
