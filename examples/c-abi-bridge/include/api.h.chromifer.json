@@ -1,0 +1,50 @@
+{
+  "schema_version": 1,
+  "contract_sha256": "f7a7d870a6c6b86b663dccd9496bc5df512cb3ddce2bfc1e03584ebf8672a626",
+  "contract_path": "c-abi.json",
+  "header_sha256": "a86319325c24f1355546bc699027b23854057b18e8752b0ae4810ab02865438b",
+  "header_path": "include/api.h",
+  "header_guard": "CHROMIFER_C_ABI_EXAMPLE_H_",
+  "sources": [
+    {
+      "source": "src/lib.rs",
+      "sha256": "7e8e3231db5b71ff692a2323350a983b95d88c70eb7b9a0f43f12ee82d8553dc"
+    }
+  ],
+  "symbols": [
+    {
+      "name": "chromifer_add",
+      "source": "src/lib.rs",
+      "line": 2,
+      "unsafe_function": false,
+      "return_type": "i32",
+      "parameters": [
+        {
+          "name": "left",
+          "type": "i32"
+        },
+        {
+          "name": "right",
+          "type": "i32"
+        }
+      ]
+    },
+    {
+      "name": "chromifer_buffer_is_valid",
+      "source": "src/lib.rs",
+      "line": 7,
+      "unsafe_function": true,
+      "return_type": "bool",
+      "parameters": [
+        {
+          "name": "data",
+          "type": "const_u8_ptr"
+        },
+        {
+          "name": "length",
+          "type": "usize"
+        }
+      ]
+    }
+  ]
+}

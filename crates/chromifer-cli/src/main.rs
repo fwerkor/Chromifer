@@ -7,6 +7,7 @@ use std::process::ExitCode;
 use std::time::Duration;
 
 use chromifer_build::{ConsumerOptions, GenerateOptions, generate_and_write};
+use chromifer_cabi::{CAbiGenerateOptions, generate_and_write as generate_c_abi};
 use chromifer_components::{
     AnalysisOptions, CandidateConcern, ComponentAnalysis, analyze_components,
 };
@@ -16,13 +17,87 @@ use chromifer_manifest::{Manifest, MigrationState};
 use chromifer_owners::scan_ownership;
 use chromifer_planner::{Blocker, assess_transition, migration_frontier};
 use chromifer_source::scan_manifest;
-use clap::{Parser, Subcommand};
+use clap::{Args, Parser, Subcommand};
 
 #[derive(Debug, Parser)]
 #[command(name = "chromifer", version, about)]
 struct Cli {
     #[command(subcommand)]
     command: Command,
+}
+
+#[derive(Debug, Args)]
+struct GenerateGnArgs {
+    /// Cargo.toml for a first-party Rust library.
+    cargo_manifest: PathBuf,
+    /// Must be BUILD.gn in the selected package root.
+    output: PathBuf,
+    /// Select a package when Cargo.toml is a virtual workspace manifest.
+    #[arg(long)]
+    package: Option<String>,
+    /// Override the generated GN target name.
+    #[arg(long)]
+    target_name: Option<String>,
+    /// Map an active Cargo dependency as `cargo_name=//gn:label`. Repeatable.
+    #[arg(long = "dep")]
+    dependencies: Vec<String>,
+    /// Map a public Cargo dependency as `cargo_name=//gn:label`. Repeatable.
+    #[arg(long = "public-dep")]
+    public_dependencies: Vec<String>,
+    /// Add a non-Cargo private GN dependency. Repeatable.
+    #[arg(long = "gn-dep")]
+    additional_deps: Vec<String>,
+    /// Add a non-Cargo public GN dependency. Repeatable.
+    #[arg(long = "gn-public-dep")]
+    additional_public_deps: Vec<String>,
+    /// Restrict GN visibility. Repeatable.
+    #[arg(long)]
+    visibility: Vec<String>,
+    /// Enable a Cargo feature. Repeatable.
+    #[arg(long = "feature")]
+    features: Vec<String>,
+    /// Do not enable the Cargo package's default feature set.
+    #[arg(long)]
+    no_default_features: bool,
+    /// Include an additional package-relative Rust source. Repeatable.
+    #[arg(long = "extra-source")]
+    extra_sources: Vec<String>,
+    /// Permit unsafe Rust even when no CXX bridge is detected.
+    #[arg(long)]
+    allow_unsafe: bool,
+    /// Chromium repository package path, for example `//services/network/rust`.
+    #[arg(long)]
+    gn_package_path: Option<String>,
+    /// Generate a C++ source_set with this target name.
+    #[arg(long)]
+    consumer_target: Option<String>,
+    /// Package-relative C++ consumer source. Repeatable.
+    #[arg(long = "consumer-source")]
+    consumer_sources: Vec<String>,
+    /// Package-relative generated C ABI or other boundary header. Repeatable.
+    #[arg(long = "consumer-header")]
+    consumer_headers: Vec<String>,
+    /// Additional private GN dependency for the C++ consumer. Repeatable.
+    #[arg(long = "consumer-dep")]
+    consumer_deps: Vec<String>,
+    /// Additional public GN dependency for the C++ consumer. Repeatable.
+    #[arg(long = "consumer-public-dep")]
+    consumer_public_deps: Vec<String>,
+    /// Restrict C++ consumer visibility. Repeatable.
+    #[arg(long = "consumer-visibility")]
+    consumer_visibility: Vec<String>,
+    /// Cargo executable used for metadata extraction.
+    #[arg(long, default_value = "cargo")]
+    cargo: PathBuf,
+    /// Replace existing BUILD.gn and provenance files.
+    #[arg(long, conflicts_with = "check")]
+    force: bool,
+    /// Verify generated files are current without modifying them.
+    #[arg(long, conflicts_with = "force")]
+    check: bool,
+    /// Print generation summary as JSON.
+    #[arg(long)]
+    json: bool,
 }
 
 #[derive(Debug, Subcommand)]
@@ -114,66 +189,19 @@ enum Command {
         json: bool,
     },
     /// Generate Chromium rust_static_library BUILD.gn from Cargo metadata.
-    GenerateGn {
-        /// Cargo.toml for a first-party Rust library.
-        cargo_manifest: PathBuf,
-        /// Must be BUILD.gn in the selected package root.
+    GenerateGn(Box<GenerateGnArgs>),
+    /// Validate a Rust C ABI contract and generate its C header.
+    GenerateCAbi {
+        /// Rust package root containing `src/` and the contract.
+        package_root: PathBuf,
+        /// Explicit C ABI contract JSON inside the package root.
+        contract: PathBuf,
+        /// Generated .h file inside an existing package directory.
         output: PathBuf,
-        /// Select a package when Cargo.toml is a virtual workspace manifest.
-        #[arg(long)]
-        package: Option<String>,
-        /// Override the generated GN target name.
-        #[arg(long)]
-        target_name: Option<String>,
-        /// Map an active Cargo dependency as `cargo_name=//gn:label`. Repeatable.
-        #[arg(long = "dep")]
-        dependencies: Vec<String>,
-        /// Map a public Cargo dependency as `cargo_name=//gn:label`. Repeatable.
-        #[arg(long = "public-dep")]
-        public_dependencies: Vec<String>,
-        /// Add a non-Cargo private GN dependency. Repeatable.
-        #[arg(long = "gn-dep")]
-        additional_deps: Vec<String>,
-        /// Add a non-Cargo public GN dependency. Repeatable.
-        #[arg(long = "gn-public-dep")]
-        additional_public_deps: Vec<String>,
-        /// Restrict GN visibility. Repeatable.
-        #[arg(long)]
-        visibility: Vec<String>,
-        /// Enable a Cargo feature. Repeatable.
-        #[arg(long = "feature")]
-        features: Vec<String>,
-        /// Do not enable the Cargo package's default feature set.
-        #[arg(long)]
-        no_default_features: bool,
-        /// Include an additional package-relative Rust source. Repeatable.
+        /// Additional package-relative Rust source. Repeatable.
         #[arg(long = "extra-source")]
         extra_sources: Vec<String>,
-        /// Permit unsafe Rust even when no CXX bridge is detected.
-        #[arg(long)]
-        allow_unsafe: bool,
-        /// Chromium repository package path, for example `//services/network/rust`.
-        #[arg(long)]
-        gn_package_path: Option<String>,
-        /// Generate a C++ source_set with this target name.
-        #[arg(long)]
-        consumer_target: Option<String>,
-        /// Package-relative C++ consumer source. Repeatable.
-        #[arg(long = "consumer-source")]
-        consumer_sources: Vec<String>,
-        /// Additional private GN dependency for the C++ consumer. Repeatable.
-        #[arg(long = "consumer-dep")]
-        consumer_deps: Vec<String>,
-        /// Additional public GN dependency for the C++ consumer. Repeatable.
-        #[arg(long = "consumer-public-dep")]
-        consumer_public_deps: Vec<String>,
-        /// Restrict C++ consumer visibility. Repeatable.
-        #[arg(long = "consumer-visibility")]
-        consumer_visibility: Vec<String>,
-        /// Cargo executable used for metadata extraction.
-        #[arg(long, default_value = "cargo")]
-        cargo: PathBuf,
-        /// Replace existing BUILD.gn and provenance files.
+        /// Replace existing header and provenance files.
         #[arg(long, conflicts_with = "check")]
         force: bool,
         /// Verify generated files are current without modifying them.
@@ -442,33 +470,36 @@ fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
                 print_component_ranking(&analysis, limit);
             }
         }
-        Command::GenerateGn {
-            cargo_manifest,
-            output,
-            package,
-            target_name,
-            dependencies,
-            public_dependencies,
-            additional_deps,
-            additional_public_deps,
-            visibility,
-            features,
-            no_default_features,
-            extra_sources,
-            allow_unsafe,
-            gn_package_path,
-            consumer_target,
-            consumer_sources,
-            consumer_deps,
-            consumer_public_deps,
-            consumer_visibility,
-            cargo,
-            force,
-            check,
-            json,
-        } => {
+        Command::GenerateGn(args) => {
+            let GenerateGnArgs {
+                cargo_manifest,
+                output,
+                package,
+                target_name,
+                dependencies,
+                public_dependencies,
+                additional_deps,
+                additional_public_deps,
+                visibility,
+                features,
+                no_default_features,
+                extra_sources,
+                allow_unsafe,
+                gn_package_path,
+                consumer_target,
+                consumer_sources,
+                consumer_headers,
+                consumer_deps,
+                consumer_public_deps,
+                consumer_visibility,
+                cargo,
+                force,
+                check,
+                json,
+            } = *args;
             let consumer_requested = consumer_target.is_some()
                 || !consumer_sources.is_empty()
+                || !consumer_headers.is_empty()
                 || !consumer_deps.is_empty()
                 || !consumer_public_deps.is_empty()
                 || !consumer_visibility.is_empty();
@@ -477,6 +508,7 @@ fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
                     target_name: consumer_target
                         .ok_or("C++ consumer options require --consumer-target")?,
                     sources: consumer_sources,
+                    required_headers: consumer_headers,
                     deps: consumer_deps,
                     public_deps: consumer_public_deps,
                     visibility: consumer_visibility,
@@ -537,6 +569,47 @@ fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
                         generated.summary.consumer_source_count
                     );
                 }
+            }
+        }
+        Command::GenerateCAbi {
+            package_root,
+            contract,
+            output,
+            extra_sources,
+            force,
+            check,
+            json,
+        } => {
+            let generated = generate_c_abi(&CAbiGenerateOptions {
+                package_root,
+                contract,
+                output,
+                extra_sources,
+                force,
+                check,
+            })?;
+            if json {
+                println!("{}", serde_json::to_string_pretty(&generated.summary)?);
+            } else if generated.summary.checked {
+                println!(
+                    "current: {} and {} match C ABI contract {}",
+                    generated.summary.output,
+                    generated.summary.provenance,
+                    generated.summary.contract
+                );
+            } else {
+                println!(
+                    "generated {} and {} from {}",
+                    generated.summary.output,
+                    generated.summary.provenance,
+                    generated.summary.contract
+                );
+                println!(
+                    "validated {} exported symbol(s) across {} Rust source(s); guard={}",
+                    generated.summary.symbol_count,
+                    generated.summary.source_count,
+                    generated.summary.header_guard
+                );
             }
         }
         Command::RunGates {

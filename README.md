@@ -21,6 +21,7 @@ The initial workspace provides:
 
 - `chromifer-manifest`: parses and validates migration manifests.
 - `chromifer-build`: generates Chromium `rust_static_library` targets from Cargo metadata.
+- `chromifer-cabi`: validates explicit Rust C ABI contracts and generates C headers.
 - `chromifer-gn`: imports GN JSON project graphs into reproducible manifests.
 - `chromifer-components`: aggregates GN targets and ranks migration candidates.
 - `chromifer-owners`: resolves Chromium OWNERS hierarchy and per-source provenance.
@@ -89,6 +90,21 @@ cargo run -p chromifer -- generate-gn \
   --gn-package-path //services/example/rust \
   --consumer-target example_bridge_cpp \
   --consumer-source consumer/example_bridge.cc
+
+# Generate and attach an explicit C ABI:
+cargo run -p chromifer -- generate-c-abi \
+  path/to/package \
+  path/to/package/c-abi.json \
+  path/to/package/include/api.h
+
+cargo run -p chromifer -- generate-gn \
+  path/to/package/Cargo.toml \
+  path/to/package/BUILD.gn \
+  --gn-package-path //services/example/rust \
+  --allow-unsafe \
+  --consumer-target example_c_abi \
+  --consumer-source consumer/example.cc \
+  --consumer-header include/api.h
 ```
 
 Execute and verify compatibility evidence:
@@ -133,6 +149,7 @@ GN imports follow the same rule. Cross-language edges inferred only from source 
 crates/
   chromifer-manifest/  Manifest model and structural validation
   chromifer-build/     Cargo-to-Chromium GN bridge generation
+  chromifer-cabi/      Explicit C ABI validation and header generation
   chromifer-gn/        GN JSON graph importer
   chromifer-source/    Source boundary evidence scanner
   chromifer-owners/    Chromium OWNERS hierarchy scanner
@@ -148,14 +165,16 @@ docs/
   component-ranking.md Aggregation policy and scoring formula
   gate-evidence.md     Gate execution and evidence verification
   build-bridge.md      Cargo-to-Chromium GN generation
+  c-abi.md             Explicit Rust C ABI contracts
   roadmap.md           Milestones and acceptance criteria
 examples/
   chromium.toml        Example migration manifest
   gn-project.json      Example GN JSON project graph
+  c-abi-bridge/        Generated C ABI and C++ consumer example
 ```
 
 ## Scope
 
 The project initially targets Chromium's browser framework, service layer, process/security orchestration, and platform adapters. Rewriting Blink or V8 is explicitly outside the first phases.
 
-See [docs/gn-import.md](docs/gn-import.md) for graph import, [docs/source-scan.md](docs/source-scan.md) for boundary evidence, [docs/owners-scan.md](docs/owners-scan.md) for ownership, [docs/component-ranking.md](docs/component-ranking.md) for component analysis, [docs/gate-evidence.md](docs/gate-evidence.md) for executable evidence, [docs/build-bridge.md](docs/build-bridge.md) for Chromium GN generation, and [docs/roadmap.md](docs/roadmap.md) for the staged plan.
+See [docs/gn-import.md](docs/gn-import.md) for graph import, [docs/source-scan.md](docs/source-scan.md) for boundary evidence, [docs/owners-scan.md](docs/owners-scan.md) for ownership, [docs/component-ranking.md](docs/component-ranking.md) for component analysis, [docs/gate-evidence.md](docs/gate-evidence.md) for executable evidence, [docs/build-bridge.md](docs/build-bridge.md) for Chromium GN generation, [docs/c-abi.md](docs/c-abi.md) for explicit C ABI contracts, and [docs/roadmap.md](docs/roadmap.md) for the staged plan.

@@ -109,6 +109,8 @@ Both quoted and angle-bracket includes are recognized. Chromifer records the sou
 
 The generated consumer automatically receives a private dependency on `:<rust_target>`. Chromium's Rust target exports the CXX-generated dependency information needed by a C++ dependent. Additional private/public dependencies and visibility remain explicit.
 
+The same consumer mechanism accepts explicit generated C ABI headers through `--consumer-header`. A package-relative header is expanded through `--gn-package-path`, and the C++ source must include that repository-root path. Pure C ABI consumers do not require a CXX bridge. Contract validation and header generation are documented in [c-abi.md](c-abi.md).
+
 ## Cargo dependency mapping
 
 Cargo package names do not determine Chromium GN labels. Every active normal dependency must therefore be mapped explicitly:
@@ -181,7 +183,7 @@ chromifer generate-gn Cargo.toml BUILD.gn \
 
 `--check` regenerates both files in memory and fails when either differs. Changes to Cargo metadata, Rust source inventory, CXX bridges, dependency mappings, features, unsafe policy, or the generated GN text therefore become review-visible.
 
-`examples/rust-bridge` is checked this way by Chromifer's own CI.
+`examples/rust-bridge` and `examples/c-abi-bridge` are checked this way by Chromifer's own CI.
 
 ## Current boundary
 

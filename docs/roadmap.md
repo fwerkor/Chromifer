@@ -38,7 +38,8 @@ Acceptance criteria:
 - support multiple consumer targets selecting different CXX bridge subsets;
 - translate a proven Cargo `cfg` OS/architecture subset into GN conditions; **implemented**
 - extend condition translation to additional exact Cargo/Chromium mappings;
-- establish C ABI and Mojo boundary templates;
+- establish an explicit C ABI contract, Rust export validator, generated header, and GN consumer integration; **implemented**
+- establish Mojo boundary templates;
 - enforce that `unsafe` appears only in designated bridge crates;
 - build generated bridge examples on Linux, Windows, and macOS.
 

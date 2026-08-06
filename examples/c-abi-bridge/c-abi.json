@@ -1,0 +1,22 @@
+{
+  "schema_version": 1,
+  "header_guard": "CHROMIFER_C_ABI_EXAMPLE_H_",
+  "symbols": [
+    {
+      "name": "chromifer_add",
+      "return_type": "i32",
+      "parameters": [
+        { "name": "left", "type": "i32" },
+        { "name": "right", "type": "i32" }
+      ]
+    },
+    {
+      "name": "chromifer_buffer_is_valid",
+      "return_type": "bool",
+      "parameters": [
+        { "name": "data", "type": "const_u8_ptr" },
+        { "name": "length", "type": "usize" }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,46 @@
+{
+  "schema_version": 4,
+  "package": "chromifer-c-abi-example",
+  "version": "0.1.0",
+  "cargo_manifest_sha256": "4bf82dd4e19e3e6485eada71f8af6e660c971d3c80d2c270ac55028629690862",
+  "target_name": "chromifer_c_abi_example",
+  "crate_root": "src/lib.rs",
+  "edition": "2024",
+  "sources": [
+    "src/lib.rs"
+  ],
+  "cxx_bindings": [],
+  "gn_package_path": "//examples/c-abi-bridge",
+  "generated_cxx_headers": [],
+  "features": [],
+  "no_default_features": false,
+  "dependencies": [],
+  "additional_deps": [],
+  "additional_public_deps": [],
+  "visibility": [],
+  "allow_unsafe": true,
+  "consumer": {
+    "target_name": "c_abi_smoke",
+    "sources": [
+      "consumer/smoke.cc"
+    ],
+    "required_headers": [
+      "examples/c-abi-bridge/include/api.h"
+    ],
+    "deps": [
+      ":chromifer_c_abi_example"
+    ],
+    "public_deps": [],
+    "visibility": [
+      "//examples/c-abi-bridge:*"
+    ],
+    "header_includes": [
+      {
+        "header": "examples/c-abi-bridge/include/api.h",
+        "source": "consumer/smoke.cc",
+        "line": 1
+      }
+    ]
+  },
+  "build_gn_sha256": "0acf6efb79dda3b21c0c7c525a2abfc808ba10b611fec0db388a24eb6719de49"
+}

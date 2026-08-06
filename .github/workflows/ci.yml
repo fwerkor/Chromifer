@@ -29,3 +29,22 @@ jobs:
             examples/rust-bridge/BUILD.gn \
             --visibility //examples/rust-bridge:* \
             --check
+      - name: Generated C ABI bridge is current
+        run: |
+          cargo run -p chromifer -- generate-c-abi \
+            examples/c-abi-bridge \
+            examples/c-abi-bridge/c-abi.json \
+            examples/c-abi-bridge/include/api.h \
+            --check
+          cargo run -p chromifer -- generate-gn \
+            examples/c-abi-bridge/Cargo.toml \
+            examples/c-abi-bridge/BUILD.gn \
+            --gn-package-path //examples/c-abi-bridge \
+            --allow-unsafe \
+            --consumer-target c_abi_smoke \
+            --consumer-source consumer/smoke.cc \
+            --consumer-header include/api.h \
+            --consumer-visibility //examples/c-abi-bridge:* \
+            --check
+          cargo check --manifest-path examples/c-abi-bridge/Cargo.toml
+          c++ -std=c++17 -I. -fsyntax-only examples/c-abi-bridge/consumer/smoke.cc

@@ -10,7 +10,7 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use thiserror::Error;
 
-const PROVENANCE_SCHEMA_VERSION: u32 = 3;
+const PROVENANCE_SCHEMA_VERSION: u32 = 4;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct GenerateOptions {
@@ -38,6 +38,7 @@ pub struct GenerateOptions {
 pub struct ConsumerOptions {
     pub target_name: String,
     pub sources: Vec<String>,
+    pub required_headers: Vec<String>,
     pub deps: Vec<String>,
     pub public_deps: Vec<String>,
     pub visibility: Vec<String>,
@@ -99,15 +100,16 @@ pub struct BridgeProvenance {
 pub struct ConsumerProvenance {
     pub target_name: String,
     pub sources: Vec<String>,
+    pub required_headers: Vec<String>,
     pub deps: Vec<String>,
     pub public_deps: Vec<String>,
     pub visibility: Vec<String>,
-    pub generated_header_includes: Vec<HeaderIncludeEvidence>,
+    pub header_includes: Vec<HeaderIncludeEvidence>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize)]
 pub struct HeaderIncludeEvidence {
-    pub generated_header: String,
+    pub header: String,
     pub source: String,
     pub line: usize,
 }
@@ -216,10 +218,10 @@ pub enum BuildBridgeError {
     MissingConsumerSource(String),
     #[error("C++ consumer requires at least one compilable .cc, .cpp, .cxx, or .mm source")]
     MissingConsumerCompilationUnit,
-    #[error("C++ consumer was requested for a Rust crate without any CXX bridge")]
-    ConsumerWithoutCxxBridge,
-    #[error("C++ consumer does not include generated CXX header `{0}`")]
-    MissingGeneratedHeaderInclude(String),
+    #[error("C++ consumer requires at least one CXX bridge or explicit boundary header")]
+    ConsumerWithoutBoundaryHeader,
+    #[error("C++ consumer does not include required boundary header `{0}`")]
+    MissingBoundaryHeaderInclude(String),
     #[error("unsupported Rust edition `{0}`")]
     UnsupportedEdition(String),
     #[error("generated file `{0}` already exists; pass --force to replace it")]
@@ -404,7 +406,7 @@ pub fn generate_bridge(options: &GenerateOptions) -> Result<GeneratedBridge, Bui
         &selected.root,
         &target_name,
         options.consumer.as_ref(),
-        &cxx_bindings,
+        gn_package_path.as_deref(),
         &generated_cxx_headers,
     )?;
 
@@ -902,9 +904,6 @@ fn generated_cxx_headers(
     cxx_bindings: &[String],
     consumer_requested: bool,
 ) -> Result<Vec<String>, BuildBridgeError> {
-    if consumer_requested && cxx_bindings.is_empty() {
-        return Err(BuildBridgeError::ConsumerWithoutCxxBridge);
-    }
     if cxx_bindings.is_empty() {
         return Ok(Vec::new());
     }
@@ -925,16 +924,13 @@ fn prepare_consumer(
     package_root: &Path,
     rust_target_name: &str,
     options: Option<&ConsumerOptions>,
-    cxx_bindings: &[String],
+    gn_package_path: Option<&str>,
     generated_headers: &[String],
 ) -> Result<Option<ConsumerProvenance>, BuildBridgeError> {
     let Some(options) = options else {
         return Ok(None);
     };
-    if cxx_bindings.is_empty() {
-        return Err(BuildBridgeError::ConsumerWithoutCxxBridge);
-    }
-    if generated_headers.is_empty() || options.sources.is_empty() {
+    if options.sources.is_empty() {
         return Err(BuildBridgeError::IncompleteConsumerConfiguration);
     }
     if !valid_target_name(&options.target_name) {
@@ -947,6 +943,26 @@ fn prepare_consumer(
             options.target_name.clone(),
         ));
     }
+
+    let mut required_headers: BTreeSet<_> = generated_headers.iter().cloned().collect();
+    if !options.required_headers.is_empty() {
+        let Some(package_path) = gn_package_path else {
+            return Err(BuildBridgeError::IncompleteConsumerConfiguration);
+        };
+        let package_path = package_path.trim_start_matches("//");
+        for header in &options.required_headers {
+            let relative = normalize_repo_relative_path(header)
+                .ok_or_else(|| BuildBridgeError::InvalidConsumerSource(header.clone()))?;
+            if !package_root.join(&relative).is_file() {
+                return Err(BuildBridgeError::MissingConsumerSource(relative));
+            }
+            required_headers.insert(format!("{package_path}/{relative}"));
+        }
+    }
+    if required_headers.is_empty() {
+        return Err(BuildBridgeError::ConsumerWithoutBoundaryHeader);
+    }
+    let required_headers: Vec<_> = required_headers.into_iter().collect();
 
     let mut sources = BTreeSet::new();
     for source in &options.sources {
@@ -976,9 +992,9 @@ fn prepare_consumer(
         let content = String::from_utf8_lossy(&bytes);
         for (index, line) in content.lines().enumerate() {
             if let Some(include) = cpp_include_path(line) {
-                if generated_headers.iter().any(|header| header == include) {
+                if required_headers.iter().any(|header| header == include) {
                     include_evidence.push(HeaderIncludeEvidence {
-                        generated_header: include.to_owned(),
+                        header: include.to_owned(),
                         source: source.clone(),
                         line: index + 1,
                     });
@@ -987,12 +1003,12 @@ fn prepare_consumer(
         }
     }
     include_evidence.sort();
-    for header in generated_headers {
+    for header in &required_headers {
         if !include_evidence
             .iter()
-            .any(|evidence| evidence.generated_header == *header)
+            .any(|evidence| evidence.header == *header)
         {
-            return Err(BuildBridgeError::MissingGeneratedHeaderInclude(
+            return Err(BuildBridgeError::MissingBoundaryHeaderInclude(
                 header.clone(),
             ));
         }
@@ -1001,10 +1017,11 @@ fn prepare_consumer(
     Ok(Some(ConsumerProvenance {
         target_name: options.target_name.clone(),
         sources,
+        required_headers,
         deps,
         public_deps,
         visibility,
-        generated_header_includes: include_evidence,
+        header_includes: include_evidence,
     }))
 }
 
@@ -1900,6 +1917,7 @@ mod tests {
         options.consumer = Some(ConsumerOptions {
             target_name: "bridge_cpp".into(),
             sources: vec!["consumer/bridge.h".into(), "consumer/bridge.cc".into()],
+            required_headers: vec![],
             deps: vec!["//base".into()],
             public_deps: vec![],
             visibility: vec!["//services/network:*".into()],
@@ -1935,6 +1953,7 @@ mod tests {
         options.consumer = Some(ConsumerOptions {
             target_name: "bridge_cpp".into(),
             sources: vec!["consumer.cc".into()],
+            required_headers: vec![],
             deps: vec![],
             public_deps: vec![],
             visibility: vec![],
@@ -1947,7 +1966,7 @@ mod tests {
         options.gn_package_path = Some("//services/network/rust".into());
         assert!(matches!(
             generate_bridge(&options),
-            Err(BuildBridgeError::MissingGeneratedHeaderInclude(header))
+            Err(BuildBridgeError::MissingBoundaryHeaderInclude(header))
                 if header == "services/network/rust/src/lib.rs.h"
         ));
     }
@@ -1966,13 +1985,14 @@ mod tests {
         options.consumer = Some(ConsumerOptions {
             target_name: "consumer".into(),
             sources: vec!["consumer.cc".into()],
+            required_headers: vec![],
             deps: vec![],
             public_deps: vec![],
             visibility: vec![],
         });
         assert!(matches!(
             generate_bridge(&options),
-            Err(BuildBridgeError::ConsumerWithoutCxxBridge)
+            Err(BuildBridgeError::ConsumerWithoutBoundaryHeader)
         ));
 
         tree.write(
@@ -2018,6 +2038,7 @@ mod tests {
         options.consumer = Some(ConsumerOptions {
             target_name: "bridge".into(),
             sources: vec!["consumer.cc".into()],
+            required_headers: vec![],
             deps: vec![],
             public_deps: vec![],
             visibility: vec![],
@@ -2035,5 +2056,61 @@ mod tests {
             generate_bridge(&options),
             Err(BuildBridgeError::ConflictingGnDependency(label)) if label == "//base"
         ));
+    }
+
+    #[test]
+    fn generates_pure_c_abi_cpp_consumer_from_explicit_header() {
+        let tree = TempTree::new();
+        package(
+            &tree,
+            "[package]\nname='c-abi-service'\nversion='0.1.0'\nedition='2024'\n",
+            "#[unsafe(no_mangle)]\npub extern \"C\" fn c_abi_value() -> i32 { 42 }\n",
+        );
+        tree.write(
+            "include/api.h",
+            "#ifndef API_H_\n#define API_H_\n#include <stdint.h>\nint32_t c_abi_value(void);\n#endif\n",
+        );
+        tree.write(
+            "consumer/api.cc",
+            "#include \"services/example/rust/include/api.h\"\nint UseApi() { return c_abi_value(); }\n",
+        );
+        let mut options = options(&tree);
+        options.gn_package_path = Some("//services/example/rust".into());
+        options.consumer = Some(ConsumerOptions {
+            target_name: "c_abi_service_cpp".into(),
+            sources: vec!["consumer/api.cc".into()],
+            required_headers: vec!["include/api.h".into()],
+            deps: vec![],
+            public_deps: vec![],
+            visibility: vec!["//services/example:*".into()],
+        });
+
+        let generated = generate_bridge(&options).unwrap();
+        assert_eq!(generated.summary.cxx_binding_count, 0);
+        assert_eq!(generated.summary.generated_cxx_header_count, 0);
+        assert_eq!(
+            generated.summary.consumer_target.as_deref(),
+            Some("c_abi_service_cpp")
+        );
+        assert!(!generated.summary.allow_unsafe);
+        assert!(
+            generated
+                .build_gn
+                .contains("source_set(\"c_abi_service_cpp\")")
+        );
+        let provenance: serde_json::Value =
+            serde_json::from_str(&generated.provenance_json).unwrap();
+        assert_eq!(
+            provenance["consumer"]["required_headers"],
+            serde_json::json!(["services/example/rust/include/api.h"])
+        );
+        assert_eq!(
+            provenance["consumer"]["header_includes"],
+            serde_json::json!([{
+                "header": "services/example/rust/include/api.h",
+                "source": "consumer/api.cc",
+                "line": 1
+            }])
+        );
     }
 }
