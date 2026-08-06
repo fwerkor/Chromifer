@@ -69,6 +69,41 @@ def main() -> None:
         "native Rust template is not a hashed source input",
     )
 
+    package_root = integration_contract["package_root"]
+    build_provenance_path = integration_contract["build_provenance"]
+    c_abi_provenance_path = integration_contract["c_abi_provenance"]
+    build_provenance = json.loads((ROOT / build_provenance_path).read_text())
+    c_abi_provenance = json.loads((ROOT / c_abi_provenance_path).read_text())
+    expected_repository_paths = {
+        "examples/integration/chromium-native.json",
+        build_provenance_path,
+        c_abi_provenance_path,
+        f"{package_root}/BUILD.gn",
+        f"{package_root}/{build_provenance['crate_root']}",
+        f"{package_root}/{integration_contract['endpoint_source']}",
+        f"{package_root}/{c_abi_provenance['contract_path']}",
+        f"{package_root}/{c_abi_provenance['header_path']}",
+    }
+    expected_repository_paths.update(
+        f"{package_root}/{path}" for path in build_provenance["sources"]
+    )
+    expected_repository_paths.update(
+        f"{package_root}/{path}" for path in build_provenance["consumer"]["sources"]
+    )
+    expected_repository_paths.update(build_provenance["consumer"]["required_headers"])
+    expected_repository_paths.update(
+        f"{package_root}/{source['source']}" for source in c_abi_provenance["sources"]
+    )
+    reported_inputs = {entry["path"]: entry for entry in report["repository_inputs"]}
+    require(
+        set(reported_inputs) == expected_repository_paths,
+        "native report repository input set differs from provenance",
+    )
+    for path, entry in reported_inputs.items():
+        source = ROOT / path
+        require(entry["sha256"] == sha256(source), f"stale repository input digest: {path}")
+        require(entry["bytes"] == source.stat().st_size, f"stale repository input size: {path}")
+
     require(len(checkout_lock["gn_outputs"]) == 1, "native lock must contain one GN output")
     locked_output = checkout_lock["gn_outputs"][0]
     reported_output = report["gn_output"]

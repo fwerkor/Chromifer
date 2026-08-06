@@ -83,7 +83,7 @@ sha256 = "43458b9b7e4ca31f02d20cfb479f6654da379f908f379011b821349dfba410af"
 
 [[gates.inputs]]
 path = "examples/c-abi-bridge/consumer/main.cc"
-sha256 = "06a640f720e73d05e934459bb0cd5b2b815cf79f8ae36c3cafb2d1fec00917e8"
+sha256 = "9e614dd40da54e978a9b10f0481d1a98ec4a6dae8cb1f8ae4257aaca9a7b3188"
 
 [[gates.inputs]]
 path = "examples/c-abi-bridge/consumer/smoke.cc"
@@ -262,7 +262,7 @@ sha256 = "fd6a69c1491f658c2ebbb666cd59090b73297f3d3ee6cb903d59609db361d972"
 
 [[gates.inputs]]
 path = "chromifer-unsafe.json"
-sha256 = "28d765fddb77c1f7a34414ca7dac1d85190318c85e350317475b1de6032a038a"
+sha256 = "0b11d7f9dee3918448a73d232ec9e495af86a49bdc14ccbabd4c2ac68ffc43ab"
 
 [[gates.inputs]]
 path = "crates/chromifer-build/Cargo.toml"
@@ -334,7 +334,7 @@ sha256 = "9a6dbaaf5f6a994206608381faad46e014ad26942686cb714967a98023d26ee5"
 
 [[gates.inputs]]
 path = "crates/chromifer-integration/src/lib.rs"
-sha256 = "ff2d624ec4b087b60cfbe2929cd3b3a37e8e4e706c4def360d37386eaf4da9f7"
+sha256 = "8f2f5bd301f15b3458190553e1cfe73033a65456b03db02a97c7343295409712"
 
 [[gates.inputs]]
 path = "crates/chromifer-manifest/Cargo.toml"

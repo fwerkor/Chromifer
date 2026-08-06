@@ -1,6 +1,6 @@
 # GN endpoint integration fixture
 
-This fixture proves that the generated C ABI package can be evaluated by upstream GN, compiled by Ninja, linked as a mixed Rust/C++ executable, and run successfully.
+This fixture proves that the generated C ABI package can be evaluated by upstream GN, compiled by Ninja, linked as a mixed Rust/C++ executable, and run successfully. The endpoint covers fixed arithmetic vectors, repeated calls, null and non-null pointers, zero and nonzero lengths, and C-compatible bool returns.
 
 Build the exact GN revision used by CI:
 

@@ -47,6 +47,7 @@ Acceptance criteria:
 - derive direct compatibility gates and hashed inputs from Rust GN, C ABI, Mojo, unsafe, checkout, and integration provenance; **implemented**
 - compile, link, and execute a generated Rust/C ABI endpoint through pinned upstream GN and Ninja; **implemented**
 - validate generated bindings and endpoint behavior through Chromium's native Rust template and bundled toolchain at a pinned revision; **implemented**
+- exercise deterministic arithmetic, repeated-call, null-pointer, length, and bool-return C ABI behavior in both integration paths; **implemented**
 - enforce safe packages, designated bridge sources, local unsafe allowances, and deterministic audit evidence; **implemented**
 - build generated bridge examples on Linux, Windows, and macOS.
 

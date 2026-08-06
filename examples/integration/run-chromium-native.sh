@@ -90,9 +90,44 @@ source = workspace / "src"
 summary = json.loads(Path(os.environ["CHROMIFER_NATIVE_SUMMARY"]).read_text())
 lock_path = repo / "examples/integration/chromium-native-checkout-lock.json"
 lock = json.loads(lock_path.read_text())
+integration_contract_path = repo / "examples/integration/chromium-native.json"
+integration_contract = json.loads(integration_contract_path.read_text())
 
 def digest(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
+
+def repository_input(path: str) -> dict:
+    source_path = repo / path
+    content = source_path.read_bytes()
+    return {
+        "path": path,
+        "sha256": hashlib.sha256(content).hexdigest(),
+        "bytes": len(content),
+    }
+
+package_root = integration_contract["package_root"]
+build_provenance_path = integration_contract["build_provenance"]
+c_abi_provenance_path = integration_contract["c_abi_provenance"]
+build_provenance = json.loads((repo / build_provenance_path).read_text())
+c_abi_provenance = json.loads((repo / c_abi_provenance_path).read_text())
+repository_paths = {
+    "examples/integration/chromium-native.json",
+    build_provenance_path,
+    c_abi_provenance_path,
+    f"{package_root}/BUILD.gn",
+    f"{package_root}/{build_provenance['crate_root']}",
+    f"{package_root}/{integration_contract['endpoint_source']}",
+    f"{package_root}/{c_abi_provenance['contract_path']}",
+    f"{package_root}/{c_abi_provenance['header_path']}",
+}
+repository_paths.update(f"{package_root}/{path}" for path in build_provenance["sources"])
+repository_paths.update(
+    f"{package_root}/{path}" for path in build_provenance["consumer"]["sources"]
+)
+repository_paths.update(build_provenance["consumer"]["required_headers"])
+repository_paths.update(
+    f"{package_root}/{source['source']}" for source in c_abi_provenance["sources"]
+)
 
 expected_tool_paths = {
     "gn": "buildtools/linux64/gn",
@@ -127,6 +162,7 @@ report = {
         "status_sha256": lock["source"]["status_sha256"],
         "submodule_status_sha256": lock["source"]["submodule_status_sha256"],
     },
+    "repository_inputs": [repository_input(path) for path in sorted(repository_paths)],
     "gn_output": {
         "id": gn_output["id"],
         "default_toolchain": gn_output["default_toolchain"],

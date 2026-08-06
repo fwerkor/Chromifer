@@ -218,11 +218,11 @@ CI runs the standalone smoke first, then executes the same endpoint again as par
 
 ## Current verified result
 
-With GN `2509 (64cfb8344ec3)`, Ninja `1.11.1`, and Rustc `1.88.0`, the fixture generates five GN targets, compiles the Rust archive and two C++ objects, links `c_abi_endpoint`, and exits with status 0.
+With GN `2509 (64cfb8344ec3)`, Ninja `1.11.1`, and Rustc `1.88.0`, the fixture generates five GN targets, compiles the Rust archive and two C++ objects, links `c_abi_endpoint`, and exits with status 0. The host-adapter executable is 4,558,344 bytes with SHA-256 `159e3c3c2d8eae4b2242caaefb3cf616458d4827f0a87a50d00c33cc37964f85`.
 
-The endpoint calls `ChromiferCAbiSmoke()`, which calls the Rust export `chromifer_add(20, 22)` through the generated C header and returns success only when the result is 42.
+The endpoint first retains the basic `chromifer_add(20, 22)` smoke, then evaluates fixed positive, negative, and near-limit safe arithmetic vectors, 1,024 deterministic repeated calls, and six pointer/length cases for `chromifer_buffer_is_valid`. The pointer matrix covers null with zero and nonzero lengths, non-null with zero length, full slices, and one-byte tail slices. Distinct exit-code ranges identify arithmetic and buffer ABI failures.
 
-The Chromium-native run uses revision `008cdad85f0721c89b42ef4dcaabcee615482609`, its native `rust_static_library.gni`, Chromium Rustc `1.98.0-nightly`, Clang 23, and Ninja `1.12.1`. GN records 3,583 targets in the isolated project graph. The resulting executable is 1,261,216 bytes, has SHA-256 `f1016cbd83a876b7b08bdd9e809da0a0a0a9f2b76ea25994307ed4c95c3b58a7`, and exits with status 0.
+The Chromium-native run uses revision `008cdad85f0721c89b42ef4dcaabcee615482609`, its native `rust_static_library.gni`, Chromium Rustc `1.98.0-nightly`, Clang 23, and Ninja `1.12.1`. GN records 3,583 targets in the isolated project graph. The behavior-matrix executable is 1,261,288 bytes, has SHA-256 `1bdc32aff51ed9158d2eccb9ab2ed386411839ff8fcd9ab1bfdd1c4c2c129bfb`, and exits with status 0.
 
 ## Trust boundary
 

@@ -4,9 +4,9 @@
   "chromium_revision": "008cdad85f0721c89b42ef4dcaabcee615482609",
   "depot_tools_revision": "0a0574531b3b3ac9d478141874f2dab24cad64ab",
   "endpoint": {
-    "bytes": 1261216,
+    "bytes": 1261288,
     "exit_code": 0,
-    "sha256": "f1016cbd83a876b7b08bdd9e809da0a0a0a9f2b76ea25994307ed4c95c3b58a7",
+    "sha256": "1bdc32aff51ed9158d2eccb9ab2ed386411839ff8fcd9ab1bfdd1c4c2c129bfb",
     "target": "//examples/c-abi-bridge:c_abi_endpoint"
   },
   "gn_args_sha256": "840be624249ed1515d6f92205dc6a0aa21af7834c5f5277be57f4f41f478e764",
@@ -45,6 +45,53 @@
     "target_count": 3583
   },
   "integration_contract_sha256": "4c1fa97da6cfbe688f944aaf3b317a0dec5408260259c7a69e988a4214f3e0ba",
+  "repository_inputs": [
+    {
+      "bytes": 461,
+      "path": "examples/c-abi-bridge/BUILD.gn",
+      "sha256": "0acf6efb79dda3b21c0c7c525a2abfc808ba10b611fec0db388a24eb6719de49"
+    },
+    {
+      "bytes": 494,
+      "path": "examples/c-abi-bridge/c-abi.json",
+      "sha256": "f7a7d870a6c6b86b663dccd9496bc5df512cb3ddce2bfc1e03584ebf8672a626"
+    },
+    {
+      "bytes": 1159,
+      "path": "examples/c-abi-bridge/chromifer-build.json",
+      "sha256": "43458b9b7e4ca31f02d20cfb479f6654da379f908f379011b821349dfba410af"
+    },
+    {
+      "bytes": 1868,
+      "path": "examples/c-abi-bridge/consumer/main.cc",
+      "sha256": "9e614dd40da54e978a9b10f0481d1a98ec4a6dae8cb1f8ae4257aaca9a7b3188"
+    },
+    {
+      "bytes": 123,
+      "path": "examples/c-abi-bridge/consumer/smoke.cc",
+      "sha256": "0f87a28ab5ee8d2b7c4c5c3e64ccf9aaf4de4dc2779b41e221b6fef672bc72f1"
+    },
+    {
+      "bytes": 464,
+      "path": "examples/c-abi-bridge/include/api.h",
+      "sha256": "a86319325c24f1355546bc699027b23854057b18e8752b0ae4810ab02865438b"
+    },
+    {
+      "bytes": 1152,
+      "path": "examples/c-abi-bridge/include/api.h.chromifer.json",
+      "sha256": "2d9dcffdbb37304044cbbbdf1ceaca614e9036e65f72741cb9e8fb36f91a6098"
+    },
+    {
+      "bytes": 366,
+      "path": "examples/c-abi-bridge/src/lib.rs",
+      "sha256": "f021105b600c81decb442a23a4fc614df57a4113e9259d1b9172a50c2f7ae527"
+    },
+    {
+      "bytes": 828,
+      "path": "examples/integration/chromium-native.json",
+      "sha256": "4c1fa97da6cfbe688f944aaf3b317a0dec5408260259c7a69e988a4214f3e0ba"
+    }
+  ],
   "schema_version": 1,
   "source": {
     "clean": true,
