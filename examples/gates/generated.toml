@@ -50,7 +50,88 @@ sha256 = "98ffffe53432a5156c33b7037cea1682352b168f2556fbd5eba70f7b17918b7b"
 
 [[gates.inputs]]
 path = "examples/gates/gates.json"
-sha256 = "2add263344ac733f906aace43790d5a11081cff53f03fef87ac9c96c73b95e01"
+sha256 = "d68fa6e99d46f0d5629a41d40c21007e1edf19362405c8fb2f7ba4d4448e8677"
+
+[[gates]]
+id = "c-abi-gn-endpoint"
+program = "cargo"
+args = [
+    "run",
+    "--locked",
+    "-q",
+    "-p",
+    "chromifer",
+    "--",
+    "run-gn-integration",
+    ".",
+    "examples/integration/gn-root",
+    "examples/integration/c-abi.json",
+]
+targets = ["host"]
+
+[[gates.inputs]]
+path = "examples/c-abi-bridge/BUILD.gn"
+sha256 = "0acf6efb79dda3b21c0c7c525a2abfc808ba10b611fec0db388a24eb6719de49"
+
+[[gates.inputs]]
+path = "examples/c-abi-bridge/c-abi.json"
+sha256 = "f7a7d870a6c6b86b663dccd9496bc5df512cb3ddce2bfc1e03584ebf8672a626"
+
+[[gates.inputs]]
+path = "examples/c-abi-bridge/chromifer-build.json"
+sha256 = "43458b9b7e4ca31f02d20cfb479f6654da379f908f379011b821349dfba410af"
+
+[[gates.inputs]]
+path = "examples/c-abi-bridge/consumer/main.cc"
+sha256 = "06a640f720e73d05e934459bb0cd5b2b815cf79f8ae36c3cafb2d1fec00917e8"
+
+[[gates.inputs]]
+path = "examples/c-abi-bridge/consumer/smoke.cc"
+sha256 = "0f87a28ab5ee8d2b7c4c5c3e64ccf9aaf4de4dc2779b41e221b6fef672bc72f1"
+
+[[gates.inputs]]
+path = "examples/c-abi-bridge/include/api.h"
+sha256 = "a86319325c24f1355546bc699027b23854057b18e8752b0ae4810ab02865438b"
+
+[[gates.inputs]]
+path = "examples/c-abi-bridge/include/api.h.chromifer.json"
+sha256 = "2d9dcffdbb37304044cbbbdf1ceaca614e9036e65f72741cb9e8fb36f91a6098"
+
+[[gates.inputs]]
+path = "examples/c-abi-bridge/src/lib.rs"
+sha256 = "f021105b600c81decb442a23a4fc614df57a4113e9259d1b9172a50c2f7ae527"
+
+[[gates.inputs]]
+path = "examples/gates/base.toml"
+sha256 = "98ffffe53432a5156c33b7037cea1682352b168f2556fbd5eba70f7b17918b7b"
+
+[[gates.inputs]]
+path = "examples/gates/gates.json"
+sha256 = "d68fa6e99d46f0d5629a41d40c21007e1edf19362405c8fb2f7ba4d4448e8677"
+
+[[gates.inputs]]
+path = "examples/integration/c-abi.json"
+sha256 = "bf1a3fc7eaf1fea9c46b0126aa9da41271a9258620e8e1b1277fcd07cdb5bac0"
+
+[[gates.inputs]]
+path = "examples/integration/gn-root/.gn"
+sha256 = "e0de5a600456962fa82d98a3276a887fdef7480f4723f549a57f9f1892c62d20"
+
+[[gates.inputs]]
+path = "examples/integration/gn-root/BUILD.gn"
+sha256 = "77ee1f35c544f1e316905742e517925af1f1bbe21755fd0123f68d029b8fa113"
+
+[[gates.inputs]]
+path = "examples/integration/gn-root/build/BUILD.gn"
+sha256 = "1a76d195e0bf26e313ec0b951f4b2cbd79d6ee8392bba1c96d710755a7d782c1"
+
+[[gates.inputs]]
+path = "examples/integration/gn-root/build/BUILDCONFIG.gn"
+sha256 = "b9b17c5f067e79cc7560842baf51ef01e5cfbafcfa5fa8adda67a8e7c66a768a"
+
+[[gates.inputs]]
+path = "examples/integration/gn-root/build/toolchain/BUILD.gn"
+sha256 = "b55f6b9ac84a087f503ff475680eaf7f9fb1734972b499e2100934a79c5f7a5d"
 
 [[gates]]
 id = "mojo-current"
@@ -76,7 +157,7 @@ sha256 = "98ffffe53432a5156c33b7037cea1682352b168f2556fbd5eba70f7b17918b7b"
 
 [[gates.inputs]]
 path = "examples/gates/gates.json"
-sha256 = "2add263344ac733f906aace43790d5a11081cff53f03fef87ac9c96c73b95e01"
+sha256 = "d68fa6e99d46f0d5629a41d40c21007e1edf19362405c8fb2f7ba4d4448e8677"
 
 [[gates.inputs]]
 path = "examples/mojo-bridge/BUILD.gn"
@@ -127,7 +208,7 @@ sha256 = "98ffffe53432a5156c33b7037cea1682352b168f2556fbd5eba70f7b17918b7b"
 
 [[gates.inputs]]
 path = "examples/gates/gates.json"
-sha256 = "2add263344ac733f906aace43790d5a11081cff53f03fef87ac9c96c73b95e01"
+sha256 = "d68fa6e99d46f0d5629a41d40c21007e1edf19362405c8fb2f7ba4d4448e8677"
 
 [[gates.inputs]]
 path = "examples/rust-bridge/BUILD.gn"
@@ -173,15 +254,15 @@ targets = ["host"]
 
 [[gates.inputs]]
 path = "Cargo.lock"
-sha256 = "f4cb18f7726a3ae3bf2a7bc2cb750ba8ae1288a8775782b0e9d608914084abec"
+sha256 = "b79501798ddb57385589260b36cfb6dd853206a16634582fbfff8fe31a3e684e"
 
 [[gates.inputs]]
 path = "Cargo.toml"
-sha256 = "eb11a132836720771966d77c5391d51b6a29ddcc8062bd959d421ca4ff8596e7"
+sha256 = "fd6a69c1491f658c2ebbb666cd59090b73297f3d3ee6cb903d59609db361d972"
 
 [[gates.inputs]]
 path = "chromifer-unsafe.json"
-sha256 = "ab008fb037ae6a8a0819828db6511a88c940a2a9eb00c8fa8b165eef0f3e22cd"
+sha256 = "e9f017c4f20de158f128885d9e7906b760a6274ed7357116f8f6181497f5d969"
 
 [[gates.inputs]]
 path = "crates/chromifer-build/Cargo.toml"
@@ -209,11 +290,11 @@ sha256 = "71d2e5b4a60019c09962018c819fac3c84deb7c4eaf9d5263b346e73c63a487d"
 
 [[gates.inputs]]
 path = "crates/chromifer-cli/Cargo.toml"
-sha256 = "d659d5faadb9f98ef1fb51ce7ee6428b05d4e8e79264a363e8069a50fb898dc3"
+sha256 = "634a79912ecded9b116af192a78153dab73eaa10757441c18fea1e3d46dad313"
 
 [[gates.inputs]]
 path = "crates/chromifer-cli/src/main.rs"
-sha256 = "04f930304babcf8b7cbdc0bc01b170346cd0983e19a747fff29d58e86a874f36"
+sha256 = "446621fce914b126bb1357caecc9ca21e70eb90e42c3099f38ac2da8167ab5a1"
 
 [[gates.inputs]]
 path = "crates/chromifer-components/Cargo.toml"
@@ -233,11 +314,11 @@ sha256 = "4fdc3af02611cf01257318460f99d298dc08505c5f1d950e992b017bc722d929"
 
 [[gates.inputs]]
 path = "crates/chromifer-gates/Cargo.toml"
-sha256 = "394a248d1868c7a16be6570991735abeffa50d55c11a1c74c676b3f3e033e81d"
+sha256 = "ba64c55143777248d6ba469196af5d47d949d90497713529339510175b440a22"
 
 [[gates.inputs]]
 path = "crates/chromifer-gates/src/lib.rs"
-sha256 = "b6c56ae0a9ba3de7c17cf569ca627cf3898e97e8bdd42c0254cc7d9ff297bd1a"
+sha256 = "2afb4f8536361ba240fc4f0684e216511a0bd3a47f03f47b2d3bac096b6f14c6"
 
 [[gates.inputs]]
 path = "crates/chromifer-gn/Cargo.toml"
@@ -246,6 +327,14 @@ sha256 = "85c3a8568d68257dbb0ba51d13768269e44f3f3488a3e289d0e6e9c552ce79be"
 [[gates.inputs]]
 path = "crates/chromifer-gn/src/lib.rs"
 sha256 = "e0038426fa0fcebac1071018177e38489c08d936f094f659fe746bd3bef2378c"
+
+[[gates.inputs]]
+path = "crates/chromifer-integration/Cargo.toml"
+sha256 = "9a6dbaaf5f6a994206608381faad46e014ad26942686cb714967a98023d26ee5"
+
+[[gates.inputs]]
+path = "crates/chromifer-integration/src/lib.rs"
+sha256 = "a8a7449f03f5945c9c20191a4dd8da897d96dca78cfebb4300ae522d08ad86fa"
 
 [[gates.inputs]]
 path = "crates/chromifer-manifest/Cargo.toml"
@@ -301,11 +390,11 @@ sha256 = "98ffffe53432a5156c33b7037cea1682352b168f2556fbd5eba70f7b17918b7b"
 
 [[gates.inputs]]
 path = "examples/gates/gates.json"
-sha256 = "2add263344ac733f906aace43790d5a11081cff53f03fef87ac9c96c73b95e01"
+sha256 = "d68fa6e99d46f0d5629a41d40c21007e1edf19362405c8fb2f7ba4d4448e8677"
 
 [[gates.inputs]]
 path = "unsafe-policy.json"
-sha256 = "87b18cb3c2c5eb84ffe5cba651376b9669efb743ec88d34e2b20fd1767d5faff"
+sha256 = "f0011ee1a221788a6a950cccc6c55ab50c08ed6f5f70980629c7fbc0ea9ee8b6"
 
 [[modules]]
 id = "rust_bridge"
@@ -319,7 +408,10 @@ id = "c_abi_bridge"
 path = "examples/c-abi-bridge"
 owner = "chromifer"
 state = "legacy_cpp"
-gates = ["c-abi-current"]
+gates = [
+    "c-abi-current",
+    "c-abi-gn-endpoint",
+]
 
 [[modules]]
 id = "mojo_bridge"

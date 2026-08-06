@@ -78,6 +78,7 @@ dependencies = [
  "chromifer-evidence",
  "chromifer-gates",
  "chromifer-gn",
+ "chromifer-integration",
  "chromifer-manifest",
  "chromifer-mojo",
  "chromifer-owners",
@@ -150,6 +151,7 @@ dependencies = [
  "chromifer-build",
  "chromifer-cabi",
  "chromifer-checkout",
+ "chromifer-integration",
  "chromifer-manifest",
  "chromifer-mojo",
  "chromifer-safety",
@@ -169,6 +171,19 @@ dependencies = [
  "serde_json",
  "thiserror",
  "toml",
+]
+
+[[package]]
+name = "chromifer-integration"
+version = "0.1.0"
+dependencies = [
+ "chromifer-build",
+ "chromifer-cabi",
+ "chromifer-manifest",
+ "serde",
+ "serde_json",
+ "sha2",
+ "thiserror",
 ]
 
 [[package]]

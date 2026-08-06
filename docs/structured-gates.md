@@ -88,7 +88,7 @@ Each check ID must be unique and must not already exist in the source manifest. 
 
 ## Supported provenance
 
-Five check kinds are currently supported.
+Six check kinds are currently supported.
 
 ### `rust_gn`
 
@@ -119,6 +119,12 @@ Reads `chromifer-unsafe.json` and reconstructs `audit-unsafe ... --check`. Input
 Reads a Chromium checkout contract and deterministic lock report, verifies their schema and contract digest, then reconstructs `audit-checkout ... --check`. Inputs include the contract, lock report, gclient/DEPS metadata, every locked `args.gn`, `build.ninja`, and GN project export. Raw file identities are checked against the lock when available; path-normalized metadata and the semantic project digest are revalidated by `audit-checkout` itself.
 
 The portable derived gate does not add `--gn` because depot_tools locations are environment-specific and GN would be a subprocess of the direct gate runner. CI should run `audit-checkout --gn ... --check` separately before executing the derived gate.
+
+### `integration`
+
+Reads a GN endpoint integration contract and reconstructs `run-gn-integration . <source-root> <contract>`. Inputs include the contract, every declared GN checkout input, build provenance, C ABI provenance, generated `BUILD.gn`, Rust sources, generated C++ consumer, required C header, C ABI contract, and endpoint source.
+
+The direct gate resolves GN and Ninja from the runner environment, plus Rustc for `host_adapter`. `run-gn-integration` records and rechecks every tool it directly owns; the outer evidence executor independently attests the Cargo executable used to launch the gate.
 
 ## Generated manifest
 
@@ -153,7 +159,7 @@ cargo run -p chromifer -- verify-evidence \
 
 Evidence schema version 3 records the exact execution form, argument vector, input paths and digests, declared platform targets, status, timing, content-addressed stdout/stderr, and optional checkout/tool attestations. Verification compares the execution definition and input contract with the current manifest before accepting the logs.
 
-`examples/gates` derives four real checks from this repository's Rust GN, C ABI, Mojo, and unsafe provenance. All four are executed through the same evidence runner in CI.
+`examples/gates` derives five real checks from this repository's Rust GN, C ABI, Mojo, unsafe, and GN endpoint integration provenance. All five are executed through the same evidence runner in CI.
 
 ## Trust boundary
 

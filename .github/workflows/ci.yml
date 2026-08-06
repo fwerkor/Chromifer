@@ -69,6 +69,12 @@ jobs:
             --check
       - name: Chromium checkout lock smoke
         run: examples/checkout/run-smoke.sh
+      - name: Build pinned GN
+        run: |
+          examples/integration/build-pinned-gn.sh /tmp/chromifer-gn
+          echo /tmp/chromifer-gn/out >> "$GITHUB_PATH"
+      - name: Real GN endpoint integration
+        run: examples/integration/run-smoke.sh
       - name: Structured contract gates pass
         run: |
           cargo run -p chromifer -- derive-gates \

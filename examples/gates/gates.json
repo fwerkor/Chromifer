@@ -36,6 +36,14 @@
       "report": "chromifer-unsafe.json",
       "modules": ["unsafe_policy"],
       "targets": ["host"]
+    },
+    {
+      "kind": "integration",
+      "id": "c-abi-gn-endpoint",
+      "source_root": "examples/integration/gn-root",
+      "contract": "examples/integration/c-abi.json",
+      "modules": ["c_abi_bridge"],
+      "targets": ["host"]
     }
   ]
 }

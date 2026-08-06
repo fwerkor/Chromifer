@@ -1,6 +1,6 @@
 [package]
-name = "chromifer-gates"
-description = "Derive structured compatibility gates from committed Chromifer provenance"
+name = "chromifer-integration"
+description = "Build and execute generated Chromifer bridges through GN and Ninja"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -11,13 +11,8 @@ authors.workspace = true
 [dependencies]
 chromifer-build = { path = "../chromifer-build" }
 chromifer-cabi = { path = "../chromifer-cabi" }
-chromifer-checkout = { path = "../chromifer-checkout" }
-chromifer-integration = { path = "../chromifer-integration" }
 chromifer-manifest = { path = "../chromifer-manifest" }
-chromifer-mojo = { path = "../chromifer-mojo" }
-chromifer-safety = { path = "../chromifer-safety" }
 serde.workspace = true
 serde_json.workspace = true
 sha2.workspace = true
 thiserror.workspace = true
-toml.workspace = true

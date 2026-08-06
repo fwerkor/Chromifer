@@ -7,6 +7,7 @@ use std::path::{Path, PathBuf};
 use chromifer_build::BridgeProvenance;
 use chromifer_cabi::CAbiProvenance;
 use chromifer_checkout::{CheckoutContract, CheckoutReport, MetadataMode};
+use chromifer_integration::IntegrationContract;
 use chromifer_manifest::{
     CompatibilityGate, GateExecution, GateInput, Manifest, ValidationErrors,
     normalize_repo_relative_path,
@@ -24,6 +25,7 @@ const MOJO_PROVENANCE_SCHEMA_VERSION: u32 = 1;
 const UNSAFE_REPORT_SCHEMA_VERSION: u32 = 1;
 const CHECKOUT_CONTRACT_SCHEMA_VERSION: u32 = 1;
 const CHECKOUT_REPORT_SCHEMA_VERSION: u32 = 1;
+const INTEGRATION_CONTRACT_SCHEMA_VERSION: u32 = 1;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DeriveGateOptions {
@@ -125,6 +127,15 @@ pub enum GateCheck {
         #[serde(default)]
         targets: Vec<String>,
     },
+    Integration {
+        id: String,
+        source_root: String,
+        contract: String,
+        #[serde(default)]
+        modules: Vec<String>,
+        #[serde(default)]
+        targets: Vec<String>,
+    },
 }
 
 impl GateCheck {
@@ -134,7 +145,8 @@ impl GateCheck {
             | Self::CAbi { id, .. }
             | Self::Mojo { id, .. }
             | Self::Unsafe { id, .. }
-            | Self::Checkout { id, .. } => id,
+            | Self::Checkout { id, .. }
+            | Self::Integration { id, .. } => id,
         }
     }
 
@@ -144,7 +156,8 @@ impl GateCheck {
             | Self::CAbi { modules, .. }
             | Self::Mojo { modules, .. }
             | Self::Unsafe { modules, .. }
-            | Self::Checkout { modules, .. } => modules,
+            | Self::Checkout { modules, .. }
+            | Self::Integration { modules, .. } => modules,
         }
     }
 
@@ -154,7 +167,8 @@ impl GateCheck {
             | Self::CAbi { targets, .. }
             | Self::Mojo { targets, .. }
             | Self::Unsafe { targets, .. }
-            | Self::Checkout { targets, .. } => targets,
+            | Self::Checkout { targets, .. }
+            | Self::Integration { targets, .. } => targets,
         }
     }
 }
@@ -468,6 +482,18 @@ fn normalize_check_paths(check: &mut GateCheck) -> Result<(), GateDeriveError> {
             modules.sort();
             targets.sort();
         }
+        GateCheck::Integration {
+            source_root,
+            contract,
+            modules,
+            targets,
+            ..
+        } => {
+            *source_root = exact_dir_path(source_root)?;
+            *contract = exact_file_path(contract)?;
+            modules.sort();
+            targets.sort();
+        }
     }
     Ok(())
 }
@@ -513,6 +539,11 @@ fn derive_check(
             &mut args,
             &mut inputs,
         )?,
+        GateCheck::Integration {
+            source_root,
+            contract,
+            ..
+        } => derive_integration(root, source_root, contract, &mut args, &mut inputs)?,
     }
     Ok(CompatibilityGate {
         id: check.id().to_owned(),
@@ -789,6 +820,85 @@ fn derive_checkout(
         contract_path.into(),
         report_path.into(),
         "--check".into(),
+    ]);
+    Ok(())
+}
+
+fn derive_integration(
+    _root: &Path,
+    source_root: &str,
+    contract_path: &str,
+    args: &mut Vec<String>,
+    inputs: &mut InputSet<'_>,
+) -> Result<(), GateDeriveError> {
+    let contract_bytes = inputs.add(contract_path, None)?;
+    let contract: IntegrationContract = serde_json::from_slice(&contract_bytes)?;
+    check_schema(
+        "GN integration contract",
+        contract.schema_version,
+        INTEGRATION_CONTRACT_SCHEMA_VERSION,
+    )?;
+
+    for source in &contract.source_inputs {
+        inputs.add(&join_path(source_root, source)?, None)?;
+    }
+
+    let package_root = exact_dir_path(&contract.package_root)?;
+    let build_bytes = inputs.add(&contract.build_provenance, None)?;
+    let build: BridgeProvenance = serde_json::from_slice(&build_bytes)?;
+    check_schema(
+        "Rust GN build",
+        build.schema_version,
+        BUILD_PROVENANCE_SCHEMA_VERSION,
+    )?;
+    inputs.add(
+        &join_path(&package_root, "BUILD.gn")?,
+        Some(&build.build_gn_sha256),
+    )?;
+    for source in &build.sources {
+        inputs.add(&join_path(&package_root, source)?, None)?;
+    }
+    if let Some(consumer) = &build.consumer {
+        for source in &consumer.sources {
+            inputs.add(&join_path(&package_root, source)?, None)?;
+        }
+        let destination_prefix = format!("{}/", contract.destination);
+        for header in &consumer.required_headers {
+            let relative = header
+                .strip_prefix(&destination_prefix)
+                .ok_or_else(|| GateDeriveError::HeaderOutsidePackage(header.clone()))?;
+            inputs.add(&join_path(&package_root, relative)?, None)?;
+        }
+    }
+
+    let c_abi_bytes = inputs.add(&contract.c_abi_provenance, None)?;
+    let c_abi: CAbiProvenance = serde_json::from_slice(&c_abi_bytes)?;
+    check_schema(
+        "C ABI",
+        c_abi.schema_version,
+        C_ABI_PROVENANCE_SCHEMA_VERSION,
+    )?;
+    inputs.add(
+        &join_path(&package_root, &c_abi.contract_path)?,
+        Some(&c_abi.contract_sha256),
+    )?;
+    inputs.add(
+        &join_path(&package_root, &c_abi.header_path)?,
+        Some(&c_abi.header_sha256),
+    )?;
+    for source in &c_abi.sources {
+        inputs.add(
+            &join_path(&package_root, &source.source)?,
+            Some(&source.sha256),
+        )?;
+    }
+    inputs.add(&join_path(&package_root, &contract.endpoint_source)?, None)?;
+
+    args.extend([
+        "run-gn-integration".into(),
+        ".".into(),
+        display_dir(source_root),
+        contract_path.into(),
     ]);
     Ok(())
 }
@@ -1386,6 +1496,139 @@ mod tests {
             );
         }
         assert_eq!(manifest.modules[0].gates, vec!["checkout-current"]);
+    }
+
+    #[test]
+    fn derives_gn_integration_gate_with_complete_inputs() {
+        let tree = TempTree::new();
+        base_manifest(&tree);
+        tree.write("fixture/.gn", "buildconfig = \"//build/BUILDCONFIG.gn\"\n");
+        tree.write("fixture/BUILD.gn", "group(\"default\") {}\n");
+        tree.write("bridge/BUILD.gn", "group(\"bridge\") {}\n");
+        tree.write("bridge/src/lib.rs", "pub fn value() {}\n");
+        tree.write("bridge/consumer/smoke.cc", "int smoke() { return 0; }\n");
+        tree.write("bridge/consumer/main.cc", "int main() { return 0; }\n");
+        tree.write("bridge/include/api.h", "int value(void);\n");
+        tree.write("bridge/c-abi.json", "{}\n");
+
+        let build = serde_json::json!({
+            "schema_version": 4,
+            "package": "bridge",
+            "version": "0.1.0",
+            "cargo_manifest_sha256": sha256_hex(b""),
+            "target_name": "bridge",
+            "crate_root": "src/lib.rs",
+            "edition": "2024",
+            "sources": ["src/lib.rs"],
+            "cxx_bindings": [],
+            "gn_package_path": "//bridge",
+            "generated_cxx_headers": [],
+            "features": [],
+            "no_default_features": false,
+            "dependencies": [],
+            "additional_deps": [],
+            "additional_public_deps": [],
+            "visibility": [],
+            "allow_unsafe": true,
+            "consumer": {
+                "target_name": "consumer",
+                "sources": ["consumer/smoke.cc"],
+                "required_headers": ["bridge/include/api.h"],
+                "deps": [":bridge"],
+                "public_deps": [],
+                "visibility": ["//bridge:*"],
+                "header_includes": []
+            },
+            "build_gn_sha256": sha256_hex(b"group(\"bridge\") {}\n")
+        });
+        tree.write(
+            "bridge/chromifer-build.json",
+            format!("{}\n", serde_json::to_string_pretty(&build).unwrap()),
+        );
+        let c_abi = serde_json::json!({
+            "schema_version": 1,
+            "contract_sha256": sha256_hex(b"{}\n"),
+            "contract_path": "c-abi.json",
+            "header_sha256": sha256_hex(b"int value(void);\n"),
+            "header_path": "include/api.h",
+            "header_guard": "BRIDGE_H_",
+            "sources": [{
+                "source": "src/lib.rs",
+                "sha256": sha256_hex(b"pub fn value() {}\n")
+            }],
+            "symbols": []
+        });
+        tree.write(
+            "bridge/include/api.h.chromifer.json",
+            format!("{}\n", serde_json::to_string_pretty(&c_abi).unwrap()),
+        );
+        tree.write(
+            "integration.json",
+            r#"{
+  "schema_version": 1,
+  "package_root": "bridge",
+  "build_provenance": "bridge/chromifer-build.json",
+  "c_abi_provenance": "bridge/include/api.h.chromifer.json",
+  "destination": "bridge",
+  "source_inputs": [".gn", "BUILD.gn"],
+  "endpoint_source": "consumer/main.cc",
+  "endpoint_target": "endpoint",
+  "integration_target": "integration",
+  "out_dir": "out/integration",
+  "rust_template": "host_adapter",
+  "expected_exit_code": 0
+}
+"#,
+        );
+        tree.write(
+            "gates.json",
+            r#"{
+  "schema_version": 1,
+  "checks": [{
+    "kind": "integration",
+    "id": "integration-current",
+    "source_root": "fixture",
+    "contract": "integration.json",
+    "modules": ["service"],
+    "targets": ["linux"]
+  }]
+}
+"#,
+        );
+
+        let generated = derive_gate_manifest(&options(&tree)).unwrap();
+        let manifest: Manifest = toml::from_str(&generated.manifest_toml).unwrap();
+        let gate = &manifest.gates[0];
+        let GateExecution::Direct { args, .. } = &gate.execution else {
+            panic!("expected direct integration gate");
+        };
+        assert_eq!(
+            args,
+            &["run-gn-integration", ".", "fixture", "integration.json"]
+        );
+        let inputs: BTreeSet<_> = gate
+            .inputs
+            .iter()
+            .map(|input| input.path.as_str())
+            .collect();
+        for expected in [
+            "fixture/.gn",
+            "fixture/BUILD.gn",
+            "integration.json",
+            "bridge/BUILD.gn",
+            "bridge/chromifer-build.json",
+            "bridge/include/api.h.chromifer.json",
+            "bridge/c-abi.json",
+            "bridge/include/api.h",
+            "bridge/src/lib.rs",
+            "bridge/consumer/smoke.cc",
+            "bridge/consumer/main.cc",
+        ] {
+            assert!(
+                inputs.contains(expected),
+                "missing integration input {expected}"
+            );
+        }
     }
 
     #[test]

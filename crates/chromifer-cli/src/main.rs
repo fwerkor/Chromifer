@@ -15,6 +15,7 @@ use chromifer_components::{
 use chromifer_evidence::{RunOptions, run_gates, verify_evidence, verify_evidence_with_workdir};
 use chromifer_gates::{DeriveGateOptions, derive_and_write as derive_gates};
 use chromifer_gn::{GateOptions, ImportOptions, import_gn_file};
+use chromifer_integration::{IntegrationOptions, run_integration};
 use chromifer_manifest::{Manifest, MigrationState};
 use chromifer_mojo::{MojoGenerateOptions, generate_and_write as generate_mojo};
 use chromifer_owners::scan_ownership;
@@ -272,6 +273,27 @@ enum Command {
         #[arg(long, conflicts_with = "force")]
         check: bool,
         /// Print the audit summary as JSON.
+        #[arg(long)]
+        json: bool,
+    },
+    /// Build and run a generated C ABI endpoint through GN and Ninja.
+    RunGnIntegration {
+        /// Repository root containing generated bridge inputs and the integration contract.
+        repo_root: PathBuf,
+        /// GN source checkout receiving the temporary integration overlay.
+        source_root: PathBuf,
+        /// Integration contract JSON inside the repository root.
+        contract: PathBuf,
+        /// GN executable.
+        #[arg(long, default_value = "gn")]
+        gn: PathBuf,
+        /// Ninja executable.
+        #[arg(long, default_value = "ninja")]
+        ninja: PathBuf,
+        /// Rust compiler executable used by the host adapter.
+        #[arg(long, default_value = "rustc")]
+        rustc: PathBuf,
+        /// Print the integration summary as JSON.
         #[arg(long)]
         json: bool,
     },
@@ -833,6 +855,47 @@ fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
                     "validated {} GN output(s) with GN {}",
                     generated.summary.gn_validated_outputs, version
                 );
+            }
+        }
+        Command::RunGnIntegration {
+            repo_root,
+            source_root,
+            contract,
+            gn,
+            ninja,
+            rustc,
+            json,
+        } => {
+            let summary = run_integration(&IntegrationOptions {
+                repo_root,
+                source_root,
+                contract,
+                gn,
+                ninja,
+                rustc,
+            })?;
+            if json {
+                println!("{}", serde_json::to_string_pretty(&summary)?);
+            } else {
+                println!(
+                    "built and ran {} through {} GN target(s): exit={}, sha256={}",
+                    summary.endpoint_target,
+                    summary.target_count,
+                    summary.endpoint_exit_code,
+                    summary.endpoint_sha256
+                );
+                println!("endpoint: {}", summary.endpoint_path);
+                if let Some(rustc) = &summary.tools.rustc {
+                    println!(
+                        "tools: GN {}, Ninja {}, Rustc {}",
+                        summary.tools.gn.version, summary.tools.ninja.version, rustc.version
+                    );
+                } else {
+                    println!(
+                        "tools: GN {}, Ninja {}; Rustc is owned by the existing GN template",
+                        summary.tools.gn.version, summary.tools.ninja.version
+                    );
+                }
             }
         }
         Command::DeriveGates {

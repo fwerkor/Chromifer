@@ -10,6 +10,7 @@ members = [
     "crates/chromifer-evidence",
     "crates/chromifer-gates",
     "crates/chromifer-gn",
+    "crates/chromifer-integration",
     "crates/chromifer-manifest",
     "crates/chromifer-owners",
     "crates/chromifer-planner",

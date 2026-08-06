@@ -1,0 +1,20 @@
+{
+  "schema_version": 1,
+  "package_root": "examples/c-abi-bridge",
+  "build_provenance": "examples/c-abi-bridge/chromifer-build.json",
+  "c_abi_provenance": "examples/c-abi-bridge/include/api.h.chromifer.json",
+  "destination": "examples/c-abi-bridge",
+  "source_inputs": [
+    ".gn",
+    "BUILD.gn",
+    "build/BUILD.gn",
+    "build/BUILDCONFIG.gn",
+    "build/toolchain/BUILD.gn"
+  ],
+  "endpoint_source": "consumer/main.cc",
+  "endpoint_target": "c_abi_endpoint",
+  "integration_target": "integration",
+  "out_dir": "out/ChromiferIntegration",
+  "rust_template": "host_adapter",
+  "expected_exit_code": 0
+}

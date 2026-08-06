@@ -34,6 +34,10 @@
       "mode": "safe"
     },
     {
+      "package": "chromifer-integration",
+      "mode": "safe"
+    },
+    {
       "package": "chromifer-manifest",
       "mode": "safe"
     },

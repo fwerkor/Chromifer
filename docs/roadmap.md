@@ -44,12 +44,13 @@ Acceptance criteria:
 - extend condition translation to additional exact Cargo/Chromium mappings;
 - establish an explicit C ABI contract, Rust export validator, generated header, and GN consumer integration; **implemented**
 - establish multi-target Mojo contracts, import resolution, C++/Rust targets, and deterministic provenance; **implemented**
-- derive direct compatibility gates and hashed inputs from Rust GN, C ABI, Mojo, unsafe, and checkout provenance; **implemented**
-- validate generated bindings and endpoint behavior in a real Chromium checkout;
+- derive direct compatibility gates and hashed inputs from Rust GN, C ABI, Mojo, unsafe, checkout, and integration provenance; **implemented**
+- compile, link, and execute a generated Rust/C ABI endpoint through pinned upstream GN and Ninja; **implemented**
+- validate generated bindings and endpoint behavior in a pinned full Chromium checkout;
 - enforce safe packages, designated bridge sources, local unsafe allowances, and deterministic audit evidence; **implemented**
 - build generated bridge examples on Linux, Windows, and macOS.
 
-M2 now emits first-party Rust targets, CXX and C ABI consumers, multi-target Mojo bindings, unsafe-policy evidence, structured direct gates, executable attestations, and deterministic Chromium checkout locks. The next integration step is to execute generated bindings and endpoint behavior inside a pinned real Chromium checkout and expand the platform matrix.
+M2 now emits first-party Rust targets, CXX and C ABI consumers, multi-target Mojo bindings, unsafe-policy evidence, structured direct gates, executable attestations, deterministic Chromium checkout locks, and a real upstream-GN/Ninja C ABI endpoint run. The next integration step is to repeat that endpoint against Chromium's native Rust template in a pinned full checkout and expand the platform matrix.
 
 ## M3 — First production component
 
