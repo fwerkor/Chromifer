@@ -14,6 +14,10 @@
       "mode": "safe"
     },
     {
+      "package": "chromifer-checkout",
+      "mode": "safe"
+    },
+    {
       "package": "chromifer-components",
       "mode": "safe"
     },

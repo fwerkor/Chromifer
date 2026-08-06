@@ -88,7 +88,7 @@ Each check ID must be unique and must not already exist in the source manifest. 
 
 ## Supported provenance
 
-Four check kinds are currently supported.
+Five check kinds are currently supported.
 
 ### `rust_gn`
 
@@ -113,6 +113,12 @@ Reads `chromifer-mojo.json` and reconstructs `generate-mojo ... --check`. The Mo
 ### `unsafe`
 
 Reads `chromifer-unsafe.json` and reconstructs `audit-unsafe ... --check`. Inputs include the workspace manifest, lockfile, unsafe policy, audit report, every package manifest, and every inventoried Rust source.
+
+### `checkout`
+
+Reads a Chromium checkout contract and deterministic lock report, verifies their schema and contract digest, then reconstructs `audit-checkout ... --check`. Inputs include the contract, lock report, gclient/DEPS metadata, every locked `args.gn`, `build.ninja`, and GN project export. Raw file identities are checked against the lock when available; path-normalized metadata and the semantic project digest are revalidated by `audit-checkout` itself.
+
+The portable derived gate does not add `--gn` because depot_tools locations are environment-specific and GN would be a subprocess of the direct gate runner. CI should run `audit-checkout --gn ... --check` separately before executing the derived gate.
 
 ## Generated manifest
 

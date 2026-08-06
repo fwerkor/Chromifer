@@ -44,7 +44,7 @@ Source targets are then grouped into component proposals by owner and directory 
 
 The owner key is refined from Chromium OWNERS files when available. Per-source primary and inherited owners are stored separately from the project's architectural owner label, including `set noparent`, per-file rules, and included owner files.
 
-Candidate ranking uses compatibility-gate declaration coverage only as a proxy. Actual execution is recorded separately as content-addressed evidence: the exact manifest digest, execution definitions, hashed inputs, results, timings, and full output logs can be re-verified before a transition check consumes them. Optional checkout attestation binds the run to an exact Git revision, dirty-state fingerprint, recursive submodule state, and Git executable identity. Direct gate executables retain separate invocation and canonical paths and are hashed before and after execution. Source coverage and signed runner identity remain separate requirements.
+Candidate ranking uses compatibility-gate declaration coverage only as a proxy. Actual execution is recorded separately as content-addressed evidence: the exact manifest digest, execution definitions, hashed inputs, results, timings, and full output logs can be re-verified before a transition check consumes them. Optional checkout attestation binds the evidence runner's Git worktree and direct executables. A separate Chromium checkout lock binds a nested gclient workspace to an exact source revision, DEPS/gclient metadata, GN args, Ninja output, normalized project export, and required target semantics. Source coverage and signed runner identity remain separate requirements.
 
 ## Compatibility contracts
 
@@ -59,7 +59,7 @@ Every component leaving `legacy_cpp` must identify executable gates. Gates are c
 
 The migration planner verifies the presence and references of gates. The evidence executor verifies each declared input digest before launch, runs selected gates, preserves full content-addressed logs, and writes a content-addressed JSON bundle. Verification recomputes the bundle digest, manifest digest, execution and input definitions, result consistency, every referenced log digest, checkout before/after consistency, and executable before/after consistency before the evidence can support a transition check. Optional live verification compares the recorded final checkout and executable identities with a supplied worktree.
 
-Build contracts do not require maintainers to duplicate generator commands in migration manifests. `derive-gates` reads committed Rust GN, C ABI, Mojo, and unsafe provenance, verifies every referenced digest, reconstructs direct `--check` argument vectors, attaches the resulting gates to selected modules, and includes the source manifest and derivation contract in every gate's input set.
+Build contracts do not require maintainers to duplicate generator commands in migration manifests. `derive-gates` reads committed Rust GN, C ABI, Mojo, unsafe, and Chromium checkout provenance, verifies every referenced digest, reconstructs direct `--check` argument vectors, attaches the resulting gates to selected modules, and includes the source manifest and derivation contract in every gate's input set.
 
 ## Build bridge
 

@@ -11,6 +11,7 @@ authors.workspace = true
 [dependencies]
 chromifer-build = { path = "../chromifer-build" }
 chromifer-cabi = { path = "../chromifer-cabi" }
+chromifer-checkout = { path = "../chromifer-checkout" }
 chromifer-manifest = { path = "../chromifer-manifest" }
 chromifer-mojo = { path = "../chromifer-mojo" }
 chromifer-safety = { path = "../chromifer-safety" }

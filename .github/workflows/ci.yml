@@ -67,6 +67,8 @@ jobs:
             examples/mojo-bridge/mojo.json \
             examples/mojo-bridge/BUILD.gn \
             --check
+      - name: Chromium checkout lock smoke
+        run: examples/checkout/run-smoke.sh
       - name: Structured contract gates pass
         run: |
           cargo run -p chromifer -- derive-gates \

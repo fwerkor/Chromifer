@@ -22,6 +22,7 @@ The initial workspace provides:
 - `chromifer-manifest`: parses and validates migration manifests.
 - `chromifer-build`: generates Chromium `rust_static_library` targets from Cargo metadata.
 - `chromifer-cabi`: validates explicit Rust C ABI contracts and generates C headers.
+- `chromifer-checkout`: locks Chromium Git, gclient metadata, GN outputs, and required targets.
 - `chromifer-mojo`: validates Mojom target/import contracts and generates C++ and Rust binding targets.
 - `chromifer-safety`: audits Cargo workspaces against exact safe/bridge unsafe-code policies.
 - `chromifer-gates`: derives direct compatibility gates and hashed inputs from committed provenance.
@@ -121,6 +122,13 @@ cargo run -p chromifer -- audit-unsafe \
   unsafe-policy.json \
   chromifer-unsafe.json
 
+# Lock a Chromium checkout and generated GN graph:
+cargo run -p chromifer -- audit-checkout \
+  /path/to/chromium-workspace \
+  /path/to/chromium-workspace/chromifer-checkout.json \
+  /path/to/chromium-workspace/chromifer-checkout-lock.json \
+  --gn /path/to/depot_tools/gn
+
 # Derive and execute structured checks from committed provenance:
 cargo run -p chromifer -- derive-gates \
   . \
@@ -195,6 +203,7 @@ crates/
   chromifer-manifest/  Manifest model and structural validation
   chromifer-build/     Cargo-to-Chromium GN bridge generation
   chromifer-cabi/      Explicit C ABI validation and header generation
+  chromifer-checkout/  Chromium checkout and GN output locking
   chromifer-mojo/      Mojom target graph and Rust binding generation
   chromifer-safety/    Workspace unsafe-code policy and evidence audit
   chromifer-gates/     Provenance-to-structured-gate derivation
@@ -213,6 +222,7 @@ docs/
   component-ranking.md Aggregation policy and scoring formula
   gate-evidence.md     Gate execution and evidence verification
   attestation.md       Git checkout and executable identity evidence
+  checkout-lock.md     Chromium source, gclient, and GN output lock
   build-bridge.md      Cargo-to-Chromium GN generation
   c-abi.md             Explicit Rust C ABI contracts
   mojo.md              Mojo target, import, and binding contracts
@@ -225,10 +235,11 @@ examples/
   c-abi-bridge/        Generated C ABI and C++ consumer example
   mojo-bridge/         Multi-target C++ and Rust Mojo binding example
   gates/               Provenance-derived gate manifest and contract
+  checkout/            Relocatable checkout lock smoke fixture
 ```
 
 ## Scope
 
 The project initially targets Chromium's browser framework, service layer, process/security orchestration, and platform adapters. Rewriting Blink or V8 is explicitly outside the first phases.
 
-See [docs/gn-import.md](docs/gn-import.md) for graph import, [docs/source-scan.md](docs/source-scan.md) for boundary evidence, [docs/owners-scan.md](docs/owners-scan.md) for ownership, [docs/component-ranking.md](docs/component-ranking.md) for component analysis, [docs/gate-evidence.md](docs/gate-evidence.md) for executable evidence, [docs/attestation.md](docs/attestation.md) for checkout and tool identity, [docs/structured-gates.md](docs/structured-gates.md) for provenance-derived direct checks, [docs/build-bridge.md](docs/build-bridge.md) for Chromium GN generation, [docs/c-abi.md](docs/c-abi.md) for explicit C ABI contracts, [docs/mojo.md](docs/mojo.md) for Mojo target contracts, [docs/unsafe-policy.md](docs/unsafe-policy.md) for workspace unsafe-code enforcement, and [docs/roadmap.md](docs/roadmap.md) for the staged plan.
+See [docs/gn-import.md](docs/gn-import.md) for graph import, [docs/source-scan.md](docs/source-scan.md) for boundary evidence, [docs/owners-scan.md](docs/owners-scan.md) for ownership, [docs/component-ranking.md](docs/component-ranking.md) for component analysis, [docs/gate-evidence.md](docs/gate-evidence.md) for executable evidence, [docs/attestation.md](docs/attestation.md) for checkout and tool identity, [docs/checkout-lock.md](docs/checkout-lock.md) for Chromium source and GN graph locking, [docs/structured-gates.md](docs/structured-gates.md) for provenance-derived direct checks, [docs/build-bridge.md](docs/build-bridge.md) for Chromium GN generation, [docs/c-abi.md](docs/c-abi.md) for explicit C ABI contracts, [docs/mojo.md](docs/mojo.md) for Mojo target contracts, [docs/unsafe-policy.md](docs/unsafe-policy.md) for workspace unsafe-code enforcement, and [docs/roadmap.md](docs/roadmap.md) for the staged plan.

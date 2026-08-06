@@ -1,0 +1,27 @@
+{
+  "build_settings": {
+    "root_path": "@SOURCE_ROOT@",
+    "build_dir": "//out/Default/",
+    "default_toolchain": "//build/toolchain/linux:clang_x64",
+    "gen_input_files": [
+      "//BUILD.gn",
+      "//out/Default/args.gn"
+    ]
+  },
+  "targets": {
+    "//app:browser": {
+      "type": "executable",
+      "toolchain": "//build/toolchain/linux:clang_x64",
+      "sources": ["//app/main.cc"],
+      "deps": ["//base:base"],
+      "testonly": false
+    },
+    "//base:base": {
+      "type": "source_set",
+      "toolchain": "//build/toolchain/linux:clang_x64",
+      "sources": ["//base/base.cc"],
+      "deps": [],
+      "testonly": false
+    }
+  }
+}

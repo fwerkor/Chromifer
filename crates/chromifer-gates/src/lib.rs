@@ -6,6 +6,7 @@ use std::path::{Path, PathBuf};
 
 use chromifer_build::BridgeProvenance;
 use chromifer_cabi::CAbiProvenance;
+use chromifer_checkout::{CheckoutContract, CheckoutReport, MetadataMode};
 use chromifer_manifest::{
     CompatibilityGate, GateExecution, GateInput, Manifest, ValidationErrors,
     normalize_repo_relative_path,
@@ -21,6 +22,8 @@ const BUILD_PROVENANCE_SCHEMA_VERSION: u32 = 4;
 const C_ABI_PROVENANCE_SCHEMA_VERSION: u32 = 1;
 const MOJO_PROVENANCE_SCHEMA_VERSION: u32 = 1;
 const UNSAFE_REPORT_SCHEMA_VERSION: u32 = 1;
+const CHECKOUT_CONTRACT_SCHEMA_VERSION: u32 = 1;
+const CHECKOUT_REPORT_SCHEMA_VERSION: u32 = 1;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DeriveGateOptions {
@@ -112,6 +115,16 @@ pub enum GateCheck {
         #[serde(default)]
         targets: Vec<String>,
     },
+    Checkout {
+        id: String,
+        workspace_root: String,
+        contract: String,
+        report: String,
+        #[serde(default)]
+        modules: Vec<String>,
+        #[serde(default)]
+        targets: Vec<String>,
+    },
 }
 
 impl GateCheck {
@@ -120,7 +133,8 @@ impl GateCheck {
             Self::RustGn { id, .. }
             | Self::CAbi { id, .. }
             | Self::Mojo { id, .. }
-            | Self::Unsafe { id, .. } => id,
+            | Self::Unsafe { id, .. }
+            | Self::Checkout { id, .. } => id,
         }
     }
 
@@ -129,7 +143,8 @@ impl GateCheck {
             Self::RustGn { modules, .. }
             | Self::CAbi { modules, .. }
             | Self::Mojo { modules, .. }
-            | Self::Unsafe { modules, .. } => modules,
+            | Self::Unsafe { modules, .. }
+            | Self::Checkout { modules, .. } => modules,
         }
     }
 
@@ -138,7 +153,8 @@ impl GateCheck {
             Self::RustGn { targets, .. }
             | Self::CAbi { targets, .. }
             | Self::Mojo { targets, .. }
-            | Self::Unsafe { targets, .. } => targets,
+            | Self::Unsafe { targets, .. }
+            | Self::Checkout { targets, .. } => targets,
         }
     }
 }
@@ -438,6 +454,20 @@ fn normalize_check_paths(check: &mut GateCheck) -> Result<(), GateDeriveError> {
             modules.sort();
             targets.sort();
         }
+        GateCheck::Checkout {
+            workspace_root,
+            contract,
+            report,
+            modules,
+            targets,
+            ..
+        } => {
+            *workspace_root = exact_dir_path(workspace_root)?;
+            *contract = exact_file_path(contract)?;
+            *report = exact_file_path(report)?;
+            modules.sort();
+            targets.sort();
+        }
     }
     Ok(())
 }
@@ -470,6 +500,19 @@ fn derive_check(
             report,
             ..
         } => derive_unsafe(root, workspace_root, report, &mut args, &mut inputs)?,
+        GateCheck::Checkout {
+            workspace_root,
+            contract,
+            report,
+            ..
+        } => derive_checkout(
+            root,
+            workspace_root,
+            contract,
+            report,
+            &mut args,
+            &mut inputs,
+        )?,
     }
     Ok(CompatibilityGate {
         id: check.id().to_owned(),
@@ -685,6 +728,65 @@ fn derive_unsafe(
         "audit-unsafe".into(),
         cargo_manifest,
         policy,
+        report_path.into(),
+        "--check".into(),
+    ]);
+    Ok(())
+}
+
+fn derive_checkout(
+    _root: &Path,
+    workspace_root: &str,
+    contract_path: &str,
+    report_path: &str,
+    args: &mut Vec<String>,
+    inputs: &mut InputSet<'_>,
+) -> Result<(), GateDeriveError> {
+    let contract_bytes = inputs.add(contract_path, None)?;
+    let contract: CheckoutContract = serde_json::from_slice(&contract_bytes)?;
+    check_schema(
+        "checkout contract",
+        contract.schema_version,
+        CHECKOUT_CONTRACT_SCHEMA_VERSION,
+    )?;
+
+    let report_bytes = inputs.add(report_path, None)?;
+    let report: CheckoutReport = serde_json::from_slice(&report_bytes)?;
+    check_schema(
+        "checkout report",
+        report.schema_version,
+        CHECKOUT_REPORT_SCHEMA_VERSION,
+    )?;
+    let actual_contract_digest = sha256_hex(&contract_bytes);
+    if report.contract_sha256 != actual_contract_digest {
+        return Err(GateDeriveError::DigestMismatch {
+            path: contract_path.to_owned(),
+            expected: report.contract_sha256,
+            actual: actual_contract_digest,
+        });
+    }
+
+    for metadata in &report.metadata_files {
+        let path = join_path(workspace_root, &metadata.path)?;
+        let expected = (metadata.mode == MetadataMode::Raw).then_some(metadata.sha256.as_str());
+        inputs.add(&path, expected)?;
+    }
+    for output in &report.gn_outputs {
+        inputs.add(
+            &join_path(workspace_root, &output.args.path)?,
+            Some(&output.args.sha256),
+        )?;
+        inputs.add(
+            &join_path(workspace_root, &output.build.path)?,
+            Some(&output.build.sha256),
+        )?;
+        inputs.add(&join_path(workspace_root, &output.project_file)?, None)?;
+    }
+
+    args.extend([
+        "audit-checkout".into(),
+        display_dir(workspace_root),
+        contract_path.into(),
         report_path.into(),
         "--check".into(),
     ]);
@@ -1146,6 +1248,144 @@ mod tests {
             Err(GateDeriveError::InputSymlink(path))
                 if path == "bridge/include/api.h"
         ));
+    }
+
+    #[test]
+    fn derives_checkout_gate_from_lock_report() {
+        let tree = TempTree::new();
+        base_manifest(&tree);
+        tree.write("workspace/.gclient", "solutions = []\n");
+        tree.write("workspace/.gclient_entries", "entries = {}\n");
+        tree.write("workspace/src/out/Default/args.gn", "is_debug = false\n");
+        tree.write("workspace/src/out/Default/build.ninja", "rule noop\n");
+        tree.write(
+            "workspace/src/out/Default/project.json",
+            "{\"build_settings\":{},\"targets\":{}}\n",
+        );
+        let checkout_contract = br#"{
+  "schema_version": 1,
+  "source_dir": "src",
+  "revision": "0000000000000000000000000000000000000000",
+  "require_clean": true,
+  "metadata_files": [
+    {"path": ".gclient"},
+    {"path": ".gclient_entries", "mode": "workspace_text"}
+  ],
+  "gn_outputs": [{
+    "id": "linux",
+    "directory": "src/out/Default",
+    "required_targets": ["//app:browser"]
+  }]
+}
+"#;
+        tree.write("workspace/checkout.json", checkout_contract);
+        let report = serde_json::json!({
+            "schema_version": 1,
+            "contract_sha256": sha256_hex(checkout_contract),
+            "source": {
+                "source_dir": "src",
+                "revision": "0000000000000000000000000000000000000000",
+                "clean": true,
+                "status_sha256": sha256_hex(b""),
+                "status_entries": 0,
+                "submodule_status_sha256": sha256_hex(b"")
+            },
+            "metadata_files": [
+                {
+                    "path": ".gclient",
+                    "mode": "raw",
+                    "sha256": sha256_hex(b"solutions = []\n"),
+                    "bytes": 15
+                },
+                {
+                    "path": ".gclient_entries",
+                    "mode": "workspace_text",
+                    "sha256": sha256_hex(b"entries = {}\n"),
+                    "bytes": 13
+                }
+            ],
+            "gn_outputs": [{
+                "id": "linux",
+                "directory": "src/out/Default",
+                "args": {
+                    "path": "src/out/Default/args.gn",
+                    "mode": "raw",
+                    "sha256": sha256_hex(b"is_debug = false\n"),
+                    "bytes": 17
+                },
+                "build": {
+                    "path": "src/out/Default/build.ninja",
+                    "mode": "raw",
+                    "sha256": sha256_hex(b"rule noop\n"),
+                    "bytes": 10
+                },
+                "project_file": "src/out/Default/project.json",
+                "project_semantic_sha256": sha256_hex(b"semantic"),
+                "project_semantic_bytes": 8,
+                "build_dir": "//out/Default/",
+                "default_toolchain": "//build/toolchain:default",
+                "target_count": 1,
+                "required_targets": []
+            }]
+        });
+        tree.write(
+            "workspace/checkout-lock.json",
+            format!("{}\n", serde_json::to_string_pretty(&report).unwrap()),
+        );
+        tree.write(
+            "gates.json",
+            r#"{
+  "schema_version": 1,
+  "checks": [{
+    "kind": "checkout",
+    "id": "checkout-current",
+    "workspace_root": "workspace",
+    "contract": "workspace/checkout.json",
+    "report": "workspace/checkout-lock.json",
+    "modules": ["service"],
+    "targets": ["linux"]
+  }]
+}
+"#,
+        );
+
+        let generated = derive_gate_manifest(&options(&tree)).unwrap();
+        let manifest: Manifest = toml::from_str(&generated.manifest_toml).unwrap();
+        let gate = &manifest.gates[0];
+        let GateExecution::Direct { program, args } = &gate.execution else {
+            panic!("expected direct checkout gate");
+        };
+        assert_eq!(program, "chromifer");
+        assert_eq!(
+            args,
+            &[
+                "audit-checkout",
+                "workspace",
+                "workspace/checkout.json",
+                "workspace/checkout-lock.json",
+                "--check"
+            ]
+        );
+        let inputs: BTreeSet<_> = gate
+            .inputs
+            .iter()
+            .map(|input| input.path.as_str())
+            .collect();
+        for expected in [
+            "workspace/.gclient",
+            "workspace/.gclient_entries",
+            "workspace/checkout-lock.json",
+            "workspace/checkout.json",
+            "workspace/src/out/Default/args.gn",
+            "workspace/src/out/Default/build.ninja",
+            "workspace/src/out/Default/project.json",
+        ] {
+            assert!(
+                inputs.contains(expected),
+                "missing checkout input {expected}"
+            );
+        }
+        assert_eq!(manifest.modules[0].gates, vec!["checkout-current"]);
     }
 
     #[test]

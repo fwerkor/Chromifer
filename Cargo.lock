@@ -73,6 +73,7 @@ version = "0.1.0"
 dependencies = [
  "chromifer-build",
  "chromifer-cabi",
+ "chromifer-checkout",
  "chromifer-components",
  "chromifer-evidence",
  "chromifer-gates",
@@ -112,6 +113,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "chromifer-checkout"
+version = "0.1.0"
+dependencies = [
+ "chromifer-manifest",
+ "serde",
+ "serde_json",
+ "sha2",
+ "thiserror",
+]
+
+[[package]]
 name = "chromifer-components"
 version = "0.1.0"
 dependencies = [
@@ -137,6 +149,7 @@ version = "0.1.0"
 dependencies = [
  "chromifer-build",
  "chromifer-cabi",
+ "chromifer-checkout",
  "chromifer-manifest",
  "chromifer-mojo",
  "chromifer-safety",

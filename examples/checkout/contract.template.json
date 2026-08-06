@@ -1,0 +1,19 @@
+{
+  "schema_version": 1,
+  "source_dir": "src",
+  "revision": "@REVISION@",
+  "require_clean": true,
+  "metadata_files": [
+    {"path": "src/DEPS"},
+    {"path": ".gclient"},
+    {"path": ".gclient_entries", "mode": "workspace_text"}
+  ],
+  "gn_outputs": [
+    {
+      "id": "linux-default",
+      "directory": "src/out/Default",
+      "required_targets": ["//app:browser", "//base:base"],
+      "expected_default_toolchain": "//build/toolchain/linux:clang_x64"
+    }
+  ]
+}

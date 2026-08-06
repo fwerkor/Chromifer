@@ -1,16 +1,16 @@
 {
   "schema_version": 1,
-  "cargo_manifest_sha256": "bf465b16dc81015920ab105955cb8cc38959c51a8a422a0bec67cb4a50dbc2f7",
+  "cargo_manifest_sha256": "eb11a132836720771966d77c5391d51b6a29ddcc8062bd959d421ca4ff8596e7",
   "cargo_manifest_path": "Cargo.toml",
-  "cargo_lock_sha256": "d43d4020ce88ce9b6bd5aa56bbe84fc0bc4c1fadb1abaa568b3c4a8a4fab5f7c",
+  "cargo_lock_sha256": "f4cb18f7726a3ae3bf2a7bc2cb750ba8ae1288a8775782b0e9d608914084abec",
   "cargo_lock_path": "Cargo.lock",
-  "policy_sha256": "f438a36755a49db28b25f43d47a8fc8bcc9f0d7ada1aa74acd91878657ab3703",
+  "policy_sha256": "87b18cb3c2c5eb84ffe5cba651376b9669efb743ec88d34e2b20fd1767d5faff",
   "policy_path": "unsafe-policy.json",
   "packages": [
     {
       "package": "chromifer",
       "manifest_path": "crates/chromifer-cli/Cargo.toml",
-      "manifest_sha256": "d0ed9c590f16fa3a67f36628ab3c82b105115b048e79b32287889b1b8703d672",
+      "manifest_sha256": "d659d5faadb9f98ef1fb51ce7ee6428b05d4e8e79264a363e8069a50fb898dc3",
       "mode": "safe",
       "allowed_sources": [],
       "crate_roots": [
@@ -26,7 +26,7 @@
       "sources": [
         {
           "source": "src/main.rs",
-          "sha256": "ee97557ad1f7f39054d9d7bcbf90611fcd4ff4ba16d6a8501855f41ad076702b"
+          "sha256": "04f930304babcf8b7cbdc0bc01b170346cd0983e19a747fff29d58e86a874f36"
         }
       ],
       "unsafe_occurrences": [],
@@ -77,6 +77,31 @@
         {
           "source": "src/lib.rs",
           "sha256": "30ad3ae0ec8dc1a4d5c2303aa8513395cda93e5f298d7f0721aa1ad4593656b8"
+        }
+      ],
+      "unsafe_occurrences": [],
+      "lint_allowances": []
+    },
+    {
+      "package": "chromifer-checkout",
+      "manifest_path": "crates/chromifer-checkout/Cargo.toml",
+      "manifest_sha256": "72d838b5022a5d89f9bba07b75ffc03400728be5cf0fcca726c1d13c6735ce14",
+      "mode": "safe",
+      "allowed_sources": [],
+      "crate_roots": [
+        {
+          "source": "src/lib.rs",
+          "targets": [
+            "chromifer_checkout (lib)"
+          ],
+          "unsafe_code_lint": "forbid",
+          "unsafe_op_in_unsafe_fn_lint": "missing"
+        }
+      ],
+      "sources": [
+        {
+          "source": "src/lib.rs",
+          "sha256": "71d2e5b4a60019c09962018c819fac3c84deb7c4eaf9d5263b346e73c63a487d"
         }
       ],
       "unsafe_occurrences": [],
@@ -135,7 +160,7 @@
     {
       "package": "chromifer-gates",
       "manifest_path": "crates/chromifer-gates/Cargo.toml",
-      "manifest_sha256": "0884cccb9a0d89bb54c62d6e7b97e7de444ea83b3bd1d668e9cff5649de03494",
+      "manifest_sha256": "394a248d1868c7a16be6570991735abeffa50d55c11a1c74c676b3f3e033e81d",
       "mode": "safe",
       "allowed_sources": [],
       "crate_roots": [
@@ -151,7 +176,7 @@
       "sources": [
         {
           "source": "src/lib.rs",
-          "sha256": "5cdb144e5112469d0f37c0a1176d0b18a48a6829f29d77669a467b1e9edb05a2"
+          "sha256": "b6c56ae0a9ba3de7c17cf569ca627cf3898e97e8bdd42c0254cc7d9ff297bd1a"
         }
       ],
       "unsafe_occurrences": [],

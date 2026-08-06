@@ -8,6 +8,7 @@ use std::time::Duration;
 
 use chromifer_build::{ConsumerOptions, GenerateOptions, generate_and_write};
 use chromifer_cabi::{CAbiGenerateOptions, generate_and_write as generate_c_abi};
+use chromifer_checkout::{CheckoutAuditOptions, audit_and_write as audit_checkout};
 use chromifer_components::{
     AnalysisOptions, CandidateConcern, ComponentAnalysis, analyze_components,
 };
@@ -247,6 +248,27 @@ enum Command {
         #[arg(long, conflicts_with = "check")]
         force: bool,
         /// Verify the committed audit report without modifying it.
+        #[arg(long, conflicts_with = "force")]
+        check: bool,
+        /// Print the audit summary as JSON.
+        #[arg(long)]
+        json: bool,
+    },
+    /// Lock a Chromium checkout, gclient metadata, and generated GN outputs.
+    AuditCheckout {
+        /// Workspace root containing the source checkout and gclient metadata.
+        workspace_root: PathBuf,
+        /// Checkout contract JSON.
+        contract: PathBuf,
+        /// Deterministic checkout lock report JSON.
+        output: PathBuf,
+        /// Optional GN executable used to live-validate args and required targets.
+        #[arg(long)]
+        gn: Option<PathBuf>,
+        /// Replace an existing checkout lock report.
+        #[arg(long, conflicts_with = "check")]
+        force: bool,
+        /// Verify the committed checkout lock without modifying it.
         #[arg(long, conflicts_with = "force")]
         check: bool,
         /// Print the audit summary as JSON.
@@ -768,6 +790,48 @@ fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
                     generated.summary.crate_roots,
                     generated.summary.unsafe_occurrences,
                     generated.summary.lint_allowances
+                );
+            }
+        }
+        Command::AuditCheckout {
+            workspace_root,
+            contract,
+            output,
+            gn,
+            force,
+            check,
+            json,
+        } => {
+            let generated = audit_checkout(&CheckoutAuditOptions {
+                workspace_root,
+                contract,
+                output,
+                gn,
+                force,
+                check,
+            })?;
+            if json {
+                println!("{}", serde_json::to_string_pretty(&generated.summary)?);
+            } else if generated.summary.checked {
+                println!(
+                    "current: {} matches checkout revision {}",
+                    generated.summary.output, generated.summary.source_revision
+                );
+            } else {
+                println!(
+                    "locked checkout revision {}: clean={}, metadata_files={}, gn_outputs={}, required_targets={}",
+                    generated.summary.source_revision,
+                    generated.summary.source_clean,
+                    generated.summary.metadata_files,
+                    generated.summary.gn_outputs,
+                    generated.summary.required_targets
+                );
+                println!("wrote {}", generated.summary.output);
+            }
+            if let Some(version) = &generated.summary.gn_version {
+                println!(
+                    "validated {} GN output(s) with GN {}",
+                    generated.summary.gn_validated_outputs, version
                 );
             }
         }
