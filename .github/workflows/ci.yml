@@ -22,6 +22,18 @@ jobs:
         run: cargo clippy --workspace --all-targets --all-features -- -D warnings
       - name: Test
         run: cargo test --workspace --all-features --locked
+      - name: Unsafe policy is current
+        run: |
+          cargo run -p chromifer -- audit-unsafe \
+            Cargo.toml \
+            unsafe-policy.json \
+            chromifer-unsafe.json \
+            --check
+          cargo run -p chromifer -- audit-unsafe \
+            examples/c-abi-bridge/Cargo.toml \
+            examples/c-abi-bridge/unsafe-policy.json \
+            examples/c-abi-bridge/chromifer-unsafe.json \
+            --check
       - name: Generated GN bridge is current
         run: |
           cargo run -p chromifer -- generate-gn \

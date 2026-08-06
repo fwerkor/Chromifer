@@ -41,7 +41,7 @@ Acceptance criteria:
 - establish an explicit C ABI contract, Rust export validator, generated header, and GN consumer integration; **implemented**
 - establish multi-target Mojo contracts, import resolution, C++/Rust targets, and deterministic provenance; **implemented**
 - validate generated bindings and endpoint behavior in a real Chromium checkout;
-- enforce that `unsafe` appears only in designated bridge crates;
+- enforce safe packages, designated bridge sources, local unsafe allowances, and deterministic audit evidence; **implemented**
 - build generated bridge examples on Linux, Windows, and macOS.
 
 Evidence execution is available before the build bridge, but current gates still depend on commands supplied by the manifest. M2 now emits first-party Rust targets, CXX and C ABI consumers, and multi-target Mojo bindings with deterministic provenance. The next integration step is to derive build/test gates from those contracts and execute them against a pinned Chromium checkout.

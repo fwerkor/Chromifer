@@ -1,0 +1,53 @@
+{
+  "schema_version": 1,
+  "packages": [
+    {
+      "package": "chromifer",
+      "mode": "safe"
+    },
+    {
+      "package": "chromifer-build",
+      "mode": "safe"
+    },
+    {
+      "package": "chromifer-cabi",
+      "mode": "safe"
+    },
+    {
+      "package": "chromifer-components",
+      "mode": "safe"
+    },
+    {
+      "package": "chromifer-evidence",
+      "mode": "safe"
+    },
+    {
+      "package": "chromifer-gn",
+      "mode": "safe"
+    },
+    {
+      "package": "chromifer-manifest",
+      "mode": "safe"
+    },
+    {
+      "package": "chromifer-mojo",
+      "mode": "safe"
+    },
+    {
+      "package": "chromifer-owners",
+      "mode": "safe"
+    },
+    {
+      "package": "chromifer-planner",
+      "mode": "safe"
+    },
+    {
+      "package": "chromifer-safety",
+      "mode": "safe"
+    },
+    {
+      "package": "chromifer-source",
+      "mode": "safe"
+    }
+  ]
+}

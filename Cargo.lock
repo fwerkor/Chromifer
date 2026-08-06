@@ -80,6 +80,7 @@ dependencies = [
  "chromifer-mojo",
  "chromifer-owners",
  "chromifer-planner",
+ "chromifer-safety",
  "chromifer-source",
  "clap",
  "serde_json",
@@ -175,6 +176,19 @@ version = "0.1.0"
 dependencies = [
  "chromifer-manifest",
  "serde",
+ "thiserror",
+]
+
+[[package]]
+name = "chromifer-safety"
+version = "0.1.0"
+dependencies = [
+ "chromifer-manifest",
+ "proc-macro2",
+ "serde",
+ "serde_json",
+ "sha2",
+ "syn 2.0.119",
  "thiserror",
 ]
 

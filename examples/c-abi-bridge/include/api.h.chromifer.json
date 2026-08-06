@@ -8,14 +8,14 @@
   "sources": [
     {
       "source": "src/lib.rs",
-      "sha256": "7e8e3231db5b71ff692a2323350a983b95d88c70eb7b9a0f43f12ee82d8553dc"
+      "sha256": "f021105b600c81decb442a23a4fc614df57a4113e9259d1b9172a50c2f7ae527"
     }
   ],
   "symbols": [
     {
       "name": "chromifer_add",
       "source": "src/lib.rs",
-      "line": 2,
+      "line": 6,
       "unsafe_function": false,
       "return_type": "i32",
       "parameters": [
@@ -32,7 +32,7 @@
     {
       "name": "chromifer_buffer_is_valid",
       "source": "src/lib.rs",
-      "line": 7,
+      "line": 12,
       "unsafe_function": true,
       "return_type": "bool",
       "parameters": [

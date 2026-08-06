@@ -1,0 +1,311 @@
+{
+  "schema_version": 1,
+  "cargo_manifest_sha256": "77ff915f811828fa234733549048b26366b14859e9ff592de8943ed53af834f9",
+  "cargo_manifest_path": "Cargo.toml",
+  "cargo_lock_sha256": "01d9dcdb3809bf1abb1d8c3cf0a4fb40bd1e56f37452d70c28910503d782984a",
+  "cargo_lock_path": "Cargo.lock",
+  "policy_sha256": "b5f5ff5feb66b24bafdd451263c20bb548ed31d7912e75be67184d472da9c563",
+  "policy_path": "unsafe-policy.json",
+  "packages": [
+    {
+      "package": "chromifer",
+      "manifest_path": "crates/chromifer-cli/Cargo.toml",
+      "manifest_sha256": "6fcf3afaff6c32f283e5ed8f9b5a85ae52e76654a01273becaaa1baad238e534",
+      "mode": "safe",
+      "allowed_sources": [],
+      "crate_roots": [
+        {
+          "source": "src/main.rs",
+          "targets": [
+            "chromifer (bin)"
+          ],
+          "unsafe_code_lint": "forbid",
+          "unsafe_op_in_unsafe_fn_lint": "missing"
+        }
+      ],
+      "sources": [
+        {
+          "source": "src/main.rs",
+          "sha256": "6bfed6f24366212062c452987b1688553f428f86fdff9dfbaa24803fe3c07ed8"
+        }
+      ],
+      "unsafe_occurrences": [],
+      "lint_allowances": []
+    },
+    {
+      "package": "chromifer-build",
+      "manifest_path": "crates/chromifer-build/Cargo.toml",
+      "manifest_sha256": "b40f11f3a7bec00c5958d9fe5fac7f869c689a0c2abf00ef2093f3ccad963bf5",
+      "mode": "safe",
+      "allowed_sources": [],
+      "crate_roots": [
+        {
+          "source": "src/lib.rs",
+          "targets": [
+            "chromifer_build (lib)"
+          ],
+          "unsafe_code_lint": "forbid",
+          "unsafe_op_in_unsafe_fn_lint": "missing"
+        }
+      ],
+      "sources": [
+        {
+          "source": "src/lib.rs",
+          "sha256": "20124ff890f5289b8e4932e6f90d83d183cec8cb594dbd91cf5d633607d84302"
+        }
+      ],
+      "unsafe_occurrences": [],
+      "lint_allowances": []
+    },
+    {
+      "package": "chromifer-cabi",
+      "manifest_path": "crates/chromifer-cabi/Cargo.toml",
+      "manifest_sha256": "6f2de5daef4757aa133e0be86f07630c1cc0a7accd7d4f0f671611fd2b83cb07",
+      "mode": "safe",
+      "allowed_sources": [],
+      "crate_roots": [
+        {
+          "source": "src/lib.rs",
+          "targets": [
+            "chromifer_cabi (lib)"
+          ],
+          "unsafe_code_lint": "forbid",
+          "unsafe_op_in_unsafe_fn_lint": "missing"
+        }
+      ],
+      "sources": [
+        {
+          "source": "src/lib.rs",
+          "sha256": "9e3c2599b1bbaa10b66fb8463bcc07d0d3fda0acec8f3389bcaa7a15d4f28fb7"
+        }
+      ],
+      "unsafe_occurrences": [],
+      "lint_allowances": []
+    },
+    {
+      "package": "chromifer-components",
+      "manifest_path": "crates/chromifer-components/Cargo.toml",
+      "manifest_sha256": "e872d5696ba38b19177a5ff7019b3214370d3e8a6f6e2526e7dff67e3c5a7a21",
+      "mode": "safe",
+      "allowed_sources": [],
+      "crate_roots": [
+        {
+          "source": "src/lib.rs",
+          "targets": [
+            "chromifer_components (lib)"
+          ],
+          "unsafe_code_lint": "forbid",
+          "unsafe_op_in_unsafe_fn_lint": "missing"
+        }
+      ],
+      "sources": [
+        {
+          "source": "src/lib.rs",
+          "sha256": "7b843af3a9693e869b474f9b8c8f51d318b07edae608a1aae3bf0961296d2fee"
+        }
+      ],
+      "unsafe_occurrences": [],
+      "lint_allowances": []
+    },
+    {
+      "package": "chromifer-evidence",
+      "manifest_path": "crates/chromifer-evidence/Cargo.toml",
+      "manifest_sha256": "d6cedb25692a6f331b9b5b0427a794d359219bb66e1df4b2ca0c9621c34a93f7",
+      "mode": "safe",
+      "allowed_sources": [],
+      "crate_roots": [
+        {
+          "source": "src/lib.rs",
+          "targets": [
+            "chromifer_evidence (lib)"
+          ],
+          "unsafe_code_lint": "forbid",
+          "unsafe_op_in_unsafe_fn_lint": "missing"
+        }
+      ],
+      "sources": [
+        {
+          "source": "src/lib.rs",
+          "sha256": "fc70b1ad8014184a3ec5f58d36dc9380f7e6a771497c3d5fc9a07cc5b51600b1"
+        }
+      ],
+      "unsafe_occurrences": [],
+      "lint_allowances": []
+    },
+    {
+      "package": "chromifer-gn",
+      "manifest_path": "crates/chromifer-gn/Cargo.toml",
+      "manifest_sha256": "85c3a8568d68257dbb0ba51d13768269e44f3f3488a3e289d0e6e9c552ce79be",
+      "mode": "safe",
+      "allowed_sources": [],
+      "crate_roots": [
+        {
+          "source": "src/lib.rs",
+          "targets": [
+            "chromifer_gn (lib)"
+          ],
+          "unsafe_code_lint": "forbid",
+          "unsafe_op_in_unsafe_fn_lint": "missing"
+        }
+      ],
+      "sources": [
+        {
+          "source": "src/lib.rs",
+          "sha256": "9bc651952514b3bd5892fdee55401b27269e84af1051af96bc2a8e550be1288d"
+        }
+      ],
+      "unsafe_occurrences": [],
+      "lint_allowances": []
+    },
+    {
+      "package": "chromifer-manifest",
+      "manifest_path": "crates/chromifer-manifest/Cargo.toml",
+      "manifest_sha256": "b96f62bc8900e82e6c59376559f215d5fcb79110a151e1959a23f731eaa59be5",
+      "mode": "safe",
+      "allowed_sources": [],
+      "crate_roots": [
+        {
+          "source": "src/lib.rs",
+          "targets": [
+            "chromifer_manifest (lib)"
+          ],
+          "unsafe_code_lint": "forbid",
+          "unsafe_op_in_unsafe_fn_lint": "missing"
+        }
+      ],
+      "sources": [
+        {
+          "source": "src/lib.rs",
+          "sha256": "b46c8cab45bf84f59b8afa09c18d8d73f453076381fa3249b5a6ca623f6f0de6"
+        }
+      ],
+      "unsafe_occurrences": [],
+      "lint_allowances": []
+    },
+    {
+      "package": "chromifer-mojo",
+      "manifest_path": "crates/chromifer-mojo/Cargo.toml",
+      "manifest_sha256": "0a1547a24a079bbefb4030696fbf7c11c2b002cdb79e621d7baa020a988b51d0",
+      "mode": "safe",
+      "allowed_sources": [],
+      "crate_roots": [
+        {
+          "source": "src/lib.rs",
+          "targets": [
+            "chromifer_mojo (lib)"
+          ],
+          "unsafe_code_lint": "forbid",
+          "unsafe_op_in_unsafe_fn_lint": "missing"
+        }
+      ],
+      "sources": [
+        {
+          "source": "src/lib.rs",
+          "sha256": "372b870e60ab8b8e9f5b247b31d5af226c061ae6efaca3c7c56962a011ed013b"
+        }
+      ],
+      "unsafe_occurrences": [],
+      "lint_allowances": []
+    },
+    {
+      "package": "chromifer-owners",
+      "manifest_path": "crates/chromifer-owners/Cargo.toml",
+      "manifest_sha256": "11c79216d06be69ceae0ff1dd9c61bfbe7a7a265b74f297125a2952b2229e3ba",
+      "mode": "safe",
+      "allowed_sources": [],
+      "crate_roots": [
+        {
+          "source": "src/lib.rs",
+          "targets": [
+            "chromifer_owners (lib)"
+          ],
+          "unsafe_code_lint": "forbid",
+          "unsafe_op_in_unsafe_fn_lint": "missing"
+        }
+      ],
+      "sources": [
+        {
+          "source": "src/lib.rs",
+          "sha256": "e4dba4781b279a465f1aacfb8c0254365cba7a1dda2bb1827ee8d826a8f79879"
+        }
+      ],
+      "unsafe_occurrences": [],
+      "lint_allowances": []
+    },
+    {
+      "package": "chromifer-planner",
+      "manifest_path": "crates/chromifer-planner/Cargo.toml",
+      "manifest_sha256": "f7e65fa1fe1303cccb6d4f2a7850a6798bd04e38fc933896e28beb9ebebeddf7",
+      "mode": "safe",
+      "allowed_sources": [],
+      "crate_roots": [
+        {
+          "source": "src/lib.rs",
+          "targets": [
+            "chromifer_planner (lib)"
+          ],
+          "unsafe_code_lint": "forbid",
+          "unsafe_op_in_unsafe_fn_lint": "missing"
+        }
+      ],
+      "sources": [
+        {
+          "source": "src/lib.rs",
+          "sha256": "fbe10d0bbb299fc9e34392212f70cf4286ac7e94dd550a4c2d849c409216865a"
+        }
+      ],
+      "unsafe_occurrences": [],
+      "lint_allowances": []
+    },
+    {
+      "package": "chromifer-safety",
+      "manifest_path": "crates/chromifer-safety/Cargo.toml",
+      "manifest_sha256": "d806883e4b54543012474c77892d699a0846ebb8b9faec587aa296fcfaf7963b",
+      "mode": "safe",
+      "allowed_sources": [],
+      "crate_roots": [
+        {
+          "source": "src/lib.rs",
+          "targets": [
+            "chromifer_safety (lib)"
+          ],
+          "unsafe_code_lint": "forbid",
+          "unsafe_op_in_unsafe_fn_lint": "missing"
+        }
+      ],
+      "sources": [
+        {
+          "source": "src/lib.rs",
+          "sha256": "656db64f43d90a317ff56f86a29e8e2d5356523be3841457c24528c354b9e693"
+        }
+      ],
+      "unsafe_occurrences": [],
+      "lint_allowances": []
+    },
+    {
+      "package": "chromifer-source",
+      "manifest_path": "crates/chromifer-source/Cargo.toml",
+      "manifest_sha256": "edcc5c1e222788c064c3f3526fa24f2171a3677d2732cd66192c77dd024b81d7",
+      "mode": "safe",
+      "allowed_sources": [],
+      "crate_roots": [
+        {
+          "source": "src/lib.rs",
+          "targets": [
+            "chromifer_source (lib)"
+          ],
+          "unsafe_code_lint": "forbid",
+          "unsafe_op_in_unsafe_fn_lint": "missing"
+        }
+      ],
+      "sources": [
+        {
+          "source": "src/lib.rs",
+          "sha256": "0bbf24ec92b57989d99000da0331076c29659d855d522da25f6283156a57b39e"
+        }
+      ],
+      "unsafe_occurrences": [],
+      "lint_allowances": []
+    }
+  ]
+}

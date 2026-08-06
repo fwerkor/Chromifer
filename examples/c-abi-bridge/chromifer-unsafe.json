@@ -1,0 +1,84 @@
+{
+  "schema_version": 1,
+  "cargo_manifest_sha256": "4bf82dd4e19e3e6485eada71f8af6e660c971d3c80d2c270ac55028629690862",
+  "cargo_manifest_path": "Cargo.toml",
+  "cargo_lock_sha256": "b65ba39e48c57fecd78e6ee24b3f4a6ded7e16c890c5d753bf96e02218327d48",
+  "cargo_lock_path": "Cargo.lock",
+  "policy_sha256": "5580ac1c93e1843e977f90a9ea0a4f9ca699c403484225ea5f60c14e2a69eacf",
+  "policy_path": "unsafe-policy.json",
+  "packages": [
+    {
+      "package": "chromifer-c-abi-example",
+      "manifest_path": "Cargo.toml",
+      "manifest_sha256": "4bf82dd4e19e3e6485eada71f8af6e660c971d3c80d2c270ac55028629690862",
+      "mode": "bridge",
+      "allowed_sources": [
+        "src/lib.rs"
+      ],
+      "crate_roots": [
+        {
+          "source": "src/lib.rs",
+          "targets": [
+            "chromifer_c_abi_example (lib)"
+          ],
+          "unsafe_code_lint": "deny",
+          "unsafe_op_in_unsafe_fn_lint": "deny"
+        }
+      ],
+      "sources": [
+        {
+          "source": "src/lib.rs",
+          "sha256": "f021105b600c81decb442a23a4fc614df57a4113e9259d1b9172a50c2f7ae527"
+        }
+      ],
+      "unsafe_occurrences": [
+        {
+          "source": "src/lib.rs",
+          "line": 5,
+          "column": 1,
+          "kind": "attribute",
+          "context": "<crate>::<file>::fn chromifer_add",
+          "detail": "attribute `unsafe`",
+          "allowance_line": 4,
+          "allowance_context": "<crate>::<file>::fn chromifer_add"
+        },
+        {
+          "source": "src/lib.rs",
+          "line": 11,
+          "column": 1,
+          "kind": "attribute",
+          "context": "<crate>::<file>::fn chromifer_buffer_is_valid",
+          "detail": "attribute `unsafe`",
+          "allowance_line": 10,
+          "allowance_context": "<crate>::<file>::fn chromifer_buffer_is_valid"
+        },
+        {
+          "source": "src/lib.rs",
+          "line": 12,
+          "column": 5,
+          "kind": "function",
+          "context": "<crate>::<file>::fn chromifer_buffer_is_valid",
+          "detail": "unsafe function",
+          "allowance_line": 10,
+          "allowance_context": "<crate>::<file>::fn chromifer_buffer_is_valid"
+        }
+      ],
+      "lint_allowances": [
+        {
+          "source": "src/lib.rs",
+          "line": 4,
+          "column": 1,
+          "context": "<crate>::<file>::fn chromifer_add",
+          "used": true
+        },
+        {
+          "source": "src/lib.rs",
+          "line": 10,
+          "column": 1,
+          "context": "<crate>::<file>::fn chromifer_buffer_is_valid",
+          "used": true
+        }
+      ]
+    }
+  ]
+}

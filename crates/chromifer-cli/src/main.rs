@@ -17,6 +17,7 @@ use chromifer_manifest::{Manifest, MigrationState};
 use chromifer_mojo::{MojoGenerateOptions, generate_and_write as generate_mojo};
 use chromifer_owners::scan_ownership;
 use chromifer_planner::{Blocker, assess_transition, migration_frontier};
+use chromifer_safety::{AuditOptions, audit_and_write};
 use chromifer_source::scan_manifest;
 use clap::{Args, Parser, Subcommand};
 
@@ -227,6 +228,27 @@ enum Command {
         #[arg(long, conflicts_with = "force")]
         check: bool,
         /// Print generation summary as JSON.
+        #[arg(long)]
+        json: bool,
+    },
+    /// Audit a Cargo workspace against an exact unsafe-code policy.
+    AuditUnsafe {
+        /// Cargo.toml for the workspace or standalone package.
+        cargo_manifest: PathBuf,
+        /// Unsafe policy JSON inside the Cargo workspace.
+        policy: PathBuf,
+        /// Deterministic audit report JSON inside the workspace.
+        output: PathBuf,
+        /// Cargo executable used for workspace metadata.
+        #[arg(long, default_value = "cargo")]
+        cargo: PathBuf,
+        /// Replace an existing audit report.
+        #[arg(long, conflicts_with = "check")]
+        force: bool,
+        /// Verify the committed audit report without modifying it.
+        #[arg(long, conflicts_with = "force")]
+        check: bool,
+        /// Print the audit summary as JSON.
         #[arg(long)]
         json: bool,
     },
@@ -669,6 +691,47 @@ fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
                     generated.summary.import_count,
                     generated.summary.declaration_count,
                     generated.summary.gn_package_path
+                );
+            }
+        }
+        Command::AuditUnsafe {
+            cargo_manifest,
+            policy,
+            output,
+            cargo,
+            force,
+            check,
+            json,
+        } => {
+            let generated = audit_and_write(&AuditOptions {
+                cargo,
+                cargo_manifest,
+                policy,
+                output,
+                force,
+                check,
+            })?;
+            if json {
+                println!("{}", serde_json::to_string_pretty(&generated.summary)?);
+            } else if generated.summary.checked {
+                println!(
+                    "current: {} matches the workspace unsafe policy",
+                    generated.summary.output
+                );
+            } else {
+                println!(
+                    "audited {} package(s): {} safe, {} bridge; wrote {}",
+                    generated.summary.workspace_packages,
+                    generated.summary.safe_packages,
+                    generated.summary.bridge_packages,
+                    generated.summary.output
+                );
+                println!(
+                    "scanned {} Rust source(s), {} crate root(s), {} unsafe occurrence(s), and {} local allowance(s)",
+                    generated.summary.source_files,
+                    generated.summary.crate_roots,
+                    generated.summary.unsafe_occurrences,
+                    generated.summary.lint_allowances
                 );
             }
         }

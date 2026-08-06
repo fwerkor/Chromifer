@@ -72,6 +72,8 @@ allow_unsafe = true
 
 The `cxx` Cargo dependency is not emitted as a GN dependency because Chromium's `cxx_bindings` integration adds the required CXX machinery. For pure Rust crates, unsafe remains disabled unless `--allow-unsafe` is explicit.
 
+The GN flag is only build-system permission. Repository policy is enforced separately by `chromifer audit-unsafe`: safe packages must forbid unsafe code, while bridge packages must deny it globally, deny unsafe operations inside unsafe functions, list the exact source files permitted to contain unsafe syntax, and authorize each occurrence with a used local allowance. See [unsafe-policy.md](unsafe-policy.md).
+
 ## C++ consumer generation
 
 A CXX Rust target can be accompanied by a generated C++ `source_set`:
@@ -185,7 +187,7 @@ chromifer generate-gn Cargo.toml BUILD.gn \
 
 `--check` regenerates both files in memory and fails when either differs. Changes to Cargo metadata, Rust source inventory, CXX bridges, dependency mappings, features, unsafe policy, or the generated GN text therefore become review-visible.
 
-`examples/rust-bridge`, `examples/c-abi-bridge`, and the separate `examples/mojo-bridge` contract are checked this way by Chromifer's own CI.
+`examples/rust-bridge`, `examples/c-abi-bridge`, and the separate `examples/mojo-bridge` contract are checked this way by Chromifer's own CI. The main workspace and C ABI bridge also commit and check deterministic unsafe-audit reports.
 
 ## Current boundary
 
