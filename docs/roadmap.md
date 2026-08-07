@@ -30,6 +30,7 @@ Acceptance criteria:
 - lock nested Chromium source revision, gclient metadata, GN outputs, and required target semantics; **implemented**
 - validate required targets against live `gn desc` output; **implemented**
 - measure source coverage rather than declaration proxies; **implemented**
+- bind measured source coverage, LLVM exports, and exact source files into structured gate evidence; **implemented**
 - sign evidence with isolated runner identity and transparency-backed source attestation.
 
 ## M2 — Build-system bridge

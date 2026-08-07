@@ -7,6 +7,7 @@ use std::path::{Path, PathBuf};
 use chromifer_build::BridgeProvenance;
 use chromifer_cabi::CAbiProvenance;
 use chromifer_checkout::{CheckoutContract, CheckoutReport, MetadataMode};
+use chromifer_coverage::{CoverageReport, verify_report_manifest};
 use chromifer_integration::IntegrationContract;
 use chromifer_manifest::{
     CompatibilityGate, GateExecution, GateInput, Manifest, ValidationErrors,
@@ -25,6 +26,7 @@ const MOJO_PROVENANCE_SCHEMA_VERSION: u32 = 1;
 const UNSAFE_REPORT_SCHEMA_VERSION: u32 = 1;
 const CHECKOUT_CONTRACT_SCHEMA_VERSION: u32 = 1;
 const CHECKOUT_REPORT_SCHEMA_VERSION: u32 = 1;
+const COVERAGE_REPORT_SCHEMA_VERSION: u32 = 1;
 const INTEGRATION_CONTRACT_SCHEMA_VERSION: u32 = 1;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -136,6 +138,17 @@ pub enum GateCheck {
         #[serde(default)]
         targets: Vec<String>,
     },
+    Coverage {
+        id: String,
+        manifest: String,
+        source_root: String,
+        export: String,
+        report: String,
+        #[serde(default)]
+        modules: Vec<String>,
+        #[serde(default)]
+        targets: Vec<String>,
+    },
 }
 
 impl GateCheck {
@@ -146,7 +159,8 @@ impl GateCheck {
             | Self::Mojo { id, .. }
             | Self::Unsafe { id, .. }
             | Self::Checkout { id, .. }
-            | Self::Integration { id, .. } => id,
+            | Self::Integration { id, .. }
+            | Self::Coverage { id, .. } => id,
         }
     }
 
@@ -157,7 +171,8 @@ impl GateCheck {
             | Self::Mojo { modules, .. }
             | Self::Unsafe { modules, .. }
             | Self::Checkout { modules, .. }
-            | Self::Integration { modules, .. } => modules,
+            | Self::Integration { modules, .. }
+            | Self::Coverage { modules, .. } => modules,
         }
     }
 
@@ -168,7 +183,8 @@ impl GateCheck {
             | Self::Mojo { targets, .. }
             | Self::Unsafe { targets, .. }
             | Self::Checkout { targets, .. }
-            | Self::Integration { targets, .. } => targets,
+            | Self::Integration { targets, .. }
+            | Self::Coverage { targets, .. } => targets,
         }
     }
 }
@@ -233,6 +249,8 @@ pub enum GateDeriveError {
     },
     #[error("provenance `{0}` is not in the expected package directory")]
     InvalidProvenanceLocation(String),
+    #[error("coverage evidence is invalid: {0}")]
+    InvalidCoverageEvidence(String),
     #[error("generated C++ consumer header `{0}` is outside its package")]
     HeaderOutsidePackage(String),
     #[error("generated manifest is invalid: {0}")]
@@ -494,6 +512,22 @@ fn normalize_check_paths(check: &mut GateCheck) -> Result<(), GateDeriveError> {
             modules.sort();
             targets.sort();
         }
+        GateCheck::Coverage {
+            manifest,
+            source_root,
+            export,
+            report,
+            modules,
+            targets,
+            ..
+        } => {
+            *manifest = exact_file_path(manifest)?;
+            *source_root = exact_dir_path(source_root)?;
+            *export = exact_file_path(export)?;
+            *report = exact_file_path(report)?;
+            modules.sort();
+            targets.sort();
+        }
     }
     Ok(())
 }
@@ -544,6 +578,20 @@ fn derive_check(
             contract,
             ..
         } => derive_integration(root, source_root, contract, &mut args, &mut inputs)?,
+        GateCheck::Coverage {
+            manifest,
+            source_root,
+            export,
+            report,
+            ..
+        } => derive_coverage(
+            manifest,
+            source_root,
+            export,
+            report,
+            &mut args,
+            &mut inputs,
+        )?,
     }
     Ok(CompatibilityGate {
         id: check.id().to_owned(),
@@ -903,6 +951,48 @@ fn derive_integration(
     Ok(())
 }
 
+fn derive_coverage(
+    manifest_path: &str,
+    source_root: &str,
+    export_path: &str,
+    report_path: &str,
+    args: &mut Vec<String>,
+    inputs: &mut InputSet<'_>,
+) -> Result<(), GateDeriveError> {
+    let manifest_bytes = inputs.add(manifest_path, None)?;
+    let manifest: Manifest = toml::from_str(&String::from_utf8_lossy(&manifest_bytes))?;
+    manifest.validate()?;
+
+    let report_bytes = inputs.add(report_path, None)?;
+    let report: CoverageReport = serde_json::from_slice(&report_bytes)?;
+    check_schema(
+        "coverage report",
+        report.schema_version,
+        COVERAGE_REPORT_SCHEMA_VERSION,
+    )?;
+    verify_report_manifest(&report, &manifest, &manifest_bytes).map_err(|error| {
+        GateDeriveError::InvalidCoverageEvidence(format!(
+            "coverage report `{report_path}` does not match `{manifest_path}`: {error}"
+        ))
+    })?;
+    inputs.add(export_path, Some(&report.llvm_export_sha256))?;
+    for module in &manifest.modules {
+        for source in &module.sources {
+            inputs.add(&join_path(source_root, source)?, None)?;
+        }
+    }
+
+    args.extend([
+        "summarize-coverage".into(),
+        manifest_path.into(),
+        display_dir(source_root),
+        export_path.into(),
+        report_path.into(),
+        "--check".into(),
+    ]);
+    Ok(())
+}
+
 fn check_schema(kind: &'static str, found: u32, supported: u32) -> Result<(), GateDeriveError> {
     if found != supported {
         return Err(GateDeriveError::UnsupportedProvenanceSchema {
@@ -1150,6 +1240,7 @@ fn sha256_hex(bytes: &[u8]) -> String {
 mod tests {
     use std::sync::atomic::{AtomicU64, Ordering};
 
+    use chromifer_coverage::{CoverageTotals, FileCoverage, LineCoverage, ModuleCoverage};
     use chromifer_manifest::{MigrationState, Module, Project, Target};
 
     use super::*;
@@ -1496,6 +1587,126 @@ mod tests {
             );
         }
         assert_eq!(manifest.modules[0].gates, vec!["checkout-current"]);
+    }
+
+    #[test]
+    fn derives_coverage_gate_with_export_and_source_inputs() {
+        let tree = TempTree::new();
+        base_manifest(&tree);
+        tree.write(
+            "coverage/source/service/value.cc",
+            "int Value() { return 1; }\n",
+        );
+        let coverage_manifest = r#"schema_version = 1
+
+[project]
+name = "coverage"
+upstream = "fixture"
+baseline = "fixture"
+
+[[modules]]
+id = "covered"
+path = "service"
+owner = "owner"
+sources = ["service/value.cc"]
+state = "legacy_cpp"
+"#;
+        tree.write("coverage/manifest.toml", coverage_manifest);
+        let export = br#"{"data":[],"type":"llvm.coverage.json.export","version":"2.0.1"}
+"#;
+        tree.write("coverage/export.json", export);
+        let report = CoverageReport {
+            schema_version: 1,
+            manifest_sha256: sha256_hex(coverage_manifest.as_bytes()),
+            baseline: "fixture".into(),
+            llvm_export_sha256: sha256_hex(export),
+            llvm_export_version: "2.0.1".into(),
+            files: vec![FileCoverage {
+                path: "service/value.cc".into(),
+                lines: LineCoverage {
+                    count: 1,
+                    covered: 1,
+                    basis_points: 10_000,
+                },
+            }],
+            modules: vec![ModuleCoverage {
+                module: "covered".into(),
+                total_sources: 1,
+                measured_sources: 1,
+                missing_sources: vec![],
+                lines: LineCoverage {
+                    count: 1,
+                    covered: 1,
+                    basis_points: 10_000,
+                },
+            }],
+            totals: CoverageTotals {
+                manifest_sources: 1,
+                measured_sources: 1,
+                missing_sources: vec![],
+                lines: LineCoverage {
+                    count: 1,
+                    covered: 1,
+                    basis_points: 10_000,
+                },
+            },
+        };
+        tree.write(
+            "coverage/report.json",
+            format!("{}\n", serde_json::to_string_pretty(&report).unwrap()),
+        );
+        tree.write(
+            "gates.json",
+            r#"{
+  "schema_version": 1,
+  "checks": [{
+    "kind": "coverage",
+    "id": "coverage-current",
+    "manifest": "coverage/manifest.toml",
+    "source_root": "coverage/source",
+    "export": "coverage/export.json",
+    "report": "coverage/report.json",
+    "modules": ["service"],
+    "targets": ["linux"]
+  }]
+}
+"#,
+        );
+
+        let generated = derive_gate_manifest(&options(&tree)).unwrap();
+        let manifest: Manifest = toml::from_str(&generated.manifest_toml).unwrap();
+        let gate = &manifest.gates[0];
+        let GateExecution::Direct { args, .. } = &gate.execution else {
+            panic!("expected direct coverage gate");
+        };
+        assert_eq!(
+            args,
+            &[
+                "summarize-coverage",
+                "coverage/manifest.toml",
+                "coverage/source",
+                "coverage/export.json",
+                "coverage/report.json",
+                "--check"
+            ]
+        );
+        let inputs: BTreeSet<_> = gate
+            .inputs
+            .iter()
+            .map(|input| input.path.as_str())
+            .collect();
+        for expected in [
+            "coverage/manifest.toml",
+            "coverage/export.json",
+            "coverage/report.json",
+            "coverage/source/service/value.cc",
+        ] {
+            assert!(
+                inputs.contains(expected),
+                "missing coverage input {expected}"
+            );
+        }
+        assert_eq!(manifest.modules[0].gates, vec!["coverage-current"]);
     }
 
     #[test]

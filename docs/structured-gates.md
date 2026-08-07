@@ -88,7 +88,7 @@ Each check ID must be unique and must not already exist in the source manifest. 
 
 ## Supported provenance
 
-Six check kinds are currently supported.
+Seven check kinds are currently supported.
 
 ### `rust_gn`
 
@@ -126,6 +126,10 @@ Reads a GN endpoint integration contract and reconstructs `run-gn-integration . 
 
 The direct gate resolves GN and Ninja from the runner environment. In `host_adapter` mode it also resolves the CLI-selected Rustc; in `existing` mode the contract names a source-relative native Rustc that must be included in `source_inputs`. `run-gn-integration` records and rechecks every declared tool; the outer evidence executor independently attests the Cargo executable used to launch the gate.
 
+### `coverage`
+
+Reads a deterministic `chromifer-coverage.json`, verifies that its manifest digest, baseline, per-file measurements, module aggregates, and totals match the selected coverage manifest, and reconstructs `summarize-coverage ... --check`. Inputs include the coverage manifest, LLVM export, generated coverage report, and every manifest source below the configured source root. The LLVM export digest stored in the report is checked during derivation, while the direct gate regenerates the report from that export during execution.
+
 ## Generated manifest
 
 The output is a complete migration manifest. Generated gates are sorted by ID and attached to the modules named in the contract. Every gate also includes the source manifest and gate contract as inputs, binding the result to the exact derivation request.
@@ -159,7 +163,7 @@ cargo run -p chromifer -- verify-evidence \
 
 Evidence schema version 3 records the exact execution form, argument vector, input paths and digests, declared platform targets, status, timing, content-addressed stdout/stderr, and optional checkout/tool attestations. Verification compares the execution definition and input contract with the current manifest before accepting the logs.
 
-`examples/gates` derives five real checks from this repository's Rust GN, C ABI, Mojo, unsafe, and GN endpoint integration provenance. All five are executed through the same evidence runner in CI.
+`examples/gates` derives six real checks from this repository's Rust GN, C ABI, Mojo, unsafe, measured source coverage, and GN endpoint integration provenance. All six are executed through the same evidence runner in CI.
 
 ## Trust boundary
 

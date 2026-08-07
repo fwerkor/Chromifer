@@ -164,6 +164,7 @@ dependencies = [
  "chromifer-build",
  "chromifer-cabi",
  "chromifer-checkout",
+ "chromifer-coverage",
  "chromifer-integration",
  "chromifer-manifest",
  "chromifer-mojo",

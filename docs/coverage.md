@@ -71,3 +71,5 @@ This keeps two different questions separate: whether required platform gates exi
 ## Fixture
 
 `examples/coverage/` contains a committed LLVM-export fixture and generated report. It measures three manifest sources and demonstrates both full and partial line coverage. CI verifies the report in `--check` mode and asserts that measured source risk is used by ranking.
+
+The repository gate contract also derives `source-coverage-current`. Its content-addressed inputs include the coverage manifest, LLVM export, generated report, and every measured manifest source. The gate executes `summarize-coverage ... --check`, so the evidence bundle binds both the committed measurement input and the exact source bytes used for the check.

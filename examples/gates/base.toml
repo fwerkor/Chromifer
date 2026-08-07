@@ -33,3 +33,14 @@ id = "unsafe_policy"
 path = "."
 owner = "chromifer"
 state = "legacy_cpp"
+
+[[modules]]
+id = "source_coverage"
+path = "examples/coverage"
+owner = "chromifer"
+sources = [
+  "examples/coverage/source/services/a/a.cc",
+  "examples/coverage/source/services/a/a.h",
+  "examples/coverage/source/services/b/b.cc",
+]
+state = "legacy_cpp"

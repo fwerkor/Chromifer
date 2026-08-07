@@ -38,6 +38,16 @@
       "targets": ["host"]
     },
     {
+      "kind": "coverage",
+      "id": "source-coverage-current",
+      "manifest": "examples/coverage/manifest.toml",
+      "source_root": "examples/coverage/source",
+      "export": "examples/coverage/llvm-cov.json",
+      "report": "examples/coverage/chromifer-coverage.json",
+      "modules": ["source_coverage"],
+      "targets": ["host"]
+    },
+    {
       "kind": "integration",
       "id": "c-abi-gn-endpoint",
       "source_root": "examples/integration/gn-root",

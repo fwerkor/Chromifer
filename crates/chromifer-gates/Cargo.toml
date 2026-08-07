@@ -12,6 +12,7 @@ authors.workspace = true
 chromifer-build = { path = "../chromifer-build" }
 chromifer-cabi = { path = "../chromifer-cabi" }
 chromifer-checkout = { path = "../chromifer-checkout" }
+chromifer-coverage = { path = "../chromifer-coverage" }
 chromifer-integration = { path = "../chromifer-integration" }
 chromifer-manifest = { path = "../chromifer-manifest" }
 chromifer-mojo = { path = "../chromifer-mojo" }

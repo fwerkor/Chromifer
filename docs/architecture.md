@@ -59,7 +59,7 @@ Every component leaving `legacy_cpp` must identify executable gates. Gates are c
 
 The migration planner verifies the presence and references of gates. The evidence executor verifies each declared input digest before launch, runs selected gates, preserves full content-addressed logs, and writes a content-addressed JSON bundle. Verification recomputes the bundle digest, manifest digest, execution and input definitions, result consistency, every referenced log digest, checkout before/after consistency, and executable before/after consistency before the evidence can support a transition check. Optional live verification compares the recorded final checkout and executable identities with a supplied worktree.
 
-Build contracts do not require maintainers to duplicate generator commands in migration manifests. `derive-gates` reads committed Rust GN, C ABI, Mojo, unsafe, Chromium checkout, and endpoint integration provenance, verifies every referenced digest, reconstructs direct argument vectors, attaches the resulting gates to selected modules, and includes the source manifest and derivation contract in every gate's input set.
+Build contracts do not require maintainers to duplicate generator commands in migration manifests. `derive-gates` reads committed Rust GN, C ABI, Mojo, unsafe, measured coverage, Chromium checkout, and endpoint integration provenance, verifies every referenced digest, reconstructs direct argument vectors, attaches the resulting gates to selected modules, and includes the source manifest and derivation contract in every gate's input set.
 
 ## Build bridge
 

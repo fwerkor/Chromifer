@@ -25,7 +25,7 @@ The initial workspace provides:
 - `chromifer-checkout`: locks Chromium Git, gclient metadata, GN outputs, and required targets.
 - `chromifer-mojo`: validates Mojom target/import contracts and generates C++ and Rust binding targets.
 - `chromifer-safety`: audits Cargo workspaces against exact safe/bridge unsafe-code policies.
-- `chromifer-gates`: derives direct compatibility gates and hashed inputs from committed provenance.
+- `chromifer-gates`: derives direct compatibility gates and hashed inputs from build, safety, coverage, checkout, and integration provenance.
 - `chromifer-gn`: imports GN JSON project graphs into reproducible manifests.
 - `chromifer-integration`: builds generated Rust/C ABI packages through GN and Ninja and executes a C++ endpoint.
 - `chromifer-components`: aggregates GN targets and ranks migration candidates.

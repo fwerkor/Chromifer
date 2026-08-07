@@ -285,6 +285,7 @@ pub fn verify_report_manifest(
     manifest: &Manifest,
     manifest_bytes: &[u8],
 ) -> Result<(), CoverageError> {
+    validate_report(report)?;
     if report.manifest_sha256 != sha256_hex(manifest_bytes)
         || report.baseline != manifest.project.baseline
     {
