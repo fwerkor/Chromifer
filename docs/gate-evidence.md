@@ -114,4 +114,4 @@ For a `rust_owned` transition, every compatibility gate declared by the module m
 
 ## Trust boundary
 
-Content addressing and checkout/tool attestations detect changes within and after generation. They do not prove that the host, filesystem, Git process, or initial checkout was trustworthy, or that a command tested the intended behavior. Signed runner identity, isolated builders, and transparency logs remain later work.
+Content addressing and checkout/tool attestations detect changes within and after generation. Detached Ed25519 attestations can additionally prove that an externally pinned runner key signed the exact evidence bytes. These mechanisms still do not prove that the host, filesystem, Git process, initial checkout, or signing workload was trustworthy, or that a command tested the intended behavior. Production key isolation and transparency-backed source/workload attestations remain separate trust requirements.

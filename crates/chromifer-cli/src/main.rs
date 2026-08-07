@@ -6,6 +6,10 @@ use std::path::PathBuf;
 use std::process::ExitCode;
 use std::time::Duration;
 
+use chromifer_attestation::{
+    PublicKeyOptions, SignOptions, derive_public_key, sign_and_write as sign_evidence_attestation,
+    verify as verify_evidence_attestation,
+};
 use chromifer_build::{ConsumerOptions, GenerateOptions, generate_and_write};
 use chromifer_cabi::{CAbiGenerateOptions, generate_and_write as generate_c_abi};
 use chromifer_checkout::{CheckoutAuditOptions, audit_and_write as audit_checkout};
@@ -395,6 +399,39 @@ enum Command {
         #[arg(long)]
         workdir: Option<PathBuf>,
         /// Print the verification summary as JSON.
+        #[arg(long)]
+        json: bool,
+    },
+    /// Derive an Ed25519 public key from a protected 32-byte hexadecimal private key.
+    DeriveAttestationPublicKey {
+        private_key: PathBuf,
+        output: PathBuf,
+        #[arg(long, conflicts_with = "check")]
+        force: bool,
+        #[arg(long, conflicts_with = "force")]
+        check: bool,
+        #[arg(long)]
+        json: bool,
+    },
+    /// Create a detached Ed25519 runner attestation for an evidence bundle.
+    SignEvidence {
+        evidence: PathBuf,
+        private_key: PathBuf,
+        output: PathBuf,
+        #[arg(long)]
+        runner_id: String,
+        #[arg(long, conflicts_with = "check")]
+        force: bool,
+        #[arg(long, conflicts_with = "force")]
+        check: bool,
+        #[arg(long)]
+        json: bool,
+    },
+    /// Verify a detached evidence signature against an externally trusted public key.
+    VerifyEvidenceSignature {
+        evidence: PathBuf,
+        attestation: PathBuf,
+        trusted_public_key: PathBuf,
         #[arg(long)]
         json: bool,
     },
@@ -1127,6 +1164,85 @@ fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
                     summary.checkout_attested,
                     summary.executables_attested,
                     summary.live_attestation_verified
+                );
+            }
+        }
+        Command::DeriveAttestationPublicKey {
+            private_key,
+            output,
+            force,
+            check,
+            json,
+        } => {
+            let public_key = derive_public_key(&PublicKeyOptions {
+                private_key,
+                output: output.clone(),
+                force,
+                check,
+            })?;
+            if json {
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&serde_json::json!({
+                        "public_key": public_key,
+                        "output": output,
+                        "checked": check,
+                    }))?
+                );
+            } else if check {
+                println!(
+                    "current: {} matches the private signing key",
+                    output.display()
+                );
+            } else {
+                println!("wrote Ed25519 public key to {}", output.display());
+            }
+        }
+        Command::SignEvidence {
+            evidence,
+            private_key,
+            output,
+            runner_id,
+            force,
+            check,
+            json,
+        } => {
+            let summary = sign_evidence_attestation(&SignOptions {
+                evidence,
+                private_key,
+                output,
+                runner_id,
+                force,
+                check,
+            })?;
+            if json {
+                println!("{}", serde_json::to_string_pretty(&summary)?);
+            } else if check {
+                println!(
+                    "current: signed evidence {} for runner {}",
+                    summary.evidence_sha256, summary.runner_id
+                );
+            } else {
+                println!(
+                    "signed evidence {} as runner {}; wrote {}",
+                    summary.evidence_sha256, summary.runner_id, summary.output
+                );
+            }
+        }
+        Command::VerifyEvidenceSignature {
+            evidence,
+            attestation,
+            trusted_public_key,
+            json,
+        } => {
+            let summary =
+                verify_evidence_attestation(&evidence, &attestation, &trusted_public_key)?;
+            if json {
+                println!("{}", serde_json::to_string_pretty(&summary)?);
+            } else {
+                println!(
+                    "verified Ed25519 evidence signature: runner={}, evidence={}, key={}",
+                    summary.runner_id, summary.evidence_sha256, summary.public_key_sha256
                 );
             }
         }

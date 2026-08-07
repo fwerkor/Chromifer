@@ -31,7 +31,8 @@ Acceptance criteria:
 - validate required targets against live `gn desc` output; **implemented**
 - measure source coverage rather than declaration proxies; **implemented**
 - bind measured source coverage, LLVM exports, and exact source files into structured gate evidence; **implemented**
-- sign evidence with isolated runner identity and transparency-backed source attestation.
+- sign evidence with a detached Ed25519 runner identity and externally pinned public key; **implemented**
+- isolate production signing keys and add transparency-backed source/workload attestation.
 
 ## M2 — Build-system bridge
 

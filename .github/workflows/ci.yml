@@ -116,3 +116,35 @@ jobs:
             "$evidence" \
             /tmp/chromifer-gate-evidence \
             --workdir .
+          python3 - <<'PY'
+          import os
+          import secrets
+
+          path = "/tmp/chromifer-runner.key"
+          descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+          with os.fdopen(descriptor, "w", encoding="ascii") as output:
+              output.write(secrets.token_hex(32) + "\n")
+          PY
+          cargo run -p chromifer -- derive-attestation-public-key \
+            /tmp/chromifer-runner.key \
+            /tmp/chromifer-runner.pub
+          cargo run -p chromifer -- derive-attestation-public-key \
+            /tmp/chromifer-runner.key \
+            /tmp/chromifer-runner.pub \
+            --check
+          cargo run -p chromifer -- sign-evidence \
+            "$evidence" \
+            /tmp/chromifer-runner.key \
+            /tmp/chromifer-gate-evidence.sig.json \
+            --runner-id "github-actions/$GITHUB_RUN_ID"
+          cargo run -p chromifer -- sign-evidence \
+            "$evidence" \
+            /tmp/chromifer-runner.key \
+            /tmp/chromifer-gate-evidence.sig.json \
+            --runner-id "github-actions/$GITHUB_RUN_ID" \
+            --check
+          cargo run -p chromifer -- verify-evidence-signature \
+            "$evidence" \
+            /tmp/chromifer-gate-evidence.sig.json \
+            /tmp/chromifer-runner.pub
+          rm -f /tmp/chromifer-runner.key
