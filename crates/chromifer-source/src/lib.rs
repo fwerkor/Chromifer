@@ -1,6 +1,6 @@
 #![forbid(unsafe_code)]
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -93,6 +93,13 @@ struct ModuleScan {
     c_abi_definitions: BTreeMap<String, SourceLocation>,
 }
 
+#[derive(Debug, Clone, Default)]
+struct ModuleMatchIndex {
+    path_prefix: Option<String>,
+    source_paths: HashSet<String>,
+    source_names: HashSet<String>,
+}
+
 pub fn scan_manifest(manifest: &Manifest, source_root: &Path) -> Result<ScanOutput, ScanError> {
     let mut annotated = manifest.clone();
     let mut scans = BTreeMap::new();
@@ -109,6 +116,11 @@ pub fn scan_manifest(manifest: &Manifest, source_root: &Path) -> Result<ScanOutp
         scans.insert(module.id.clone(), scan);
     }
 
+    let match_indices: HashMap<_, _> = manifest
+        .modules
+        .iter()
+        .map(|module| (module.id.as_str(), build_match_index(module)))
+        .collect();
     let mut edge_evidence: BTreeMap<(String, String), BTreeSet<BoundaryEvidence>> = BTreeMap::new();
     let mut edge_reviews: BTreeMap<(String, String), BTreeSet<BoundaryReview>> = BTreeMap::new();
     let mut module_reviews: BTreeMap<String, BTreeSet<BoundaryReview>> = BTreeMap::new();
@@ -118,7 +130,7 @@ pub fn scan_manifest(manifest: &Manifest, source_root: &Path) -> Result<ScanOutp
             continue;
         };
         collect_include_evidence(
-            manifest,
+            &match_indices,
             module,
             scan,
             &mut edge_evidence,
@@ -501,7 +513,7 @@ fn compact_line(line: &str) -> String {
 }
 
 fn collect_include_evidence(
-    manifest: &Manifest,
+    match_indices: &HashMap<&str, ModuleMatchIndex>,
     module: &Module,
     scan: &ModuleScan,
     edge_evidence: &mut BTreeMap<(String, String), BTreeSet<BoundaryEvidence>>,
@@ -511,7 +523,7 @@ fn collect_include_evidence(
     for file in &scan.files {
         let mut referenced_dependencies = BTreeSet::new();
         for include in &file.includes {
-            let matches = matching_dependencies(manifest, module, &include.path);
+            let matches = matching_dependencies(match_indices, module, &include.path);
             if matches.len() != 1 {
                 continue;
             }
@@ -616,64 +628,68 @@ fn insert_c_abi_evidence(
         });
 }
 
-fn matching_dependencies(manifest: &Manifest, module: &Module, include: &str) -> Vec<String> {
-    module
-        .dependencies
-        .iter()
-        .filter_map(|dependency| {
-            manifest
-                .module(&dependency.module)
-                .filter(|target| module_matches_include(target, include))
-                .map(|_| dependency.module.clone())
-        })
-        .collect()
-}
-
-fn module_matches_include(module: &Module, include: &str) -> bool {
-    let include = normalize_include_path(include);
-    let include_without_gen = include
-        .split_once("/gen/")
-        .map_or(include.as_str(), |(_, suffix)| suffix);
-
-    if module.path != "."
-        && (include.starts_with(&format!("{}/", module.path))
-            || include_without_gen.starts_with(&format!("{}/", module.path)))
-    {
-        return true;
-    }
-
-    module.sources.iter().any(|source| {
+fn build_match_index(module: &Module) -> ModuleMatchIndex {
+    let mut source_paths = HashSet::new();
+    let mut source_names = HashSet::new();
+    for source in &module.sources {
         let Some(source) = normalize_repo_relative_path(source) else {
-            return false;
+            continue;
         };
         let source_without_gen = source
             .split_once("/gen/")
             .map_or(source.as_str(), |(_, suffix)| suffix);
-        path_matches_source(&include, &source)
-            || path_matches_source(include_without_gen, &source)
-            || path_matches_source(&include, source_without_gen)
-            || path_matches_source(include_without_gen, source_without_gen)
-    })
+        for candidate in [source.as_str(), source_without_gen] {
+            source_paths.insert(candidate.to_owned());
+            source_paths.insert(format!("{candidate}.h"));
+            if candidate.ends_with(".mojom") {
+                for suffix in [".h", "-forward.h", "-shared.h", "-shared-internal.h"] {
+                    source_paths.insert(format!("{candidate}{suffix}"));
+                }
+            }
+            if let Some(name) = Path::new(candidate)
+                .file_name()
+                .and_then(|name| name.to_str())
+            {
+                source_names.insert(name.to_owned());
+            }
+        }
+    }
+    ModuleMatchIndex {
+        path_prefix: (module.path != ".").then(|| format!("{}/", module.path)),
+        source_paths,
+        source_names,
+    }
 }
 
-fn path_matches_source(include: &str, source: &str) -> bool {
-    if include == source || include == format!("{source}.h") {
-        return true;
-    }
-    if source.ends_with(".mojom")
-        && include.starts_with(source)
-        && matches!(
-            include.strip_prefix(source),
-            Some(".h" | "-forward.h" | "-shared.h" | "-shared-internal.h")
-        )
-    {
-        return true;
-    }
-    let include_name = Path::new(include)
+fn matching_dependencies(
+    match_indices: &HashMap<&str, ModuleMatchIndex>,
+    module: &Module,
+    include: &str,
+) -> Vec<String> {
+    let include = normalize_include_path(include);
+    let include_without_gen = include
+        .split_once("/gen/")
+        .map_or(include.as_str(), |(_, suffix)| suffix);
+    let include_name = Path::new(&include)
         .file_name()
         .and_then(|name| name.to_str());
-    let source_name = Path::new(source).file_name().and_then(|name| name.to_str());
-    include_name == source_name
+
+    module
+        .dependencies
+        .iter()
+        .filter_map(|dependency| {
+            match_indices
+                .get(dependency.module.as_str())
+                .filter(|index| {
+                    index.path_prefix.as_deref().is_some_and(|prefix| {
+                        include.starts_with(prefix) || include_without_gen.starts_with(prefix)
+                    }) || index.source_paths.contains(&include)
+                        || index.source_paths.contains(include_without_gen)
+                        || include_name.is_some_and(|name| index.source_names.contains(name))
+                })
+                .map(|_| dependency.module.clone())
+        })
+        .collect()
 }
 
 fn is_cxx_generated_header(include: &str) -> bool {
@@ -927,6 +943,37 @@ mod tests {
                 .iter()
                 .any(|evidence| { evidence.kind == BoundaryEvidenceKind::CxxBridgeInclude })
         );
+    }
+
+    #[test]
+    fn preindexed_include_matching_preserves_generated_and_basename_cases() {
+        let target = module(
+            "target",
+            "foo",
+            &["out/gen/foo/api.mojom", "foo/widget.h"],
+            vec![],
+        );
+        let client = module(
+            "client",
+            "client",
+            &["client/client.cc"],
+            vec![dependency("target")],
+        );
+        let indices = HashMap::from([("target", build_match_index(&target))]);
+
+        assert_eq!(
+            matching_dependencies(&indices, &client, "foo/arbitrary.h"),
+            vec!["target"]
+        );
+        assert_eq!(
+            matching_dependencies(&indices, &client, "obj/gen/foo/api.mojom-forward.h"),
+            vec!["target"]
+        );
+        assert_eq!(
+            matching_dependencies(&indices, &client, "another/directory/widget.h"),
+            vec!["target"]
+        );
+        assert!(matching_dependencies(&indices, &client, "other/unrelated.h").is_empty());
     }
 
     #[test]
