@@ -1471,6 +1471,9 @@ fn display_concern(concern: &CandidateConcern) -> String {
         CandidateConcern::UnresolvedReviews { count } => {
             format!("{count} callback/observer review(s) remain unresolved")
         }
+        CandidateConcern::UnresolvedOwnershipIncludes { count } => {
+            format!("{count} external OWNERS include(s) remain unresolved")
+        }
         CandidateConcern::UnauditedExternalEdges { count } => {
             format!("{count} external boundary type(s) remain private or unclassified")
         }

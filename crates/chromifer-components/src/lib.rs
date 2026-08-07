@@ -53,6 +53,7 @@ pub struct ComponentSummary {
     pub unresolved_reviews: usize,
     pub evidence_items: usize,
     pub external_owner_edges: usize,
+    pub unresolved_ownership_includes: usize,
     pub risk: RiskBreakdown,
     pub readiness_score: u32,
     pub eligible: bool,
@@ -165,6 +166,9 @@ pub enum CandidateConcern {
         scope: MigrationScope,
     },
     UnresolvedReviews {
+        count: usize,
+    },
+    UnresolvedOwnershipIncludes {
         count: usize,
     },
     UnauditedExternalEdges {
@@ -561,10 +565,14 @@ fn summarize_component(
     let mut states = StateCounts::default();
     let mut gates = BTreeSet::new();
     let mut source_files = BTreeSet::new();
+    let mut unresolved_ownership_includes = BTreeSet::new();
     for module in &group.modules {
         states.add(module.state);
         gates.extend(module.gates.iter().cloned());
         source_files.extend(module.sources.iter().cloned());
+        if let Some(ownership) = &module.ownership {
+            unresolved_ownership_includes.extend(ownership.unresolved_includes.iter().cloned());
+        }
     }
 
     let test_coverage = test_coverage_proxy(manifest, &group.modules);
@@ -602,6 +610,11 @@ fn summarize_component(
     if incident.unresolved_reviews > 0 {
         concerns.push(CandidateConcern::UnresolvedReviews {
             count: incident.unresolved_reviews,
+        });
+    }
+    if !unresolved_ownership_includes.is_empty() {
+        concerns.push(CandidateConcern::UnresolvedOwnershipIncludes {
+            count: unresolved_ownership_includes.len(),
         });
     }
     if incident.unaudited_external_edges > 0 {
@@ -645,6 +658,7 @@ fn summarize_component(
         unresolved_reviews: incident.unresolved_reviews,
         evidence_items: incident.evidence_items,
         external_owner_edges: incident.external_owner_edges,
+        unresolved_ownership_includes: unresolved_ownership_includes.len(),
         risk,
         readiness_score,
         eligible: concerns.is_empty(),
@@ -826,7 +840,7 @@ mod tests {
     use chromifer_coverage::{CoverageTotals, FileCoverage, LineCoverage};
     use chromifer_manifest::{
         BoundaryReview, BoundaryReviewKind, CompatibilityGate, Dependency, ModuleOwnership,
-        Project, Target,
+        OwnershipInclude, Project, Target,
     };
 
     use super::*;
@@ -998,6 +1012,7 @@ mod tests {
             common_effective_owners: vec!["network@chromium.org".into()],
             owner_files: vec!["services/network/OWNERS".into()],
             unresolved_sources: vec![],
+            unresolved_includes: vec![],
             split_ownership: false,
             sources: vec![],
         });
@@ -1007,6 +1022,7 @@ mod tests {
             common_effective_owners: vec!["api@chromium.org".into()],
             owner_files: vec!["services/network/OWNERS".into()],
             unresolved_sources: vec![],
+            unresolved_includes: vec![],
             split_ownership: false,
             sources: vec![],
         });
@@ -1028,6 +1044,38 @@ mod tests {
                 .iter()
                 .any(|component| component.owner == "api@chromium.org")
         );
+    }
+
+    #[test]
+    fn unresolved_external_ownership_includes_block_candidate_eligibility() {
+        let mut manifest = manifest();
+        manifest.modules[0].ownership = Some(ModuleOwnership {
+            primary_owners: vec!["network@chromium.org".into()],
+            effective_owners: vec!["network@chromium.org".into()],
+            common_effective_owners: vec!["network@chromium.org".into()],
+            owner_files: vec!["services/network/OWNERS".into()],
+            unresolved_sources: vec![],
+            unresolved_includes: vec![OwnershipInclude {
+                owner_file: "services/network/OWNERS".into(),
+                include: "platform/system/core:main:/janitors/OWNERS".into(),
+            }],
+            split_ownership: false,
+            sources: vec![],
+        });
+
+        let analysis = analyze_components(&manifest, &AnalysisOptions::default()).unwrap();
+        let component = analysis
+            .components
+            .iter()
+            .find(|component| component.owner == "network@chromium.org")
+            .unwrap();
+        assert_eq!(component.unresolved_ownership_includes, 1);
+        assert!(
+            component
+                .concerns
+                .contains(&CandidateConcern::UnresolvedOwnershipIncludes { count: 1 })
+        );
+        assert!(!component.eligible);
     }
 
     #[test]

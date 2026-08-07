@@ -5,7 +5,8 @@ use std::fs;
 use std::path::{Component, Path, PathBuf};
 
 use chromifer_manifest::{
-    Manifest, ModuleOwnership, SourceOwnership, ValidationErrors, normalize_repo_relative_path,
+    Manifest, ModuleOwnership, OwnershipInclude, SourceOwnership, ValidationErrors,
+    normalize_repo_relative_path,
 };
 use serde::Serialize;
 use thiserror::Error;
@@ -17,6 +18,7 @@ pub struct OwnershipScanSummary {
     pub owner_files_read: usize,
     pub resolved_sources: usize,
     pub unresolved_sources: usize,
+    pub unresolved_includes: usize,
     pub split_ownership_modules: usize,
     pub modules_without_sources: usize,
 }
@@ -81,6 +83,7 @@ enum Directive {
 struct LayerOwnership {
     owners: BTreeSet<String>,
     owner_files: BTreeSet<String>,
+    unresolved_includes: BTreeSet<OwnershipInclude>,
     stop_inheritance: bool,
 }
 
@@ -120,6 +123,7 @@ pub fn scan_ownership(
     let mut unresolved_sources = 0;
     let mut split_ownership_modules = 0;
     let mut modules_without_sources = 0;
+    let mut unresolved_includes = BTreeSet::new();
 
     for module in &mut annotated.modules {
         if module.sources.is_empty() {
@@ -148,6 +152,7 @@ pub fn scan_ownership(
         sources.sort_by(|left, right| left.source.cmp(&right.source));
 
         let ownership = summarize_module_ownership(sources);
+        unresolved_includes.extend(ownership.unresolved_includes.iter().cloned());
         if ownership.split_ownership {
             split_ownership_modules += 1;
         }
@@ -162,6 +167,7 @@ pub fn scan_ownership(
             owner_files_read: resolver.files_read.len(),
             resolved_sources,
             unresolved_sources,
+            unresolved_includes: unresolved_includes.len(),
             split_ownership_modules,
             modules_without_sources,
         },
@@ -172,10 +178,6 @@ pub fn scan_ownership(
 impl Resolver {
     fn resolve_source(&mut self, source: &str) -> Result<SourceOwnership, OwnershipError> {
         let relative = PathBuf::from(source);
-        let filename = relative
-            .file_name()
-            .and_then(|name| name.to_str())
-            .unwrap_or(source);
         let mut directory = relative
             .parent()
             .unwrap_or_else(|| Path::new(""))
@@ -183,19 +185,31 @@ impl Resolver {
         let mut primary_owners = BTreeSet::new();
         let mut effective_owners = BTreeSet::new();
         let mut owner_files = BTreeSet::new();
+        let mut unresolved_includes = BTreeSet::new();
         let mut inheritance_stopped_at = None;
         let mut found_primary = false;
 
         loop {
             let owner_file = directory.join("OWNERS");
             if self.root.join(&owner_file).is_file() {
-                let layer = self.evaluate_owner_file(&owner_file, filename)?;
+                let scoped_source = if directory.as_os_str().is_empty() {
+                    relative.as_path()
+                } else {
+                    relative.strip_prefix(&directory).map_err(|_| {
+                        OwnershipError::InvalidSourcePath {
+                            module: "OWNERS resolution".into(),
+                            path: source.into(),
+                        }
+                    })?
+                };
+                let layer = self.evaluate_owner_file(&owner_file, &path_string(scoped_source))?;
                 if !found_primary && !layer.owners.is_empty() {
                     primary_owners.extend(layer.owners.iter().cloned());
                     found_primary = true;
                 }
                 effective_owners.extend(layer.owners);
                 owner_files.extend(layer.owner_files);
+                unresolved_includes.extend(layer.unresolved_includes);
                 if layer.stop_inheritance {
                     inheritance_stopped_at = Some(path_string(&owner_file));
                     break;
@@ -213,6 +227,7 @@ impl Resolver {
             primary_owners: primary_owners.into_iter().collect(),
             effective_owners: effective_owners.into_iter().collect(),
             owner_files: owner_files.into_iter().collect(),
+            unresolved_includes: unresolved_includes.into_iter().collect(),
             inheritance_stopped_at,
         })
     }
@@ -220,13 +235,13 @@ impl Resolver {
     fn evaluate_owner_file(
         &mut self,
         path: &Path,
-        filename: &str,
+        scoped_source: &str,
     ) -> Result<LayerOwnership, OwnershipError> {
         let parsed = self.parse_file(path)?;
         let matched: Vec<_> = parsed
             .per_file
             .iter()
-            .filter(|rule| glob_matches(&rule.pattern, filename))
+            .filter(|rule| glob_matches(&rule.pattern, scoped_source))
             .map(|rule| rule.directive.clone())
             .collect();
         let per_file_noparent = matched
@@ -263,6 +278,13 @@ impl Resolver {
                     result.owners.insert(owner.clone());
                 }
                 Directive::Include(include) => {
+                    if is_external_include(include) {
+                        result.unresolved_includes.insert(OwnershipInclude {
+                            owner_file: path_string(owner_file),
+                            include: include.clone(),
+                        });
+                        continue;
+                    }
                     let included = self.resolve_include(owner_file, include)?;
                     if let Some(position) = stack.iter().position(|item| item == &included) {
                         let mut cycle: Vec<_> = stack[position..]
@@ -280,6 +302,9 @@ impl Resolver {
                     stack.pop();
                     result.owners.extend(nested.owners);
                     result.owner_files.extend(nested.owner_files);
+                    result
+                        .unresolved_includes
+                        .extend(nested.unresolved_includes);
                     result.owner_files.insert(path_string(&included));
                 }
                 Directive::NoParent => {}
@@ -289,7 +314,8 @@ impl Resolver {
     }
 
     fn resolve_include(&self, owner_file: &Path, include: &str) -> Result<PathBuf, OwnershipError> {
-        let normalized = if let Some(root_relative) = include.strip_prefix("//") {
+        let root_relative = include.trim_start_matches('/');
+        let normalized = if root_relative.len() != include.len() {
             normalize_join(Path::new(""), Path::new(root_relative))
         } else {
             normalize_join(
@@ -346,29 +372,37 @@ fn parse_owners(path: &Path, content: &str) -> Result<ParsedOwners, OwnershipErr
                 return syntax(path, line_number, "per-file rule must contain `=`");
             };
             let pattern = pattern.trim();
-            if pattern.is_empty()
-                || pattern.contains('/')
-                || pattern.contains('\\')
-                || !pattern.chars().all(|character| {
-                    character.is_ascii_alphanumeric() || "_-.*?".contains(character)
-                })
-            {
+            if pattern.is_empty() {
                 return syntax(
                     path,
                     line_number,
-                    "per-file glob must be a filename-only `*`/`?` pattern",
+                    "per-file path expression must not be empty",
                 );
             }
-            per_file.push(PerFileRule {
-                pattern: pattern.to_owned(),
-                directive: parse_directive(path, line_number, directive.trim())?,
-            });
+            let directives = parse_directives(path, line_number, directive.trim())?;
+            for expression in pattern.split(',') {
+                validate_path_expression(path, line_number, expression)?;
+                for directive in &directives {
+                    per_file.push(PerFileRule {
+                        pattern: expression.to_owned(),
+                        directive: directive.clone(),
+                    });
+                }
+            }
             continue;
         }
         if line.starts_with("set ") {
             return syntax(path, line_number, "unknown `set` directive");
         }
-        global.push(parse_directive(path, line_number, line)?);
+        if let Some(include) = line.strip_prefix("include ") {
+            let include = include.trim();
+            if include.is_empty() {
+                return syntax(path, line_number, "include must name an OWNERS file");
+            }
+            global.push(Directive::Include(include.to_owned()));
+            continue;
+        }
+        global.extend(parse_directives(path, line_number, line)?);
     }
 
     Ok(ParsedOwners {
@@ -378,25 +412,63 @@ fn parse_owners(path: &Path, content: &str) -> Result<ParsedOwners, OwnershipErr
     })
 }
 
-fn parse_directive(path: &Path, line: usize, directive: &str) -> Result<Directive, OwnershipError> {
+fn parse_directives(
+    path: &Path,
+    line: usize,
+    directive: &str,
+) -> Result<Vec<Directive>, OwnershipError> {
     if directive == "set noparent" {
-        return Ok(Directive::NoParent);
+        return Ok(vec![Directive::NoParent]);
     }
     if let Some(include) = directive.strip_prefix("file:") {
         let include = include.trim();
         if include.is_empty() {
             return syntax(path, line, "file include must name an OWNERS file");
         }
-        return Ok(Directive::Include(include.to_owned()));
+        return Ok(vec![Directive::Include(include.to_owned())]);
     }
-    if directive == "*" || valid_owner(directive) {
-        return Ok(Directive::Owner(directive.to_owned()));
+    let mut owners = Vec::new();
+    for owner in directive.split(',') {
+        let owner = owner.trim();
+        if owner != "*" && !valid_owner(owner) {
+            return syntax(
+                path,
+                line,
+                "expected comma-separated emails, `*`, `file:`, or `set noparent` directive",
+            );
+        }
+        owners.push(Directive::Owner(owner.to_owned()));
+    }
+    if !owners.is_empty() {
+        return Ok(owners);
     }
     syntax(
         path,
         line,
-        "expected an email, `*`, `file:`, or `set noparent` directive",
+        "expected comma-separated emails, `*`, `file:`, or `set noparent` directive",
     )
+}
+
+fn validate_path_expression(
+    path: &Path,
+    line: usize,
+    expression: &str,
+) -> Result<(), OwnershipError> {
+    if expression.is_empty()
+        || expression.starts_with('/')
+        || expression.contains('\\')
+        || expression.split('/').any(|component| component == "..")
+        || expression
+            .chars()
+            .any(|character| character.is_control() || character == '=')
+    {
+        return syntax(
+            path,
+            line,
+            "per-file path expression must be relative and may not escape its OWNERS directory",
+        );
+    }
+    Ok(())
 }
 
 fn valid_owner(value: &str) -> bool {
@@ -416,6 +488,7 @@ fn summarize_module_ownership(sources: Vec<SourceOwnership>) -> ModuleOwnership 
     let mut primary_owners = BTreeSet::new();
     let mut effective_owners = BTreeSet::new();
     let mut owner_files = BTreeSet::new();
+    let mut unresolved_includes = BTreeSet::new();
     let mut unresolved_sources = Vec::new();
     let mut distinct_primary = BTreeSet::new();
     let mut common: Option<BTreeSet<String>> = None;
@@ -424,6 +497,7 @@ fn summarize_module_ownership(sources: Vec<SourceOwnership>) -> ModuleOwnership 
         primary_owners.extend(source.primary_owners.iter().cloned());
         effective_owners.extend(source.effective_owners.iter().cloned());
         owner_files.extend(source.owner_files.iter().cloned());
+        unresolved_includes.extend(source.unresolved_includes.iter().cloned());
         if source.effective_owners.is_empty() {
             unresolved_sources.push(source.source.clone());
         } else {
@@ -442,9 +516,16 @@ fn summarize_module_ownership(sources: Vec<SourceOwnership>) -> ModuleOwnership 
         common_effective_owners: common.unwrap_or_default().into_iter().collect(),
         owner_files: owner_files.into_iter().collect(),
         unresolved_sources,
+        unresolved_includes: unresolved_includes.into_iter().collect(),
         split_ownership: distinct_primary.len() > 1,
         sources,
     }
+}
+
+fn is_external_include(include: &str) -> bool {
+    include.rsplit_once(":/").is_some_and(|(project, path)| {
+        !project.is_empty() && !project.starts_with('/') && !path.is_empty()
+    })
 }
 
 fn normalize_repo_path(path: &Path) -> Option<PathBuf> {
@@ -484,26 +565,40 @@ fn glob_matches(pattern: &str, value: &str) -> bool {
     let pattern = pattern.as_bytes();
     let value = value.as_bytes();
     let mut current = vec![false; value.len() + 1];
+    let mut next = vec![false; value.len() + 1];
     current[0] = true;
-    for token in pattern {
-        let mut next = vec![false; value.len() + 1];
-        match token {
+    let mut pattern_index = 0;
+    while pattern_index < pattern.len() {
+        next.fill(false);
+        if pattern[pattern_index..].starts_with(b"...") {
+            next[0] = current[0];
+            for index in 1..=value.len() {
+                next[index] = current[index] || next[index - 1];
+            }
+            pattern_index += 3;
+            std::mem::swap(&mut current, &mut next);
+            continue;
+        }
+        match pattern[pattern_index] {
             b'*' => {
                 next[0] = current[0];
                 for index in 1..=value.len() {
-                    next[index] = current[index] || next[index - 1];
+                    next[index] = current[index] || (value[index - 1] != b'/' && next[index - 1]);
                 }
             }
             b'?' => {
-                next[1..].copy_from_slice(&current[..value.len()]);
+                for index in 1..=value.len() {
+                    next[index] = value[index - 1] != b'/' && current[index - 1];
+                }
             }
             literal => {
                 for index in 1..=value.len() {
-                    next[index] = current[index - 1] && *literal == value[index - 1];
+                    next[index] = current[index - 1] && literal == value[index - 1];
                 }
             }
         }
-        current = next;
+        std::mem::swap(&mut current, &mut next);
+        pattern_index += 1;
     }
     current[value.len()]
 }
@@ -665,9 +760,17 @@ mod tests {
         let tree = TempTree::new();
         tree.write("SECURITY_OWNERS", "security@chromium.org\n");
         tree.write("services/SHARED_OWNERS", "shared@chromium.org\n");
+        tree.write("services/GLOBAL_OWNERS", "global@chromium.org\n");
+        tree.write("ROOT_OWNERS", "root-include@chromium.org\n");
         tree.write(
             "services/network/OWNERS",
-            "file:../SHARED_OWNERS\nfile://SECURITY_OWNERS\n",
+            concat!(
+                "file:../SHARED_OWNERS\n",
+                "file://SECURITY_OWNERS\n",
+                "file:///ROOT_OWNERS\n",
+                "include ../GLOBAL_OWNERS\n",
+                "include /SECURITY_OWNERS\n",
+            ),
         );
 
         let output =
@@ -678,8 +781,34 @@ mod tests {
                 .as_ref()
                 .unwrap()
                 .effective_owners,
-            vec!["security@chromium.org", "shared@chromium.org"]
+            vec![
+                "global@chromium.org",
+                "root-include@chromium.org",
+                "security@chromium.org",
+                "shared@chromium.org"
+            ]
         );
+    }
+
+    #[test]
+    fn records_external_gerrit_project_includes_without_resolving_them() {
+        let tree = TempTree::new();
+        tree.write(
+            "services/network/OWNERS",
+            "network@chromium.org\ninclude platform/system/core:main:/janitors/OWNERS\n",
+        );
+        let output =
+            scan_ownership(&manifest(&["services/network/context.cc"]), &tree.root).unwrap();
+        let ownership = output.manifest.modules[0].ownership.as_ref().unwrap();
+        assert_eq!(ownership.effective_owners, vec!["network@chromium.org"]);
+        assert_eq!(
+            ownership.unresolved_includes,
+            vec![OwnershipInclude {
+                owner_file: "services/network/OWNERS".into(),
+                include: "platform/system/core:main:/janitors/OWNERS".into(),
+            }]
+        );
+        assert_eq!(output.summary.unresolved_includes, 1);
     }
 
     #[test]
@@ -714,18 +843,87 @@ mod tests {
     }
 
     #[test]
-    fn wildcard_matching_uses_filename_only_semantics() {
+    fn simple_path_matching_respects_directory_boundaries_and_recursive_ellipsis() {
         assert!(glob_matches("*_messages?.h", "network_messages1.h"));
         assert!(!glob_matches("*_messages?.h", "network_messages.h"));
         assert!(glob_matches("*.mojom", "service.mojom"));
+        assert!(!glob_matches("*.mojom", "public/service.mojom"));
+        assert!(glob_matches("public/*.mojom", "public/service.mojom"));
+        assert!(!glob_matches(
+            "public/*.mojom",
+            "public/nested/service.mojom"
+        ));
+        assert!(glob_matches(
+            ".../service.mojom",
+            "public/nested/service.mojom"
+        ));
+        assert!(glob_matches("..._win*", "platform/widget_win.cc"));
     }
 
     #[test]
-    fn rejects_directory_spanning_per_file_globs() {
+    fn supports_relative_paths_recursive_patterns_and_comma_lists() {
         let tree = TempTree::new();
         tree.write(
             "services/network/OWNERS",
-            "per-file subdir/*.cc=owner@chromium.org\n",
+            concat!(
+                "general@chromium.org\n",
+                "per-file subdir/*.cc=path@chromium.org\n",
+                "per-file .../SECURITY_OWNERS=set noparent\n",
+                "per-file .../SECURITY_OWNERS=security@chromium.org\n",
+                "per-file alpha.h,beta.h=first@chromium.org,second@chromium.org\n",
+            ),
+        );
+        let output = scan_ownership(
+            &manifest(&[
+                "services/network/subdir/impl.cc",
+                "services/network/subdir/nested/impl.cc",
+                "services/network/deep/SECURITY_OWNERS",
+                "services/network/alpha.h",
+            ]),
+            &tree.root,
+        )
+        .unwrap();
+        let sources = &output.manifest.modules[0]
+            .ownership
+            .as_ref()
+            .unwrap()
+            .sources;
+        let owners = |suffix: &str| {
+            sources
+                .iter()
+                .find(|source| source.source.ends_with(suffix))
+                .unwrap()
+                .effective_owners
+                .clone()
+        };
+        assert_eq!(
+            owners("subdir/impl.cc"),
+            vec!["general@chromium.org", "path@chromium.org"]
+        );
+        assert_eq!(
+            owners("subdir/nested/impl.cc"),
+            vec!["general@chromium.org"]
+        );
+        assert_eq!(
+            owners("deep/SECURITY_OWNERS"),
+            vec!["security@chromium.org"]
+        );
+        assert_eq!(
+            owners("alpha.h"),
+            vec![
+                "first@chromium.org",
+                "general@chromium.org",
+                "second@chromium.org"
+            ]
+        );
+    }
+
+    #[test]
+    fn rejects_escaping_per_file_path_expressions() {
+        let tree = TempTree::new();
+        tree.write(
+            "services/network/OWNERS",
+            "per-file ../outside.cc=owner@chromium.org\n",
         );
         assert!(matches!(
             scan_ownership(&manifest(&["services/network/context.cc"]), &tree.root),

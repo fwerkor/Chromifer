@@ -202,6 +202,8 @@ pub struct ModuleOwnership {
     pub owner_files: Vec<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub unresolved_sources: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub unresolved_includes: Vec<OwnershipInclude>,
     #[serde(default)]
     pub split_ownership: bool,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -217,8 +219,16 @@ pub struct SourceOwnership {
     pub effective_owners: Vec<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub owner_files: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub unresolved_includes: Vec<OwnershipInclude>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub inheritance_stopped_at: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+pub struct OwnershipInclude {
+    pub owner_file: String,
+    pub include: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -699,6 +709,15 @@ fn check_ownership(
         }
     }
 
+    for include in &ownership.unresolved_includes {
+        if include.owner_file.trim().is_empty() || include.include.trim().is_empty() {
+            errors.push(ValidationError::InvalidOwnershipValue {
+                module: module.id.clone(),
+                field: "ownership.unresolved_includes",
+            });
+        }
+    }
+
     for source in &ownership.sources {
         if source.source.trim().is_empty() {
             errors.push(ValidationError::InvalidOwnershipValue {
@@ -718,6 +737,14 @@ fn check_ownership(
                 errors.push(ValidationError::InvalidOwnershipValue {
                     module: module.id.clone(),
                     field,
+                });
+            }
+        }
+        for include in &source.unresolved_includes {
+            if include.owner_file.trim().is_empty() || include.include.trim().is_empty() {
+                errors.push(ValidationError::InvalidOwnershipValue {
+                    module: module.id.clone(),
+                    field: "ownership.sources.unresolved_includes",
                 });
             }
         }

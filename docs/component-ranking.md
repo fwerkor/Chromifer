@@ -91,6 +91,7 @@ The score is deterministic and deliberately transparent. The analysis starts wit
 | Native Rust external boundary type | 1 each |
 | All boundary points | capped at 40 |
 | Unresolved callback/observer review | 10 each, capped at 40 |
+| Unresolved external OWNERS include | no score points; blocks readiness |
 | Mixed migration states inside one proposal | 20 |
 | No compatibility gates | 15 |
 | Missing required module-target gate pairs | proportional penalty from 0 to 25 when measured source coverage is absent |
@@ -103,7 +104,7 @@ The total risk is capped at 100:
 readiness_score = 100 - risk_score
 ```
 
-A component is marked `ready` only when it has source files, compatibility gates, complete required-target gate declarations, one migration-state class, no unresolved callback/observer reviews, no private or unclassified external boundary, and is outside the explicitly deferred runtime scope. When measured source coverage is supplied, every component source must also be represented in the report; line coverage below 100% affects risk without automatically blocking readiness.
+A component is marked `ready` only when it has source files, compatibility gates, complete required-target gate declarations, one migration-state class, no unresolved callback/observer reviews, no unresolved external OWNERS includes, no private or unclassified external boundary, and is outside the explicitly deferred runtime scope. Unresolved ownership includes are deliberately an eligibility concern without a numeric risk penalty: the readiness score describes code and topology risk, while ownership completeness is a separate prerequisite. When measured source coverage is supplied, every component source must also be represented in the report; line coverage below 100% affects risk without automatically blocking readiness.
 
 A high score is a triage result, not permission to merge a Rust replacement. The transition planner and executable compatibility gates remain authoritative.
 
