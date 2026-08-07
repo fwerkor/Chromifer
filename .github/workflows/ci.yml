@@ -155,3 +155,41 @@ jobs:
             /tmp/chromifer-gate-evidence.sig.json \
             /tmp/chromifer-runner.pub
           rm -f /tmp/chromifer-runner.key
+
+  portable-build-bridge:
+    name: Portable build bridge (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@1.88.0
+        with:
+          components: rustfmt, clippy
+      - name: Portable bridge tests
+        run: cargo test -p chromifer-build -p chromifer-cabi -p chromifer-mojo -p chromifer-gates --all-features --locked
+      - name: Generated contracts are platform-stable
+        run: |
+          cargo run -p chromifer -- audit-unsafe Cargo.toml unsafe-policy.json chromifer-unsafe.json --check
+          cargo run -p chromifer -- summarize-coverage examples/coverage/manifest.toml examples/coverage/source examples/coverage/llvm-cov.json examples/coverage/chromifer-coverage.json --check
+          cargo run -p chromifer -- generate-gn examples/rust-bridge/Cargo.toml examples/rust-bridge/BUILD.gn --visibility '//examples/rust-bridge:*' --check
+          cargo run -p chromifer -- generate-gn examples/multi-consumer-bridge/Cargo.toml examples/multi-consumer-bridge/BUILD.gn --gn-package-path //examples/multi-consumer-bridge --consumer-contract examples/multi-consumer-bridge/consumers.json --check
+          cargo run -p chromifer -- generate-c-abi examples/c-abi-bridge examples/c-abi-bridge/c-abi.json examples/c-abi-bridge/include/api.h --check
+          cargo run -p chromifer -- generate-gn examples/c-abi-bridge/Cargo.toml examples/c-abi-bridge/BUILD.gn --gn-package-path //examples/c-abi-bridge --allow-unsafe --consumer-target c_abi_smoke --consumer-source consumer/smoke.cc --consumer-header include/api.h --consumer-visibility '//examples/c-abi-bridge:*' --check
+          cargo run -p chromifer -- generate-mojo examples/mojo-bridge examples/mojo-bridge/mojo.json examples/mojo-bridge/BUILD.gn --check
+          cargo run -p chromifer -- derive-gates . examples/gates/base.toml examples/gates/gates.json examples/gates/generated.toml --check
+          cargo check --manifest-path examples/rust-bridge/Cargo.toml --locked
+          cargo check --manifest-path examples/c-abi-bridge/Cargo.toml --locked
+      - name: Compile C ABI C++ consumer (macOS)
+        if: runner.os == 'macOS'
+        run: c++ -std=c++17 -I. -fsyntax-only examples/c-abi-bridge/consumer/smoke.cc examples/c-abi-bridge/consumer/main.cc
+      - name: Compile C ABI C++ consumer (Windows)
+        if: runner.os == 'Windows'
+        shell: cmd
+        run: |
+          for /f "usebackq tokens=*" %%i in (`"%ProgramFiles(x86)%\Microsoft Visual Studio\Installer\vswhere.exe" -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath`) do set VS_PATH=%%i
+          call "%VS_PATH%\VC\Auxiliary\Build\vcvars64.bat"
+          cl /nologo /std:c++17 /I. /c examples\c-abi-bridge\consumer\smoke.cc /Fo:%TEMP%\chromifer-smoke.obj
+          cl /nologo /std:c++17 /I. /c examples\c-abi-bridge\consumer\main.cc /Fo:%TEMP%\chromifer-main.obj
