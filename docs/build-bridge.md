@@ -218,7 +218,7 @@ chromifer generate-gn Cargo.toml BUILD.gn \
 
 `--check` regenerates both files in memory and fails when either differs. Changes to Cargo metadata, Rust source inventory, CXX bridges, dependency mappings, features, unsafe policy, or the generated GN text therefore become review-visible.
 
-`examples/rust-bridge`, `examples/multi-consumer-bridge`, `examples/c-abi-bridge`, and the separate `examples/mojo-bridge` contract are checked this way by Chromifer's own CI. The main workspace and C ABI bridge also commit and check deterministic unsafe-audit reports.
+`examples/rust-bridge`, `examples/multi-consumer-bridge`, `examples/c-abi-bridge`, and the separate `examples/mojo-bridge` contract are checked this way by Chromifer's own CI. Portable bridge checks also run on Windows and macOS: Rust and C ABI examples are compiled on both desktop runners, the C ABI C++ consumer is compiled with MSVC on Windows and the system C++ compiler on macOS, and the generated Rust GN, C ABI, Mojo, multi-consumer, coverage, unsafe, and structured-gate artifacts must remain byte-stable across platforms. The main workspace and C ABI bridge also commit and check deterministic unsafe-audit reports.
 
 ## Current boundary
 

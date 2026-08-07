@@ -51,9 +51,9 @@ Acceptance criteria:
 - validate generated bindings and endpoint behavior through Chromium's native Rust template and bundled toolchain at a pinned revision; **implemented**
 - exercise deterministic arithmetic, repeated-call, null-pointer, length, and bool-return C ABI behavior in both integration paths; **implemented**
 - enforce safe packages, designated bridge sources, local unsafe allowances, and deterministic audit evidence; **implemented**
-- build generated bridge examples on Linux, Windows, and macOS.
+- build generated bridge examples on Linux, Windows, and macOS. **implemented**
 
-M2 now emits first-party Rust targets, CXX and C ABI consumers, multi-target Mojo bindings, unsafe-policy evidence, structured direct gates, executable attestations, deterministic Chromium checkout locks, a lightweight upstream-GN endpoint, and a Chromium-native endpoint using the pinned Rust template, local standard library, bundled Rustc, Clang, and Ninja. The next integration work is platform expansion and binding/runtime coverage beyond the C ABI smoke.
+M2 now emits first-party Rust targets, CXX and C ABI consumers, multi-target Mojo bindings, unsafe-policy evidence, structured direct gates, executable attestations, deterministic Chromium checkout locks, a lightweight upstream-GN endpoint, and a Chromium-native endpoint using the pinned Rust template, local standard library, bundled Rustc, Clang, and Ninja. Portable generation contracts and bridge examples are also checked on Linux, Windows, and macOS; the Windows job compiles the C ABI consumer with MSVC and the macOS job compiles it with the platform C++ toolchain. The remaining integration boundary is full native Chromium GN coverage on additional platforms and runtime coverage beyond the C ABI smoke.
 
 ## M3 — First production component
 
