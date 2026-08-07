@@ -172,12 +172,15 @@ Target-specific Cargo dependencies are translated only for a strict `cfg(...)` s
 - `target_os = "fuchsia"` → `is_fuchsia`;
 - `target_os = "emscripten"` → `is_wasm`;
 - `target_os = "linux"` → `is_linux || is_chromeos`;
-- `target_arch` values `x86`, `x86_64`, `arm`, `aarch64`, `riscv64`, and `wasm32` → matching `current_cpu` values;
+- `target_arch` values `x86`, `x86_64`, `arm`, `aarch64`, `mips`, `mips64`, `s390x`, `powerpc64`, `riscv64`, `loongarch64`, and `wasm32` → matching Chromium `current_cpu` values;
+- `target_env = "msvc"` → `is_win`, matching Chromium's supported Windows Rust triples;
+- `target_vendor = "apple"` → `is_mac || is_ios`, matching Chromium's Apple Rust targets;
+- `target_pointer_width = "32"` and `"64"` → exact unions of the Chromium CPU values with those pointer widths;
 - nested `all(...)`, `any(...)`, and single-argument `not(...)`.
 
 Conditional dependencies are emitted as initialized `deps` or `public_deps` lists followed by `if (...) { ... += [...] }` blocks. The original Cargo target expression and canonical GN condition are both recorded in provenance.
 
-Bare `unix`, arbitrary target triples, `target_env`, `target_vendor`, unknown OS/CPU values, and malformed expressions are rejected. These cases do not have a proven one-to-one mapping in the current bridge; emitting them unconditionally would be unsafe.
+Bare `unix`, arbitrary target triples, other `target_env`/`target_vendor` values, unknown OS/CPU/pointer-width values, and malformed expressions are rejected. The accepted mappings follow Chromium's Rust target configuration rather than guessing from platform names; unsupported cases remain hard errors instead of being emitted unconditionally.
 
 ## Features
 

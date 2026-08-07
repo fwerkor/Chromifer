@@ -76,7 +76,7 @@
       "sources": [
         {
           "source": "src/lib.rs",
-          "sha256": "d66c2f0e0f1cda2d9405eff1ab583999ad7221b9d4ee1aae7d143f36dfe11960"
+          "sha256": "845fd59fc7898ca348b40b5045b77f671177b3663c3604b7e61ad073ae791472"
         }
       ],
       "unsafe_occurrences": [],

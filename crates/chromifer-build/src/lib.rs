@@ -981,7 +981,12 @@ fn render_cfg_expression(expression: &CfgExpr, original: &str) -> Result<String,
                 "x86_64" => "x64",
                 "arm" => "arm",
                 "aarch64" => "arm64",
+                "mips" => "mipsel",
+                "mips64" => "mips64el",
+                "s390x" => "s390x",
+                "powerpc64" => "ppc64",
                 "riscv64" => "riscv64",
+                "loongarch64" => "loong64",
                 "wasm32" => "wasm",
                 _ => {
                     return Err(BuildBridgeError::UnsupportedTargetCondition(
@@ -990,6 +995,31 @@ fn render_cfg_expression(expression: &CfgExpr, original: &str) -> Result<String,
                 }
             };
             Ok(format!("current_cpu == \"{cpu}\""))
+        }
+        CfgExpr::Value { key, value } if key == "target_env" && value == "msvc" => {
+            Ok("is_win".into())
+        }
+        CfgExpr::Value { key, value } if key == "target_vendor" && value == "apple" => {
+            Ok("(is_mac || is_ios)".into())
+        }
+        CfgExpr::Value { key, value } if key == "target_pointer_width" => {
+            let cpus: &[&str] = match value.as_str() {
+                "32" => &["x86", "arm", "mipsel"],
+                "64" => &[
+                    "x64", "arm64", "arm64e", "mips64el", "s390x", "ppc64", "riscv64", "loong64",
+                ],
+                _ => {
+                    return Err(BuildBridgeError::UnsupportedTargetCondition(
+                        original.to_owned(),
+                    ));
+                }
+            };
+            let condition = cpus
+                .iter()
+                .map(|cpu| format!("current_cpu == \"{cpu}\""))
+                .collect::<Vec<_>>()
+                .join(" || ");
+            Ok(format!("({condition})"))
         }
         CfgExpr::Value { .. } => Err(BuildBridgeError::UnsupportedTargetCondition(
             original.to_owned(),
@@ -1977,6 +2007,53 @@ mod tests {
             .unwrap(),
             "(is_mac || !(current_cpu == \"arm64\"))"
         );
+    }
+
+    #[test]
+    fn translates_extended_chromium_rust_architectures() {
+        for (rust_arch, gn_cpu) in [
+            ("mips", "mipsel"),
+            ("mips64", "mips64el"),
+            ("s390x", "s390x"),
+            ("powerpc64", "ppc64"),
+            ("loongarch64", "loong64"),
+        ] {
+            assert_eq!(
+                translate_target_condition(&format!("cfg(target_arch = \"{rust_arch}\")")).unwrap(),
+                format!("current_cpu == \"{gn_cpu}\"")
+            );
+        }
+    }
+
+    #[test]
+    fn translates_exact_environment_vendor_and_pointer_width_conditions() {
+        assert_eq!(
+            translate_target_condition("cfg(target_env = \"msvc\")").unwrap(),
+            "is_win"
+        );
+        assert_eq!(
+            translate_target_condition("cfg(target_vendor = \"apple\")").unwrap(),
+            "(is_mac || is_ios)"
+        );
+        assert_eq!(
+            translate_target_condition("cfg(target_pointer_width = \"32\")").unwrap(),
+            "(current_cpu == \"x86\" || current_cpu == \"arm\" || current_cpu == \"mipsel\")"
+        );
+        assert_eq!(
+            translate_target_condition("cfg(target_pointer_width = \"64\")").unwrap(),
+            "(current_cpu == \"x64\" || current_cpu == \"arm64\" || current_cpu == \"arm64e\" || current_cpu == \"mips64el\" || current_cpu == \"s390x\" || current_cpu == \"ppc64\" || current_cpu == \"riscv64\" || current_cpu == \"loong64\")"
+        );
+
+        for unsupported in [
+            "cfg(target_env = \"gnu\")",
+            "cfg(target_vendor = \"pc\")",
+            "cfg(target_pointer_width = \"128\")",
+        ] {
+            assert!(matches!(
+                translate_target_condition(unsupported),
+                Err(BuildBridgeError::UnsupportedTargetCondition(_))
+            ));
+        }
     }
 
     #[test]

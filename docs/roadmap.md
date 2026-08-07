@@ -43,7 +43,7 @@ Acceptance criteria:
 - generate C++ `source_set` consumers with verified CXX include contracts; **implemented**
 - support multiple consumer targets selecting different CXX bridge subsets; **implemented**
 - translate a proven Cargo `cfg` OS/architecture subset into GN conditions; **implemented**
-- extend condition translation to additional exact Cargo/Chromium mappings;
+- extend condition translation to additional exact Cargo/Chromium mappings; **implemented**
 - establish an explicit C ABI contract, Rust export validator, generated header, and GN consumer integration; **implemented**
 - establish multi-target Mojo contracts, import resolution, C++/Rust targets, and deterministic provenance; **implemented**
 - derive direct compatibility gates and hashed inputs from Rust GN, C ABI, Mojo, unsafe, checkout, and integration provenance; **implemented**
