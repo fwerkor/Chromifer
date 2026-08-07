@@ -48,6 +48,14 @@
       "targets": ["host"]
     },
     {
+      "kind": "rust_gn",
+      "id": "multi-consumer-current",
+      "cargo_manifest": "examples/multi-consumer-bridge/Cargo.toml",
+      "provenance": "examples/multi-consumer-bridge/chromifer-build.json",
+      "modules": ["multi_consumer_bridge"],
+      "targets": ["host"]
+    },
+    {
       "kind": "integration",
       "id": "c-abi-gn-endpoint",
       "source_root": "examples/integration/gn-root",

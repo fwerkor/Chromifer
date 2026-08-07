@@ -41,7 +41,7 @@ Acceptance criteria:
 - require explicit Cargo dependency to GN label mappings; **implemented**
 - persist deterministic build provenance and detect generated-file drift; **implemented**
 - generate C++ `source_set` consumers with verified CXX include contracts; **implemented**
-- support multiple consumer targets selecting different CXX bridge subsets;
+- support multiple consumer targets selecting different CXX bridge subsets; **implemented**
 - translate a proven Cargo `cfg` OS/architecture subset into GN conditions; **implemented**
 - extend condition translation to additional exact Cargo/Chromium mappings;
 - establish an explicit C ABI contract, Rust export validator, generated header, and GN consumer integration; **implemented**

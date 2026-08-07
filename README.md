@@ -38,6 +38,7 @@ The initial workspace provides:
 - `chromifer`: command-line interface for import, scanning, validation, and planning.
 - `examples/chromium.toml`: a small model of the intended Chromium component graph.
 - `examples/gn-project.json`: a representative GN export used by tests and examples.
+- `examples/multi-consumer-bridge/`: two C++ consumers selecting distinct CXX bridge subsets.
 
 ## Try it
 
@@ -104,6 +105,13 @@ cargo run -p chromifer -- generate-gn \
   --gn-package-path //services/example/rust \
   --consumer-target example_bridge_cpp \
   --consumer-source consumer/example_bridge.cc
+
+# Or declare multiple consumers with distinct CXX bridge subsets:
+cargo run -p chromifer -- generate-gn \
+  path/to/Cargo.toml \
+  path/to/BUILD.gn \
+  --gn-package-path //services/example/rust \
+  --consumer-contract path/to/consumers.json
 
 # Generate and attach an explicit C ABI:
 cargo run -p chromifer -- generate-c-abi \
@@ -276,6 +284,7 @@ examples/
   chromium.toml        Example migration manifest
   gn-project.json      Example GN JSON project graph
   c-abi-bridge/        Generated C ABI and C++ consumer example
+  multi-consumer-bridge/ Multiple C++ targets selecting CXX bridge subsets
   mojo-bridge/         Multi-target C++ and Rust Mojo binding example
   gates/               Provenance-derived gate manifest and contract
   checkout/            Relocatable checkout lock smoke fixture

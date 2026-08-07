@@ -163,7 +163,7 @@ cargo run -p chromifer -- verify-evidence \
 
 Evidence schema version 3 records the exact execution form, argument vector, input paths and digests, declared platform targets, status, timing, content-addressed stdout/stderr, and optional checkout/tool attestations. Verification compares the execution definition and input contract with the current manifest before accepting the logs.
 
-`examples/gates` derives six real checks from this repository's Rust GN, C ABI, Mojo, unsafe, measured source coverage, and GN endpoint integration provenance. All six are executed through the same evidence runner in CI.
+`examples/gates` derives seven real checks from this repository's Rust GN, multi-consumer CXX, C ABI, Mojo, unsafe, measured source coverage, and GN endpoint integration provenance. All seven are executed through the same evidence runner in CI.
 
 ## Trust boundary
 

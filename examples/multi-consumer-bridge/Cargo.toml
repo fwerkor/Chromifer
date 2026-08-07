@@ -1,0 +1,10 @@
+[package]
+name = "chromifer-multi-consumer-example"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[dependencies]
+cxx = { path = "fake-cxx" }
+
+[workspace]

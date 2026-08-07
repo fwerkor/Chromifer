@@ -10,7 +10,9 @@ use chromifer_attestation::{
     PublicKeyOptions, SignOptions, derive_public_key, sign_and_write as sign_evidence_attestation,
     verify as verify_evidence_attestation,
 };
-use chromifer_build::{ConsumerOptions, GenerateOptions, generate_and_write};
+use chromifer_build::{
+    ConsumerOptions, GenerateOptions, generate_and_write, parse_consumer_contract,
+};
 use chromifer_cabi::{CAbiGenerateOptions, generate_and_write as generate_c_abi};
 use chromifer_checkout::{CheckoutAuditOptions, audit_and_write as audit_checkout};
 use chromifer_components::{
@@ -82,23 +84,29 @@ struct GenerateGnArgs {
     #[arg(long)]
     gn_package_path: Option<String>,
     /// Generate a C++ source_set with this target name.
-    #[arg(long)]
+    #[arg(long, conflicts_with = "consumer_contract")]
     consumer_target: Option<String>,
     /// Package-relative C++ consumer source. Repeatable.
-    #[arg(long = "consumer-source")]
+    #[arg(long = "consumer-source", conflicts_with = "consumer_contract")]
     consumer_sources: Vec<String>,
+    /// Package-relative CXX bridge source selected by the C++ consumer. Repeatable.
+    #[arg(long = "consumer-cxx-binding", conflicts_with = "consumer_contract")]
+    consumer_cxx_bindings: Vec<String>,
     /// Package-relative generated C ABI or other boundary header. Repeatable.
-    #[arg(long = "consumer-header")]
+    #[arg(long = "consumer-header", conflicts_with = "consumer_contract")]
     consumer_headers: Vec<String>,
     /// Additional private GN dependency for the C++ consumer. Repeatable.
-    #[arg(long = "consumer-dep")]
+    #[arg(long = "consumer-dep", conflicts_with = "consumer_contract")]
     consumer_deps: Vec<String>,
     /// Additional public GN dependency for the C++ consumer. Repeatable.
-    #[arg(long = "consumer-public-dep")]
+    #[arg(long = "consumer-public-dep", conflicts_with = "consumer_contract")]
     consumer_public_deps: Vec<String>,
     /// Restrict C++ consumer visibility. Repeatable.
-    #[arg(long = "consumer-visibility")]
+    #[arg(long = "consumer-visibility", conflicts_with = "consumer_contract")]
     consumer_visibility: Vec<String>,
+    /// JSON contract declaring one or more C++ consumers and selected CXX bridge subsets.
+    #[arg(long)]
+    consumer_contract: Option<PathBuf>,
     /// Cargo executable used for metadata extraction.
     #[arg(long, default_value = "cargo")]
     cargo: PathBuf,
@@ -725,10 +733,12 @@ fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
                 gn_package_path,
                 consumer_target,
                 consumer_sources,
+                consumer_cxx_bindings,
                 consumer_headers,
                 consumer_deps,
                 consumer_public_deps,
                 consumer_visibility,
+                consumer_contract,
                 cargo,
                 force,
                 check,
@@ -736,15 +746,17 @@ fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
             } = *args;
             let consumer_requested = consumer_target.is_some()
                 || !consumer_sources.is_empty()
+                || !consumer_cxx_bindings.is_empty()
                 || !consumer_headers.is_empty()
                 || !consumer_deps.is_empty()
                 || !consumer_public_deps.is_empty()
                 || !consumer_visibility.is_empty();
-            let consumer = if consumer_requested {
+            let legacy_consumer = if consumer_requested {
                 Some(ConsumerOptions {
                     target_name: consumer_target
                         .ok_or("C++ consumer options require --consumer-target")?,
                     sources: consumer_sources,
+                    cxx_bindings: consumer_cxx_bindings,
                     required_headers: consumer_headers,
                     deps: consumer_deps,
                     public_deps: consumer_public_deps,
@@ -752,6 +764,18 @@ fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
                 })
             } else {
                 None
+            };
+            let mut contract_consumers = if let Some(path) = &consumer_contract {
+                parse_consumer_contract(&fs::read(path)?)?
+            } else {
+                Vec::new()
+            };
+            let consumer = if let Some(consumer) = legacy_consumer {
+                Some(consumer)
+            } else if contract_consumers.is_empty() {
+                None
+            } else {
+                Some(contract_consumers.remove(0))
             };
             let generated = generate_and_write(&GenerateOptions {
                 cargo,
@@ -770,6 +794,8 @@ fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
                 allow_unsafe,
                 gn_package_path,
                 consumer,
+                additional_consumers: contract_consumers,
+                consumer_contract,
                 force,
                 check,
             })?;

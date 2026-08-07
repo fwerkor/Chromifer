@@ -55,6 +55,12 @@ jobs:
             examples/rust-bridge/BUILD.gn \
             --visibility //examples/rust-bridge:* \
             --check
+          cargo run -p chromifer -- generate-gn \
+            examples/multi-consumer-bridge/Cargo.toml \
+            examples/multi-consumer-bridge/BUILD.gn \
+            --gn-package-path //examples/multi-consumer-bridge \
+            --consumer-contract examples/multi-consumer-bridge/consumers.json \
+            --check
       - name: Generated C ABI bridge is current
         run: |
           cargo run -p chromifer -- generate-c-abi \
@@ -87,6 +93,7 @@ jobs:
         run: |
           examples/integration/build-pinned-gn.sh /tmp/chromifer-gn
           echo /tmp/chromifer-gn/out >> "$GITHUB_PATH"
+          /tmp/chromifer-gn/out/gn format --dry-run examples/multi-consumer-bridge/BUILD.gn
       - name: Real GN endpoint integration
         run: examples/integration/run-smoke.sh
       - name: Chromium native report is consistent

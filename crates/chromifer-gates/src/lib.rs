@@ -663,19 +663,39 @@ fn derive_rust_gn(
     if let Some(package_path) = &provenance.gn_package_path {
         args.extend(["--gn-package-path".into(), package_path.clone()]);
     }
-    if let Some(consumer) = &provenance.consumer {
-        args.extend(["--consumer-target".into(), consumer.target_name.clone()]);
+    let generated: BTreeSet<_> = provenance.generated_cxx_headers.iter().collect();
+    for consumer in provenance
+        .consumer
+        .iter()
+        .chain(provenance.additional_consumers.iter())
+    {
         for source in &consumer.sources {
             let path = join_path(&package_root, source)?;
             inputs.add(&path, None)?;
-            args.extend(["--consumer-source".into(), source.clone()]);
         }
-        let generated: BTreeSet<_> = provenance.generated_cxx_headers.iter().collect();
         for header in &consumer.required_headers {
             if generated.contains(header) {
                 continue;
             }
             inputs.add(header, None)?;
+        }
+    }
+    if let Some(contract) = &provenance.consumer_contract {
+        let contract_path = join_path(&package_root, &contract.path)?;
+        inputs.add(&contract_path, Some(&contract.sha256))?;
+        args.extend(["--consumer-contract".into(), contract_path]);
+    } else if let Some(consumer) = &provenance.consumer {
+        args.extend(["--consumer-target".into(), consumer.target_name.clone()]);
+        for source in &consumer.sources {
+            args.extend(["--consumer-source".into(), source.clone()]);
+        }
+        for binding in &consumer.cxx_bindings {
+            args.extend(["--consumer-cxx-binding".into(), binding.clone()]);
+        }
+        for header in &consumer.required_headers {
+            if generated.contains(header) {
+                continue;
+            }
             let relative = strip_package_path(header, &package_root)
                 .ok_or_else(|| GateDeriveError::HeaderOutsidePackage(header.clone()))?;
             args.extend(["--consumer-header".into(), relative]);

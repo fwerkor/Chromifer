@@ -113,6 +113,34 @@ The generated consumer automatically receives a private dependency on `:<rust_ta
 
 The same consumer mechanism accepts explicit generated C ABI headers through `--consumer-header`. A package-relative header is expanded through `--gn-package-path`, and the C++ source must include that repository-root path. Pure C ABI consumers do not require a CXX bridge. Contract validation and header generation are documented in [c-abi.md](c-abi.md).
 
+When one Rust target exposes multiple CXX bridges to different C++ owners, use a package-local consumer contract instead of repeating one global consumer configuration:
+
+```json
+{
+  "schema_version": 1,
+  "consumers": [
+    {
+      "target_name": "alpha_cpp",
+      "sources": ["consumer/alpha.cc"],
+      "cxx_bindings": ["src/alpha.rs"]
+    },
+    {
+      "target_name": "beta_cpp",
+      "sources": ["consumer/beta.cc"],
+      "cxx_bindings": ["src/beta.rs"]
+    }
+  ]
+}
+```
+
+```bash
+chromifer generate-gn Cargo.toml BUILD.gn \
+  --gn-package-path //services/example/rust \
+  --consumer-contract consumers.json
+```
+
+Each consumer selects only the CXX bridge headers it must include. Empty `cxx_bindings` preserves the single-consumer behavior and selects every detected bridge. Consumer target names must be unique, selected bindings must belong to the generated Rust target, and every selected/generated or explicit boundary header must be included by that consumer's source inventory. The contract path and SHA-256, all consumer sources, selected bindings, include evidence, dependencies, and visibility are retained in build provenance. Structured gate derivation hashes the contract and consumer sources and reconstructs `--consumer-contract` directly.
+
 Mojom sources use a separate multi-target contract because one IDL graph produces both C++ and Rust binding targets and propagates imports across languages. See [mojo.md](mojo.md) for `generate-mojo`, local/external import resolution, and generated target provenance.
 
 ## Cargo dependency mapping
@@ -187,7 +215,7 @@ chromifer generate-gn Cargo.toml BUILD.gn \
 
 `--check` regenerates both files in memory and fails when either differs. Changes to Cargo metadata, Rust source inventory, CXX bridges, dependency mappings, features, unsafe policy, or the generated GN text therefore become review-visible.
 
-`examples/rust-bridge`, `examples/c-abi-bridge`, and the separate `examples/mojo-bridge` contract are checked this way by Chromifer's own CI. The main workspace and C ABI bridge also commit and check deterministic unsafe-audit reports.
+`examples/rust-bridge`, `examples/multi-consumer-bridge`, `examples/c-abi-bridge`, and the separate `examples/mojo-bridge` contract are checked this way by Chromifer's own CI. The main workspace and C ABI bridge also commit and check deterministic unsafe-audit reports.
 
 ## Current boundary
 
@@ -195,7 +223,6 @@ This stage generates a first-party Rust target. It does not yet:
 
 - extend target-condition translation beyond the currently proven OS/architecture subset;
 - preserve dependency crate feature configurations;
-- select subsets of multiple CXX bridges for separate consumer targets;
 - validate generated Mojo bindings and runtime endpoint contracts in a real Chromium checkout;
 - map Cargo build scripts;
 - vendor crates.io dependencies into Chromium;

@@ -1,0 +1,17 @@
+{
+  "schema_version": 1,
+  "consumers": [
+    {
+      "target_name": "alpha_cpp",
+      "sources": ["consumer/alpha.cc"],
+      "cxx_bindings": ["src/alpha.rs"],
+      "visibility": ["//examples/multi-consumer-bridge:*"]
+    },
+    {
+      "target_name": "beta_cpp",
+      "sources": ["consumer/beta.cc"],
+      "cxx_bindings": ["src/beta.rs"],
+      "visibility": ["//examples/multi-consumer-bridge:*"]
+    }
+  ]
+}

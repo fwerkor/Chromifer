@@ -44,3 +44,16 @@ sources = [
   "examples/coverage/source/services/b/b.cc",
 ]
 state = "legacy_cpp"
+
+[[modules]]
+id = "multi_consumer_bridge"
+path = "examples/multi-consumer-bridge"
+owner = "chromifer"
+sources = [
+  "examples/multi-consumer-bridge/src/lib.rs",
+  "examples/multi-consumer-bridge/src/alpha.rs",
+  "examples/multi-consumer-bridge/src/beta.rs",
+  "examples/multi-consumer-bridge/consumer/alpha.cc",
+  "examples/multi-consumer-bridge/consumer/beta.cc",
+]
+state = "legacy_cpp"

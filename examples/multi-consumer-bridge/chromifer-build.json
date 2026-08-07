@@ -1,0 +1,89 @@
+{
+  "schema_version": 4,
+  "package": "chromifer-multi-consumer-example",
+  "version": "0.1.0",
+  "cargo_manifest_sha256": "ba003b6f93b1aac369cb180cfb771b9b2137dd5912e956bd12e0f735db1f7359",
+  "target_name": "chromifer_multi_consumer_example",
+  "crate_root": "src/lib.rs",
+  "edition": "2024",
+  "sources": [
+    "src/alpha.rs",
+    "src/beta.rs",
+    "src/lib.rs"
+  ],
+  "cxx_bindings": [
+    "src/alpha.rs",
+    "src/beta.rs"
+  ],
+  "gn_package_path": "//examples/multi-consumer-bridge",
+  "generated_cxx_headers": [
+    "examples/multi-consumer-bridge/src/alpha.rs.h",
+    "examples/multi-consumer-bridge/src/beta.rs.h"
+  ],
+  "features": [],
+  "no_default_features": false,
+  "dependencies": [],
+  "additional_deps": [],
+  "additional_public_deps": [],
+  "visibility": [],
+  "allow_unsafe": true,
+  "consumer": {
+    "target_name": "alpha_cpp",
+    "sources": [
+      "consumer/alpha.cc"
+    ],
+    "cxx_bindings": [
+      "src/alpha.rs"
+    ],
+    "required_headers": [
+      "examples/multi-consumer-bridge/src/alpha.rs.h"
+    ],
+    "deps": [
+      ":chromifer_multi_consumer_example"
+    ],
+    "public_deps": [],
+    "visibility": [
+      "//examples/multi-consumer-bridge:*"
+    ],
+    "header_includes": [
+      {
+        "header": "examples/multi-consumer-bridge/src/alpha.rs.h",
+        "source": "consumer/alpha.cc",
+        "line": 1
+      }
+    ]
+  },
+  "additional_consumers": [
+    {
+      "target_name": "beta_cpp",
+      "sources": [
+        "consumer/beta.cc"
+      ],
+      "cxx_bindings": [
+        "src/beta.rs"
+      ],
+      "required_headers": [
+        "examples/multi-consumer-bridge/src/beta.rs.h"
+      ],
+      "deps": [
+        ":chromifer_multi_consumer_example"
+      ],
+      "public_deps": [],
+      "visibility": [
+        "//examples/multi-consumer-bridge:*"
+      ],
+      "header_includes": [
+        {
+          "header": "examples/multi-consumer-bridge/src/beta.rs.h",
+          "source": "consumer/beta.cc",
+          "line": 1
+        }
+      ]
+    }
+  ],
+  "consumer_contract": {
+    "path": "consumers.json",
+    "sha256": "36d78c7c629f9143f03a32ba378b5e54b696ebea3549ecf04f347ceee56377cd"
+  },
+  "build_gn_sha256": "07c39420c9b3f3f4296c474841a934c5e2a11b82041a1dca9943c339a5c8a74f"
+}
