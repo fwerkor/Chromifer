@@ -1,0 +1,60 @@
+schema_version = 1
+id = "services-metrics-ukm-recorder-parity"
+status = "partial"
+
+[interface]
+mojom = "services/metrics/public/mojom/ukm_interface.mojom"
+name = "ukm.mojom.UkmRecorderInterface"
+methods = ["AddEntry", "UpdateSourceURL"]
+require_identical_mojom = true
+require_identical_factory_signature = true
+
+[[contract_cases]]
+id = "add-entry-single-metric"
+status = "passed_linux"
+method = "AddEntry"
+
+[[contract_cases]]
+id = "update-source-url"
+status = "passed_linux"
+method = "UpdateSourceURL"
+
+[[contract_cases]]
+id = "add-entry-multiple-metrics"
+status = "pending"
+method = "AddEntry"
+
+[[contract_cases]]
+id = "message-ordering"
+status = "pending"
+methods = ["AddEntry", "UpdateSourceURL"]
+
+[[contract_cases]]
+id = "multiple-independent-receivers"
+status = "pending"
+methods = ["AddEntry", "UpdateSourceURL"]
+
+[[contract_cases]]
+id = "receiver-disconnect-destroys-state"
+status = "pending"
+
+[[upstream_suites]]
+id = "components-ukm"
+target = "//components/ukm:ukm_unittests"
+status = "pending"
+
+[desktop_matrix]
+platforms = ["linux", "mac", "win"]
+require_rust_build = true
+require_shared_contract_test = true
+require_upstream_suite_when_target_supported = true
+linux = "partial"
+mac = "pending"
+win = "pending"
+
+[rollback_matrix]
+require_fallback_build = true
+require_shared_contract_test = true
+linux = "passed"
+mac = "pending"
+win = "pending"

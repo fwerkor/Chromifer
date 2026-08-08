@@ -27,6 +27,7 @@ use chromifer_gates::{DeriveGateOptions, derive_and_write as derive_gates};
 use chromifer_gn::{GateOptions, ImportOptions, import_gn_file};
 use chromifer_integration::{IntegrationOptions, run_integration};
 use chromifer_manifest::{Manifest, MigrationState};
+use chromifer_migration::MigrationEvidence;
 use chromifer_mojo::{MojoGenerateOptions, generate_and_write as generate_mojo};
 use chromifer_owners::scan_ownership;
 use chromifer_planner::{Blocker, assess_transition, migration_frontier};
@@ -443,6 +444,8 @@ enum Command {
         #[arg(long)]
         json: bool,
     },
+    /// Validate a production migration evidence directory.
+    ValidateMigration { directory: PathBuf },
     /// Parse and structurally validate a migration manifest.
     Validate { manifest: PathBuf },
     /// Show all currently legal next migration transitions.
@@ -1271,6 +1274,19 @@ fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
                     summary.runner_id, summary.evidence_sha256, summary.public_key_sha256
                 );
             }
+        }
+        Command::ValidateMigration { directory } => {
+            let evidence = MigrationEvidence::load(&directory)?;
+            println!(
+                "valid migration {}: status={:?}, revision={}, parity={:?}, performance={:?}, exposure={:?}, rollback={:?}",
+                evidence.pilot.id,
+                evidence.pilot.status,
+                evidence.pilot.upstream.revision,
+                evidence.pilot.m3_acceptance.feature_parity,
+                evidence.pilot.m3_acceptance.performance_budget,
+                evidence.pilot.m3_acceptance.memory_safety_reduction,
+                evidence.pilot.m3_acceptance.rollback
+            );
         }
         Command::Validate { manifest } => {
             let manifest = Manifest::load(&manifest)?;

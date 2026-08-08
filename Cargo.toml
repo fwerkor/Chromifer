@@ -14,6 +14,7 @@ members = [
     "crates/chromifer-gn",
     "crates/chromifer-integration",
     "crates/chromifer-manifest",
+    "crates/chromifer-migration",
     "crates/chromifer-owners",
     "crates/chromifer-planner",
     "crates/chromifer-source",

@@ -1,0 +1,55 @@
+schema_version = 1
+id = "services-metrics-ukm-recorder-exposure"
+status = "defined_not_measured"
+
+[comparison]
+upstream_revision = "008cdad85f0721c89b42ef4dcaabcee615482609"
+baseline_configuration = "use_rust_ukm_recorder=false"
+candidate_configuration = "use_rust_ukm_recorder=true"
+production_only = true
+exclude_tests = true
+exclude_generated_bindings = true
+
+[memory_safety]
+# Count non-blank, non-comment implementation lines that execute in a language
+# or construct where memory safety is not compiler-enforced. For this pilot that
+# means active C/C++ implementation lines plus lines inside explicit Rust unsafe
+# blocks. Generated Mojo/CXX bindings are reported separately and excluded from
+# the authored-code comparison.
+metric = "authored_memory_unsafe_loc"
+require_candidate_less_than_baseline = true
+report_unsafe_rust_blocks = true
+report_unsafe_rust_loc = true
+report_active_cpp_loc = true
+report_generated_boundary_loc = true
+report_manual_raw_pointer_fields = true
+
+[maintenance]
+# Maintenance complexity is kept structural and reproducible instead of using a
+# subjective readability score.
+metrics = [
+  "authored_production_loc",
+  "active_implementation_files",
+  "branch_points",
+  "manual_raw_pointer_fields",
+  "cross_language_forwarding_methods",
+]
+# The core authored structure may stay flat during stabilization, but it may not
+# grow. At least one of these metrics must strictly decrease before maintenance
+# complexity can be claimed as reduced. Cross-language forwarding is reported
+# separately because the temporary stabilization bridge can legitimately add it.
+non_increasing_metrics = [
+  "authored_production_loc",
+  "active_implementation_files",
+  "branch_points",
+  "manual_raw_pointer_fields",
+]
+require_strict_decrease = true
+require_no_new_public_api = true
+require_no_new_mojom_methods = true
+require_no_increase_manual_raw_pointer_fields = true
+
+[evidence]
+record_file_hashes = true
+record_measurement_tool_version = true
+record_raw_counts = true

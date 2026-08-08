@@ -91,6 +91,7 @@ dependencies = [
  "chromifer-gn",
  "chromifer-integration",
  "chromifer-manifest",
+ "chromifer-migration",
  "chromifer-mojo",
  "chromifer-owners",
  "chromifer-planner",
@@ -224,6 +225,15 @@ dependencies = [
 
 [[package]]
 name = "chromifer-manifest"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "thiserror",
+ "toml",
+]
+
+[[package]]
+name = "chromifer-migration"
 version = "0.1.0"
 dependencies = [
  "serde",
