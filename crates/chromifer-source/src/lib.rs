@@ -3,6 +3,8 @@
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::thread;
 
 use chromifer_manifest::{
     Boundary, BoundaryEvidence, BoundaryEvidenceKind, BoundaryReview, BoundaryReviewKind, Manifest,
@@ -62,6 +64,8 @@ pub enum ScanError {
         #[source]
         source: std::io::Error,
     },
+    #[error("source scanning worker panicked")]
+    WorkerPanicked,
     #[error(transparent)]
     ManifestValidation(#[from] ValidationErrors),
 }
@@ -93,6 +97,13 @@ struct ModuleScan {
     c_abi_definitions: BTreeMap<String, SourceLocation>,
 }
 
+#[derive(Debug, Default)]
+struct ScanCollection {
+    scans: BTreeMap<String, ModuleScan>,
+    missing_sources: Vec<MissingSource>,
+    scanned_files: usize,
+}
+
 #[derive(Debug, Clone, Default)]
 struct MatchIndex {
     module_ids: Vec<String>,
@@ -105,19 +116,11 @@ struct MatchIndex {
 
 pub fn scan_manifest(manifest: &Manifest, source_root: &Path) -> Result<ScanOutput, ScanError> {
     let mut annotated = manifest.clone();
-    let mut scans = BTreeMap::new();
-    let mut missing_sources = Vec::new();
-    let mut scanned_files = 0;
-
-    for module in &manifest.modules {
-        let scan = scan_module(
-            module,
-            source_root,
-            &mut missing_sources,
-            &mut scanned_files,
-        )?;
-        scans.insert(module.id.clone(), scan);
-    }
+    let ScanCollection {
+        scans,
+        mut missing_sources,
+        scanned_files,
+    } = scan_modules(manifest, source_root)?;
 
     let match_index = build_match_index(manifest);
     let mut edge_evidence: BTreeMap<(String, String), BTreeSet<BoundaryEvidence>> = BTreeMap::new();
@@ -237,6 +240,54 @@ pub fn scan_manifest(manifest: &Manifest, source_root: &Path) -> Result<ScanOutp
             module_reviews: module_review_count,
         },
         manifest: annotated,
+    })
+}
+
+const MAX_SCAN_WORKERS: usize = 8;
+
+fn scan_modules(manifest: &Manifest, source_root: &Path) -> Result<ScanCollection, ScanError> {
+    if manifest.modules.is_empty() {
+        return Ok(ScanCollection::default());
+    }
+
+    let worker_count = thread::available_parallelism()
+        .map_or(1, usize::from)
+        .min(MAX_SCAN_WORKERS)
+        .min(manifest.modules.len());
+    let next_module = AtomicUsize::new(0);
+
+    thread::scope(|scope| {
+        let workers: Vec<_> = (0..worker_count)
+            .map(|_| {
+                let next_module = &next_module;
+                scope.spawn(move || {
+                    let mut result = ScanCollection::default();
+                    loop {
+                        let index = next_module.fetch_add(1, Ordering::Relaxed);
+                        let Some(module) = manifest.modules.get(index) else {
+                            break;
+                        };
+                        let scan = scan_module(
+                            module,
+                            source_root,
+                            &mut result.missing_sources,
+                            &mut result.scanned_files,
+                        )?;
+                        result.scans.insert(module.id.clone(), scan);
+                    }
+                    Ok::<_, ScanError>(result)
+                })
+            })
+            .collect();
+
+        let mut result = ScanCollection::default();
+        for worker in workers {
+            let mut worker = worker.join().map_err(|_| ScanError::WorkerPanicked)??;
+            result.scans.append(&mut worker.scans);
+            result.missing_sources.append(&mut worker.missing_sources);
+            result.scanned_files += worker.scanned_files;
+        }
+        Ok(result)
     })
 }
 
