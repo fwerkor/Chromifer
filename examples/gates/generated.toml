@@ -387,7 +387,7 @@ sha256 = "0ce0db02067e1e5bd99834e4a984ee7a9d2d0307835eb1bb9b24095f9c5b4f75"
 
 [[gates.inputs]]
 path = "chromifer-unsafe.json"
-sha256 = "1d5ab5f106982a1439f9b4f13b5eb98e48b84b87107db575c9a9fbf46ef8b00d"
+sha256 = "f0ccbf77e52a022a527330dc19f93b5ca15d1f731d4fa569d8cebc735bff2653"
 
 [[gates.inputs]]
 path = "crates/chromifer-attestation/Cargo.toml"
@@ -427,7 +427,7 @@ sha256 = "5dac0fd8663dac4fa423b6c588387d5cf75fdd7203b297f32f00a96137f2474d"
 
 [[gates.inputs]]
 path = "crates/chromifer-cli/src/main.rs"
-sha256 = "cf2f24e50c2539601f5cfa752836a1752d9043ddd4986d5627ba73af5c2b769d"
+sha256 = "7937fad5af6b233ce4db8b57daf5c7a1d48c5334fa9b04af7fa0779777812938"
 
 [[gates.inputs]]
 path = "crates/chromifer-components/Cargo.toml"
@@ -435,7 +435,7 @@ sha256 = "2dd3737c2ebdd366d86b5bb0c8b190a64112da3e3beb640666b7a936e484bd5f"
 
 [[gates.inputs]]
 path = "crates/chromifer-components/src/lib.rs"
-sha256 = "551e4ae19dff029d3ae1a7ff6fe9d9a39e3ae8e7bb7fbad1a97b183cc8fe013d"
+sha256 = "675fff7f987ae434d0a11164b5fabcfdc4d760c93c17745109b6d49ca172f91f"
 
 [[gates.inputs]]
 path = "crates/chromifer-coverage/Cargo.toml"
@@ -483,7 +483,7 @@ sha256 = "b96f62bc8900e82e6c59376559f215d5fcb79110a151e1959a23f731eaa59be5"
 
 [[gates.inputs]]
 path = "crates/chromifer-manifest/src/lib.rs"
-sha256 = "5a1679c762bbd706cdb17829d10e724c92cf64436bb7b997938387f2b28bc908"
+sha256 = "391b571306120138899fac6e3515ccd2b255d77043158931e84058f4d5cfeee7"
 
 [[gates.inputs]]
 path = "crates/chromifer-mojo/Cargo.toml"
@@ -499,7 +499,7 @@ sha256 = "11c79216d06be69ceae0ff1dd9c61bfbe7a7a265b74f297125a2952b2229e3ba"
 
 [[gates.inputs]]
 path = "crates/chromifer-owners/src/lib.rs"
-sha256 = "e4dba4781b279a465f1aacfb8c0254365cba7a1dda2bb1827ee8d826a8f79879"
+sha256 = "2b5e0551ff87efbf731991b658b2d025c0e816d0f10c73ea69904e686695c9b3"
 
 [[gates.inputs]]
 path = "crates/chromifer-planner/Cargo.toml"
@@ -523,7 +523,7 @@ sha256 = "edcc5c1e222788c064c3f3526fa24f2171a3677d2732cd66192c77dd024b81d7"
 
 [[gates.inputs]]
 path = "crates/chromifer-source/src/lib.rs"
-sha256 = "0bbf24ec92b57989d99000da0331076c29659d855d522da25f6283156a57b39e"
+sha256 = "24e0714ab1e24d9f1b8a78442079000dc3373bb6f0d42cc881594584ae03d26d"
 
 [[gates.inputs]]
 path = "examples/gates/base.toml"
