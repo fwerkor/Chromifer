@@ -94,10 +94,13 @@ struct ModuleScan {
 }
 
 #[derive(Debug, Clone, Default)]
-struct ModuleMatchIndex {
-    path_prefix: Option<String>,
-    source_paths: HashSet<String>,
-    source_names: HashSet<String>,
+struct MatchIndex {
+    module_ids: Vec<String>,
+    module_indices: HashMap<String, usize>,
+    dependency_indices: HashMap<String, HashSet<usize>>,
+    path_prefixes: HashMap<String, Vec<usize>>,
+    source_paths: HashMap<String, Vec<usize>>,
+    source_names: HashMap<String, Vec<usize>>,
 }
 
 pub fn scan_manifest(manifest: &Manifest, source_root: &Path) -> Result<ScanOutput, ScanError> {
@@ -116,11 +119,7 @@ pub fn scan_manifest(manifest: &Manifest, source_root: &Path) -> Result<ScanOutp
         scans.insert(module.id.clone(), scan);
     }
 
-    let match_indices: HashMap<_, _> = manifest
-        .modules
-        .iter()
-        .map(|module| (module.id.as_str(), build_match_index(module)))
-        .collect();
+    let match_index = build_match_index(manifest);
     let mut edge_evidence: BTreeMap<(String, String), BTreeSet<BoundaryEvidence>> = BTreeMap::new();
     let mut edge_reviews: BTreeMap<(String, String), BTreeSet<BoundaryReview>> = BTreeMap::new();
     let mut module_reviews: BTreeMap<String, BTreeSet<BoundaryReview>> = BTreeMap::new();
@@ -130,7 +129,7 @@ pub fn scan_manifest(manifest: &Manifest, source_root: &Path) -> Result<ScanOutp
             continue;
         };
         collect_include_evidence(
-            &match_indices,
+            &match_index,
             module,
             scan,
             &mut edge_evidence,
@@ -513,7 +512,7 @@ fn compact_line(line: &str) -> String {
 }
 
 fn collect_include_evidence(
-    match_indices: &HashMap<&str, ModuleMatchIndex>,
+    match_index: &MatchIndex,
     module: &Module,
     scan: &ModuleScan,
     edge_evidence: &mut BTreeMap<(String, String), BTreeSet<BoundaryEvidence>>,
@@ -523,7 +522,7 @@ fn collect_include_evidence(
     for file in &scan.files {
         let mut referenced_dependencies = BTreeSet::new();
         for include in &file.includes {
-            let matches = matching_dependencies(match_indices, module, &include.path);
+            let matches = matching_dependencies(match_index, module, &include.path);
             if matches.len() != 1 {
                 continue;
             }
@@ -628,44 +627,81 @@ fn insert_c_abi_evidence(
         });
 }
 
-fn build_match_index(module: &Module) -> ModuleMatchIndex {
-    let mut source_paths = HashSet::new();
-    let mut source_names = HashSet::new();
-    for source in &module.sources {
-        let Some(source) = normalize_repo_relative_path(source) else {
-            continue;
-        };
-        let source_without_gen = source
-            .split_once("/gen/")
-            .map_or(source.as_str(), |(_, suffix)| suffix);
-        for candidate in [source.as_str(), source_without_gen] {
-            source_paths.insert(candidate.to_owned());
-            source_paths.insert(format!("{candidate}.h"));
-            if candidate.ends_with(".mojom") {
-                for suffix in [".h", "-forward.h", "-shared.h", "-shared-internal.h"] {
-                    source_paths.insert(format!("{candidate}{suffix}"));
+fn build_match_index(manifest: &Manifest) -> MatchIndex {
+    let module_ids: Vec<_> = manifest
+        .modules
+        .iter()
+        .map(|module| module.id.clone())
+        .collect();
+    let module_indices: HashMap<_, _> = module_ids
+        .iter()
+        .enumerate()
+        .map(|(index, id)| (id.clone(), index))
+        .collect();
+    let mut index = MatchIndex {
+        module_ids,
+        module_indices,
+        ..MatchIndex::default()
+    };
+
+    for (module_index, module) in manifest.modules.iter().enumerate() {
+        if module.path != "." {
+            insert_match(&mut index.path_prefixes, &module.path, module_index);
+        }
+        for source in &module.sources {
+            let Some(source) = normalize_repo_relative_path(source) else {
+                continue;
+            };
+            let source_without_gen = source
+                .split_once("/gen/")
+                .map_or(source.as_str(), |(_, suffix)| suffix);
+            for candidate in [source.as_str(), source_without_gen] {
+                insert_match(&mut index.source_paths, candidate, module_index);
+                insert_match(
+                    &mut index.source_paths,
+                    &format!("{candidate}.h"),
+                    module_index,
+                );
+                if candidate.ends_with(".mojom") {
+                    for suffix in [".h", "-forward.h", "-shared.h", "-shared-internal.h"] {
+                        insert_match(
+                            &mut index.source_paths,
+                            &format!("{candidate}{suffix}"),
+                            module_index,
+                        );
+                    }
                 }
-            }
-            if let Some(name) = Path::new(candidate)
-                .file_name()
-                .and_then(|name| name.to_str())
-            {
-                source_names.insert(name.to_owned());
+                if let Some(name) = Path::new(candidate)
+                    .file_name()
+                    .and_then(|name| name.to_str())
+                {
+                    insert_match(&mut index.source_names, name, module_index);
+                }
             }
         }
     }
-    ModuleMatchIndex {
-        path_prefix: (module.path != ".").then(|| format!("{}/", module.path)),
-        source_paths,
-        source_names,
+
+    for module in &manifest.modules {
+        let dependencies = module
+            .dependencies
+            .iter()
+            .filter_map(|dependency| index.module_indices.get(&dependency.module).copied())
+            .collect();
+        index
+            .dependency_indices
+            .insert(module.id.clone(), dependencies);
+    }
+    index
+}
+
+fn insert_match(index: &mut HashMap<String, Vec<usize>>, key: &str, module_index: usize) {
+    let matches = index.entry(key.to_owned()).or_default();
+    if matches.last().copied() != Some(module_index) && !matches.contains(&module_index) {
+        matches.push(module_index);
     }
 }
 
-fn matching_dependencies(
-    match_indices: &HashMap<&str, ModuleMatchIndex>,
-    module: &Module,
-    include: &str,
-) -> Vec<String> {
+fn matching_dependencies(match_index: &MatchIndex, module: &Module, include: &str) -> Vec<String> {
     let include = normalize_include_path(include);
     let include_without_gen = include
         .split_once("/gen/")
@@ -673,23 +709,48 @@ fn matching_dependencies(
     let include_name = Path::new(&include)
         .file_name()
         .and_then(|name| name.to_str());
+    let Some(dependencies) = match_index.dependency_indices.get(&module.id) else {
+        return Vec::new();
+    };
+    let mut matches = BTreeSet::new();
 
-    module
-        .dependencies
-        .iter()
-        .filter_map(|dependency| {
-            match_indices
-                .get(dependency.module.as_str())
-                .filter(|index| {
-                    index.path_prefix.as_deref().is_some_and(|prefix| {
-                        include.starts_with(prefix) || include_without_gen.starts_with(prefix)
-                    }) || index.source_paths.contains(&include)
-                        || index.source_paths.contains(include_without_gen)
-                        || include_name.is_some_and(|name| index.source_names.contains(name))
-                })
-                .map(|_| dependency.module.clone())
-        })
+    for path in [include.as_str(), include_without_gen] {
+        collect_index_matches(&match_index.source_paths, path, dependencies, &mut matches);
+        let mut prefix = path;
+        while let Some((parent, _)) = prefix.rsplit_once('/') {
+            collect_index_matches(
+                &match_index.path_prefixes,
+                parent,
+                dependencies,
+                &mut matches,
+            );
+            prefix = parent;
+        }
+    }
+    if let Some(name) = include_name {
+        collect_index_matches(&match_index.source_names, name, dependencies, &mut matches);
+    }
+
+    matches
+        .into_iter()
+        .map(|module_index| match_index.module_ids[module_index].clone())
         .collect()
+}
+
+fn collect_index_matches(
+    index: &HashMap<String, Vec<usize>>,
+    key: &str,
+    dependencies: &HashSet<usize>,
+    matches: &mut BTreeSet<usize>,
+) {
+    if let Some(candidates) = index.get(key) {
+        matches.extend(
+            candidates
+                .iter()
+                .copied()
+                .filter(|candidate| dependencies.contains(candidate)),
+        );
+    }
 }
 
 fn is_cxx_generated_header(include: &str) -> bool {
@@ -959,21 +1020,79 @@ mod tests {
             &["client/client.cc"],
             vec![dependency("target")],
         );
-        let indices = HashMap::from([("target", build_match_index(&target))]);
+        let manifest = Manifest {
+            schema_version: 1,
+            project: Project {
+                name: "include matching".into(),
+                upstream: "fixture".into(),
+                baseline: "fixture".into(),
+            },
+            inventory: None,
+            targets: vec![],
+            gates: vec![],
+            modules: vec![client.clone(), target],
+        };
+        let index = build_match_index(&manifest);
 
         assert_eq!(
-            matching_dependencies(&indices, &client, "foo/arbitrary.h"),
+            matching_dependencies(&index, &client, "foo/arbitrary.h"),
             vec!["target"]
         );
         assert_eq!(
-            matching_dependencies(&indices, &client, "obj/gen/foo/api.mojom-forward.h"),
+            matching_dependencies(&index, &client, "obj/gen/foo/api.mojom-forward.h"),
             vec!["target"]
         );
         assert_eq!(
-            matching_dependencies(&indices, &client, "another/directory/widget.h"),
+            matching_dependencies(&index, &client, "another/directory/widget.h"),
             vec!["target"]
         );
-        assert!(matching_dependencies(&indices, &client, "other/unrelated.h").is_empty());
+        assert!(matching_dependencies(&index, &client, "other/unrelated.h").is_empty());
+    }
+
+    #[test]
+    fn ambiguous_basename_include_does_not_infer_a_boundary() {
+        let tree = TempTree::new();
+        tree.write(
+            "client/client.rs",
+            "#[cxx::bridge]\nmod ffi {\n    unsafe extern \"C++\" {\n        include!(\"elsewhere/widget.h\");\n    }\n}\n",
+        );
+        tree.write("alpha/widget.h", "int Alpha();\n");
+        tree.write("beta/widget.h", "int Beta();\n");
+
+        let client = module(
+            "client",
+            "client",
+            &["client/client.rs"],
+            vec![dependency("alpha"), dependency("beta")],
+        );
+        let manifest = Manifest {
+            schema_version: 1,
+            project: Project {
+                name: "ambiguous include".into(),
+                upstream: "fixture".into(),
+                baseline: "fixture".into(),
+            },
+            inventory: None,
+            targets: vec![],
+            gates: vec![],
+            modules: vec![
+                client.clone(),
+                module("alpha", "alpha", &["alpha/widget.h"], vec![]),
+                module("beta", "beta", &["beta/widget.h"], vec![]),
+            ],
+        };
+        let index = build_match_index(&manifest);
+        assert_eq!(
+            matching_dependencies(&index, &client, "elsewhere/widget.h"),
+            vec!["alpha", "beta"]
+        );
+
+        let output = scan_manifest(&manifest, &tree.root).unwrap();
+        let client = output.manifest.module("client").unwrap();
+        assert!(client.dependencies.iter().all(|dependency| {
+            dependency.boundary == Boundary::CppInternal && dependency.evidence.is_empty()
+        }));
+        assert!(output.summary.updated_boundaries.is_empty());
     }
 
     #[test]
