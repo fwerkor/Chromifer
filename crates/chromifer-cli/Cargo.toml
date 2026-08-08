@@ -20,6 +20,7 @@ chromifer-gates = { path = "../chromifer-gates" }
 chromifer-gn = { path = "../chromifer-gn" }
 chromifer-integration = { path = "../chromifer-integration" }
 chromifer-manifest = { path = "../chromifer-manifest" }
+chromifer-migration = { path = "../chromifer-migration" }
 chromifer-mojo = { path = "../chromifer-mojo" }
 chromifer-owners = { path = "../chromifer-owners" }
 chromifer-planner = { path = "../chromifer-planner" }

@@ -1,0 +1,43 @@
+schema_version = 1
+id = "services-metrics-ukm-recorder-performance"
+status = "defined_not_measured"
+
+[comparison]
+upstream_revision = "008cdad85f0721c89b42ef4dcaabcee615482609"
+baseline_configuration = "use_rust_ukm_recorder=false"
+candidate_configuration = "use_rust_ukm_recorder=true"
+build_mode = "release"
+require_identical_non_migration_gn_args = true
+require_same_machine = true
+require_alternating_sample_order = true
+
+[workload]
+warmup_messages = 10000
+messages_per_sample = 200000
+samples = 15
+in_process_mojo = true
+cases = [
+  "add_entry_single_metric",
+  "add_entry_eight_metrics",
+  "update_source_url",
+  "mixed_90_add_entry_10_update_url",
+]
+
+[latency_budget]
+# A candidate passes a case only when both relative budgets pass. Samples are
+# whole-workload ns/message measurements, so p95 is computed across repeated
+# samples rather than individual IPC timestamps.
+median_regression_percent_max = 5.0
+p95_regression_percent_max = 10.0
+
+[memory_budget]
+# Measured after warmup and again after the final sample in the same harness.
+steady_state_rss_regression_bytes_max = 1048576
+
+[validity]
+minimum_completed_samples = 15
+reject_if_cpu_migration_or_frequency_policy_differs = true
+reject_if_background_load_invalidates_pairing = true
+record_raw_samples = true
+record_binary_hashes = true
+record_gn_args_hashes = true

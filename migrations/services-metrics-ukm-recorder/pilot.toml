@@ -1,0 +1,84 @@
+schema_version = 1
+id = "services-metrics-ukm-recorder"
+status = "in_progress"
+
+[upstream]
+repository = "https://chromium.googlesource.com/chromium/src.git"
+revision = "008cdad85f0721c89b42ef4dcaabcee615482609"
+target = "//services/metrics:metrics"
+ownership = "file://base/metrics/OWNERS"
+
+[upstream.blobs]
+services_metrics_build = "f66ae03847e69cdedff0362dbe1e6bdbf5f583d7"
+legacy_implementation = "a2439f63e466b8b764a49f02155dd782de2377b0"
+legacy_header = "da930f8ec349f15cf39db84d2f6fa29ef38833a3"
+factory = "7f963c350638217963d63edb328364ae249d09eb"
+mojom = "259d472b6c9ba7bf29e8cdfdde08b881ddb776b4"
+owners = "979590497b6e25263319455b5262d4dd31d80062"
+ukm_test_build = "578cb523431c6896f31dcc072a8ad37d4a60ed81"
+
+[boundary]
+kind = "mojo"
+interface = "ukm.mojom.UkmRecorderInterface"
+mojom = "services/metrics/public/mojom/ukm_interface.mojom"
+legacy_sources = [
+  "services/metrics/ukm_recorder_interface.cc",
+  "services/metrics/ukm_recorder_interface.h",
+]
+rust_source = "services/metrics/rust/ukm_recorder_interface.rs"
+factory = "services/metrics/ukm_recorder_factory_impl.cc"
+methods = ["AddEntry", "UpdateSourceURL"]
+
+[rollback]
+status = "verified"
+gn_arg = "use_rust_ukm_recorder"
+rust_value = true
+fallback_value = false
+default_expression = "enable_rust"
+shared_test_target = "//services/metrics:ukm_recorder_interface_unittests"
+
+[[verification]]
+id = "rust-interface-contract"
+status = "passed"
+configuration = "use_rust_ukm_recorder=true"
+target = "//services/metrics:ukm_recorder_interface_unittests"
+passed_tests = 3
+failed_tests = 0
+
+[[verification]]
+id = "cpp-fallback-contract"
+status = "passed"
+configuration = "use_rust_ukm_recorder=false"
+target = "//services/metrics:ukm_recorder_interface_unittests"
+passed_tests = 1
+failed_tests = 0
+rust_receiver_dependencies_present = false
+
+[[verification]]
+id = "broader-ukm-regression"
+status = "pending"
+target = "//components/ukm:ukm_unittests"
+
+[m3_acceptance]
+feature_parity = "partial"
+upstream_test_parity = "pending"
+performance_budget = "defined_not_measured"
+rollback = "verified"
+memory_safety_reduction = "defined_not_measured"
+maintenance_complexity_reduction = "defined_not_measured"
+
+[parity]
+matrix = "parity.toml"
+status = "partial"
+
+[performance]
+budget = "performance.toml"
+status = "defined_not_measured"
+
+[exposure]
+measurement = "exposure.toml"
+status = "defined_not_measured"
+
+[notes]
+verified_platform = "linux"
+feature_parity_scope = "The shared Mojo contract exercises both UkmRecorderInterface methods; full supported-desktop parity is not yet claimed."

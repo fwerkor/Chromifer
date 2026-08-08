@@ -50,6 +50,10 @@
       "mode": "safe"
     },
     {
+      "package": "chromifer-migration",
+      "mode": "safe"
+    },
+    {
       "package": "chromifer-mojo",
       "mode": "safe"
     },
