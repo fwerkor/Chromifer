@@ -1,4 +1,4 @@
-name: Unsafe Digest Diagnostic
+name: Generated Contract Diagnostic
 
 on:
   pull_request:
@@ -8,14 +8,14 @@ permissions:
   contents: read
 
 jobs:
-  digest:
+  diff:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@1.88.0
-      - name: Regenerate unsafe report and show diff
+      - name: Regenerate direct gates and show diff
         run: |
-          cp chromifer-unsafe.json /tmp/chromifer-unsafe.old.json
-          rm chromifer-unsafe.json
-          cargo run -p chromifer -- audit-unsafe Cargo.toml unsafe-policy.json chromifer-unsafe.json
-          diff -u /tmp/chromifer-unsafe.old.json chromifer-unsafe.json || true
+          cp examples/gates/generated.toml /tmp/generated.old.toml
+          rm examples/gates/generated.toml
+          cargo run -p chromifer -- derive-gates . examples/gates/base.toml examples/gates/gates.json examples/gates/generated.toml
+          diff -u /tmp/generated.old.toml examples/gates/generated.toml || true
