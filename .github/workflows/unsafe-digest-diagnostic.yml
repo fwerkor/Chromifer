@@ -1,0 +1,16 @@
+name: Unsafe Digest Diagnostic
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  digest:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Source SHA-256
+        run: sha256sum crates/chromifer-source/src/lib.rs
