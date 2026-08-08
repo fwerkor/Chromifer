@@ -12,17 +12,19 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-        with:
-          ref: ${{ github.event.pull_request.head.ref }}
       - uses: dtolnay/rust-toolchain@1.88.0
-      - name: Regenerate direct gates on diagnostic branch
+      - name: Regenerate and materialize direct gates
         run: |
           rm examples/gates/generated.toml
           cargo run -p chromifer -- derive-gates . examples/gates/base.toml examples/gates/gates.json examples/gates/generated.toml
+          cp examples/gates/generated.toml /tmp/generated.toml
+          git fetch origin ci/unsafe-digest-diagnostic
+          git checkout -B ci/unsafe-digest-diagnostic origin/ci/unsafe-digest-diagnostic
+          cp /tmp/generated.toml examples/gates/generated.toml
           git config user.name github-actions[bot]
           git config user.email 41898282+github-actions[bot]@users.noreply.github.com
           if ! git diff --quiet -- examples/gates/generated.toml; then
             git add examples/gates/generated.toml
             git commit -m "ci: materialize generated gate diagnostic"
-            git push origin HEAD:${{ github.event.pull_request.head.ref }}
+            git push origin HEAD:ci/unsafe-digest-diagnostic
           fi
