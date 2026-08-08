@@ -26,7 +26,7 @@
       "sources": [
         {
           "source": "src/main.rs",
-          "sha256": "cf2f24e50c2539601f5cfa752836a1752d9043ddd4986d5627ba73af5c2b769d"
+          "sha256": "7937fad5af6b233ce4db8b57daf5c7a1d48c5334fa9b04af7fa0779777812938"
         }
       ],
       "unsafe_occurrences": [],
@@ -151,7 +151,7 @@
       "sources": [
         {
           "source": "src/lib.rs",
-          "sha256": "551e4ae19dff029d3ae1a7ff6fe9d9a39e3ae8e7bb7fbad1a97b183cc8fe013d"
+          "sha256": "675fff7f987ae434d0a11164b5fabcfdc4d760c93c17745109b6d49ca172f91f"
         }
       ],
       "unsafe_occurrences": [],
@@ -301,7 +301,7 @@
       "sources": [
         {
           "source": "src/lib.rs",
-          "sha256": "5a1679c762bbd706cdb17829d10e724c92cf64436bb7b997938387f2b28bc908"
+          "sha256": "391b571306120138899fac6e3515ccd2b255d77043158931e84058f4d5cfeee7"
         }
       ],
       "unsafe_occurrences": [],
@@ -351,7 +351,7 @@
       "sources": [
         {
           "source": "src/lib.rs",
-          "sha256": "e4dba4781b279a465f1aacfb8c0254365cba7a1dda2bb1827ee8d826a8f79879"
+          "sha256": "2b5e0551ff87efbf731991b658b2d025c0e816d0f10c73ea69904e686695c9b3"
         }
       ],
       "unsafe_occurrences": [],
