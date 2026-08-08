@@ -12,5 +12,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-      - name: Source SHA-256
-        run: sha256sum crates/chromifer-source/src/lib.rs
+      - uses: dtolnay/rust-toolchain@1.88.0
+      - name: Regenerate unsafe report and show diff
+        run: |
+          cp chromifer-unsafe.json /tmp/chromifer-unsafe.old.json
+          rm chromifer-unsafe.json
+          cargo run -p chromifer -- audit-unsafe Cargo.toml unsafe-policy.json chromifer-unsafe.json
+          diff -u /tmp/chromifer-unsafe.old.json chromifer-unsafe.json || true
