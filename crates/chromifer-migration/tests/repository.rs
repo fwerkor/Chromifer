@@ -345,3 +345,42 @@ fn rollback_pass_requires_platform_evidence_digests() {
             .any(|error| error.contains("rollback pass requires evidence"))
     );
 }
+
+#[test]
+fn implementation_cannot_pass_without_patch_artifact() {
+    let mut evidence = ukm_pilot();
+    evidence.pilot.implementation.status = chromifer_migration::EvidenceStatus::Passed;
+    evidence.pilot.implementation.patch = None;
+
+    let errors = evidence
+        .validate()
+        .expect_err("implementation cannot pass without a patch artifact");
+    assert!(
+        errors
+            .0
+            .iter()
+            .any(|error| error == "passed implementation evidence requires a patch artifact"),
+        "unexpected validation errors: {:?}",
+        errors.0
+    );
+}
+
+#[test]
+fn complete_pilot_requires_passed_patch_artifact() {
+    let mut evidence = ukm_pilot();
+    evidence.pilot.status = PilotStatus::Complete;
+    evidence.pilot.implementation.status = chromifer_migration::EvidenceStatus::Pending;
+    evidence.pilot.implementation.patch = None;
+
+    let errors = evidence
+        .validate()
+        .expect_err("complete pilot cannot omit implementation patch evidence");
+    assert!(
+        errors
+            .0
+            .iter()
+            .any(|error| error.contains("complete pilot requires passed implementation patch")),
+        "unexpected validation errors: {:?}",
+        errors.0
+    );
+}

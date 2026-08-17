@@ -16,13 +16,12 @@ A shared `//services/metrics:ukm_recorder_interface_unittests` target is availab
 
 ## M3 acceptance work
 
-The rollback criterion is complete for the current Linux checkout. Remaining work before calling the pilot M3-complete is:
+The rollback criterion is complete for the current Linux checkout. The exact Chromium implementation patch is now stored as `chromium.patch` and bound to the pinned upstream revision by SHA-256 in `pilot.toml`. Remaining work before calling the pilot M3-complete is:
 
 - finish and record `//components/ukm:ukm_unittests` against the Rust configuration;
 - expand contract coverage for receiver lifetime/disconnect behavior and richer UKM entry payloads where needed;
 - build and execute the migration on the supported desktop configurations rather than inferring portability from the Mojo contract;
 - define and run an apples-to-apples performance budget for receiver creation and message forwarding;
 - measure active C++/Rust implementation surface, unsafe exposure, and maintenance complexity against the legacy implementation;
-- export the exact Chromium patch into this directory and bind it to the pinned upstream revision with a digest.
 
 `pilot.toml` is the machine-readable status record. A pending item remains explicitly pending rather than being inferred from a successful narrower test.

@@ -37,6 +37,14 @@ fallback_value = false
 default_expression = "enable_rust"
 shared_test_target = "//services/metrics:ukm_recorder_interface_unittests"
 
+[implementation]
+status = "passed"
+
+[implementation.patch]
+path = "chromium.patch"
+base_revision = "008cdad85f0721c89b42ef4dcaabcee615482609"
+sha256 = "654b759b6991b1b4639330f2a98500dff72074b020162a2ba546a37878e02c97"
+
 [[verification]]
 id = "rust-interface-contract"
 status = "passed"

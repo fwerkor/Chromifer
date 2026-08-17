@@ -6,6 +6,7 @@ use std::fs;
 use std::path::{Component, Path, PathBuf};
 
 use serde::Deserialize;
+use sha2::{Digest, Sha256};
 use thiserror::Error;
 
 pub const SUPPORTED_SCHEMA_VERSION: u32 = 1;
@@ -44,6 +45,7 @@ pub struct PilotManifest {
     pub upstream: Upstream,
     pub boundary: Boundary,
     pub rollback: Rollback,
+    pub implementation: ImplementationEvidence,
     #[serde(default)]
     pub verification: Vec<Verification>,
     pub m3_acceptance: M3Acceptance,
@@ -84,6 +86,22 @@ pub struct Rollback {
     pub fallback_value: bool,
     pub default_expression: String,
     pub shared_test_target: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ImplementationEvidence {
+    pub status: EvidenceStatus,
+    #[serde(default)]
+    pub patch: Option<PatchArtifact>,
+}
+
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct PatchArtifact {
+    pub path: String,
+    pub base_revision: String,
+    pub sha256: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Deserialize)]
@@ -622,6 +640,8 @@ impl MigrationEvidence {
             );
         }
 
+        self.validate_implementation(&mut errors);
+
         for (kind, linked, actual) in [
             ("parity", self.pilot.parity.status, self.parity.status),
             (
@@ -669,12 +689,64 @@ impl MigrationEvidence {
                     ));
                 }
             }
+            if !self.pilot.implementation.status.is_satisfied() {
+                errors.push(format!(
+                    "complete pilot requires passed implementation patch; found {:?}",
+                    self.pilot.implementation.status
+                ));
+            }
         }
 
         if errors.is_empty() {
             Ok(())
         } else {
             Err(ValidationErrors(errors))
+        }
+    }
+
+    fn validate_implementation(&self, errors: &mut Vec<String>) {
+        let implementation = &self.pilot.implementation;
+        if implementation.status == EvidenceStatus::Passed && implementation.patch.is_none() {
+            errors.push("passed implementation evidence requires a patch artifact".to_owned());
+        }
+
+        let Some(patch) = implementation.patch.as_ref() else {
+            return;
+        };
+        check_git_sha(
+            "implementation patch base revision",
+            &patch.base_revision,
+            errors,
+        );
+        if patch.base_revision != self.pilot.upstream.revision {
+            errors.push(
+                "implementation patch base revision does not match pilot revision".to_owned(),
+            );
+        }
+        check_sha256("implementation patch", &patch.sha256, errors);
+        if !is_plain_patch_filename(&patch.path) {
+            errors.push(format!(
+                "implementation patch path `{}` must be a plain .patch filename",
+                patch.path
+            ));
+            return;
+        }
+
+        let patch_path = self.directory.join(&patch.path);
+        match fs::read(&patch_path) {
+            Ok(bytes) => {
+                let actual = format!("{:x}", Sha256::digest(&bytes));
+                if actual != patch.sha256 {
+                    errors.push(format!(
+                        "implementation patch SHA-256 mismatch: declared {}, actual {actual}",
+                        patch.sha256
+                    ));
+                }
+            }
+            Err(source) => errors.push(format!(
+                "failed to read implementation patch `{}`: {source}",
+                patch_path.display()
+            )),
         }
     }
 
@@ -1140,6 +1212,18 @@ fn is_plain_toml_filename(value: &str) -> bool {
             .is_some_and(|file| file == path.as_os_str())
 }
 
+fn is_plain_patch_filename(value: &str) -> bool {
+    let path = Path::new(value);
+    path.extension()
+        .is_some_and(|extension| extension == "patch")
+        && path
+            .components()
+            .all(|component| matches!(component, Component::Normal(_)))
+        && path
+            .file_name()
+            .is_some_and(|file| file == path.as_os_str())
+}
+
 fn check_nonempty(label: &str, value: &str, errors: &mut Vec<String>) {
     if value.trim().is_empty() {
         errors.push(format!("{label} must not be empty"));
@@ -1261,6 +1345,10 @@ mod tests {
         assert!(!is_plain_toml_filename("../parity.toml"));
         assert!(!is_plain_toml_filename("nested/parity.toml"));
         assert!(!is_plain_toml_filename("parity.json"));
+        assert!(is_plain_patch_filename("chromium.patch"));
+        assert!(!is_plain_patch_filename("../chromium.patch"));
+        assert!(!is_plain_patch_filename("nested/chromium.patch"));
+        assert!(!is_plain_patch_filename("chromium.diff"));
     }
 
     #[test]

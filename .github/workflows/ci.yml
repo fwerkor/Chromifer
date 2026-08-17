@@ -23,6 +23,13 @@ jobs:
         run: cargo clippy --workspace --all-targets --all-features -- -D warnings
       - name: Test
         run: cargo test --workspace --all-features --locked
+      - name: Production migration evidence is valid
+        run: |
+          for migration in migrations/*; do
+            if [ -f "$migration/pilot.toml" ]; then
+              cargo run -p chromifer -- validate-migration "$migration"
+            fi
+          done
       - name: Measured source coverage is current
         run: |
           cargo run -p chromifer -- summarize-coverage \

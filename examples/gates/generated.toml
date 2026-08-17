@@ -207,7 +207,7 @@ targets = ["host"]
 
 [[gates.inputs]]
 path = "Cargo.lock"
-sha256 = "d64fe8dc75ff63b59e359126fa798b2c5addfa279775c6e163cb72cd27d3e961"
+sha256 = "e46cdee0f2ed4813806f1b123ade3d78417754d1c21feaacada162ab0da97cc3"
 
 [[gates.inputs]]
 path = "examples/gates/base.toml"
@@ -379,7 +379,7 @@ targets = ["host"]
 
 [[gates.inputs]]
 path = "Cargo.lock"
-sha256 = "d64fe8dc75ff63b59e359126fa798b2c5addfa279775c6e163cb72cd27d3e961"
+sha256 = "e46cdee0f2ed4813806f1b123ade3d78417754d1c21feaacada162ab0da97cc3"
 
 [[gates.inputs]]
 path = "Cargo.toml"
@@ -387,7 +387,7 @@ sha256 = "bd5efa1c66aba182ff74892572da70127eb254ddcb5db436dcc49b22d8b9870d"
 
 [[gates.inputs]]
 path = "chromifer-unsafe.json"
-sha256 = "ae21823b85ddc8f3db897442d987ecaef5777b598ad673c8489a1e683b25fe35"
+sha256 = "d0c977567d600cf14300b5c4555dd057841cf9bb8a004811d6cad32d8c21830a"
 
 [[gates.inputs]]
 path = "crates/chromifer-attestation/Cargo.toml"
@@ -427,7 +427,7 @@ sha256 = "b7ba10498c6fdd0b4115bd965d03226ece3b22ce6fc8e9212023437fd3fa01a3"
 
 [[gates.inputs]]
 path = "crates/chromifer-cli/src/main.rs"
-sha256 = "3bc4defdd0ccf81d56109870d2692e9a51036115492759384d8fa8dfefed86fd"
+sha256 = "edfcdd5cabe3993115b0363d4ecaeedfd98c40492ea3e309e431cb7dd26d232c"
 
 [[gates.inputs]]
 path = "crates/chromifer-components/Cargo.toml"
@@ -487,15 +487,15 @@ sha256 = "391b571306120138899fac6e3515ccd2b255d77043158931e84058f4d5cfeee7"
 
 [[gates.inputs]]
 path = "crates/chromifer-migration/Cargo.toml"
-sha256 = "c6ec7fa7bad8b14efbd74a6af4b0453c41484d295d8dfafdbe6ba9c6278f00cf"
+sha256 = "238194e383f66b62eb8c7d85c2d386784b99ca95ae5b8bfc52b44c67045b93df"
 
 [[gates.inputs]]
 path = "crates/chromifer-migration/src/lib.rs"
-sha256 = "aaf546196d1cc052f13550f74c3e84e6bfbd946ddc22b3eb816662c03b9d1e4b"
+sha256 = "a3bf2d80803be5e9e7573de45feb484df9db39517413027fdbf8c5818ca53d63"
 
 [[gates.inputs]]
 path = "crates/chromifer-migration/tests/repository.rs"
-sha256 = "962b1d09c9b2a7e5d35ac6aa37f9a083db1cab7f0ec1f1ceeefbfc32a7784004"
+sha256 = "1ffbb5a5703e5c6ba1a499eb3255086586b843fffc472aadd8cfc129d8d6a8ee"
 
 [[gates.inputs]]
 path = "crates/chromifer-mojo/Cargo.toml"
