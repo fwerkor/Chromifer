@@ -579,6 +579,13 @@ impl<'ast> Visit<'ast> for RustMetricVisitor {
         visit::visit_item_foreign_mod(self, node);
     }
 
+    fn visit_foreign_item_fn(&mut self, node: &'ast syn::ForeignItemFn) {
+        if node.sig.unsafety.is_some() {
+            self.mark_span(node.span());
+        }
+        visit::visit_foreign_item_fn(self, node);
+    }
+
     fn visit_field(&mut self, node: &'ast syn::Field) {
         if matches!(node.ty, syn::Type::Ptr(_)) {
             self.manual_raw_pointer_fields += 1;
@@ -724,6 +731,21 @@ fn safe(flag: bool, ptr: *mut i32) {
         assert_eq!(visitor.manual_raw_pointer_fields, 1);
         assert_eq!(visitor.branch_points, 1);
         assert_eq!(visitor.unsafe_lines.intersection(&authored).count(), 2);
+    }
+
+    #[test]
+    fn rust_metrics_count_unsafe_functions_inside_safe_foreign_blocks() {
+        let source = r#"
+extern "C" {
+    fn safe_call(value: i32);
+    unsafe fn pointer_call(value: *mut i32);
+}
+"#;
+        let syntax = syn::parse_file(source).expect("parse Rust fixture");
+        let mut visitor = RustMetricVisitor::default();
+        visitor.visit_file(&syntax);
+        let authored = authored_line_numbers(&strip_comments(source, true));
+        assert_eq!(visitor.unsafe_lines.intersection(&authored).count(), 1);
     }
 
     #[test]

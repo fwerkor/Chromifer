@@ -334,7 +334,7 @@
       "sources": [
         {
           "source": "src/exposure_measure.rs",
-          "sha256": "50b68711fd2da584cede18569c159c90eb18c94c9a7f957fc2d24ffc66bb8656"
+          "sha256": "fc8866c5d4582cabf9ab666a61e00ee46842e75f83f65164992191db67c34ca7"
         },
         {
           "source": "src/lib.rs",
