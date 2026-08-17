@@ -24,4 +24,4 @@ The rollback criterion is complete for the current Linux checkout. The exact Chr
 - define and run an apples-to-apples performance budget for receiver creation and message forwarding;
 - measure active C++/Rust implementation surface, unsafe exposure, and maintenance complexity against the legacy implementation;
 
-`pilot.toml` is the machine-readable status record. A pending item remains explicitly pending rather than being inferred from a successful narrower test.
+`pilot.toml` is the machine-readable status record. A pending item remains explicitly pending rather than being inferred from a successful narrower test. `exposure-sources.toml` records the exact active source inventory used by `chromifer measure-migration-exposure`; the current receiver-only candidate is intentionally not marked as satisfying the M3 exposure criteria.

@@ -5,9 +5,11 @@ use std::fmt;
 use std::fs;
 use std::path::{Component, Path, PathBuf};
 
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use thiserror::Error;
+
+pub mod exposure_measure;
 
 pub const SUPPORTED_SCHEMA_VERSION: u32 = 1;
 
@@ -366,12 +368,13 @@ pub struct MaintenanceMeasurement {
 #[derive(Debug, Clone, PartialEq, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ExposureEvidence {
+    pub source_inventory: String,
     pub record_file_hashes: bool,
     pub record_measurement_tool_version: bool,
     pub record_raw_counts: bool,
 }
 
-#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct ExposureResults {
     pub baseline_authored_memory_unsafe_loc: u64,
@@ -1067,7 +1070,75 @@ impl MigrationEvidence {
                 errors.push(format!("unsupported maintenance metric `{metric}"));
             }
         }
+        let source_spec = if !is_plain_toml_filename(&self.exposure.evidence.source_inventory) {
+            errors.push(format!(
+                "exposure source inventory path `{}` must be a plain .toml filename",
+                self.exposure.evidence.source_inventory
+            ));
+            None
+        } else {
+            let path = self
+                .directory
+                .join(&self.exposure.evidence.source_inventory);
+            match exposure_measure::ExposureSourceSpec::load(&path) {
+                Ok(spec) => Some(spec),
+                Err(error) => {
+                    errors.push(format!("invalid exposure source inventory: {error}"));
+                    None
+                }
+            }
+        };
         if let Some(results) = &self.exposure.results {
+            if results.measurement_tool_version
+                != exposure_measure::EXPOSURE_MEASUREMENT_TOOL_VERSION
+            {
+                errors.push(format!(
+                    "unsupported exposure measurement tool version `{}`; expected `{}`",
+                    results.measurement_tool_version,
+                    exposure_measure::EXPOSURE_MEASUREMENT_TOOL_VERSION
+                ));
+            }
+            if let Some(spec) = source_spec.as_ref() {
+                let expected = [
+                    (
+                        "baseline active implementation files",
+                        results.baseline_active_implementation_files,
+                        spec.baseline.files.len() as u64,
+                    ),
+                    (
+                        "candidate active implementation files",
+                        results.candidate_active_implementation_files,
+                        spec.candidate.files.len() as u64,
+                    ),
+                    (
+                        "baseline cross-language forwarding methods",
+                        results.baseline_cross_language_forwarding_methods,
+                        spec.baseline.cross_language_forwarding_methods.len() as u64,
+                    ),
+                    (
+                        "candidate cross-language forwarding methods",
+                        results.candidate_cross_language_forwarding_methods,
+                        spec.candidate.cross_language_forwarding_methods.len() as u64,
+                    ),
+                    (
+                        "new public API count",
+                        results.new_public_api_count,
+                        spec.contract_review.new_public_api_count,
+                    ),
+                    (
+                        "new Mojom method count",
+                        results.new_mojom_method_count,
+                        spec.contract_review.new_mojom_method_count,
+                    ),
+                ];
+                for (label, measured, declared) in expected {
+                    if measured != declared {
+                        errors.push(format!(
+                            "exposure {label} {measured} does not match source inventory {declared}"
+                        ));
+                    }
+                }
+            }
             let mut strict_decrease = false;
             for metric in &self.exposure.maintenance.non_increasing_metrics {
                 if let Some((baseline, candidate)) = maintenance_metric_pair(Some(results), metric)

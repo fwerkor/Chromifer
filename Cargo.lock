@@ -236,8 +236,10 @@ dependencies = [
 name = "chromifer-migration"
 version = "0.1.0"
 dependencies = [
+ "proc-macro2",
  "serde",
  "sha2 0.10.9",
+ "syn 2.0.119",
  "thiserror",
  "toml",
 ]

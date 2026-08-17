@@ -50,6 +50,7 @@ require_no_new_mojom_methods = true
 require_no_increase_manual_raw_pointer_fields = true
 
 [evidence]
+source_inventory = "exposure-sources.toml"
 record_file_hashes = true
 record_measurement_tool_version = true
 record_raw_counts = true

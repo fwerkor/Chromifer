@@ -1,0 +1,29 @@
+schema_version = 1
+
+# Active production implementation surface under use_rust_ukm_recorder=false.
+[baseline]
+files = [
+  "services/metrics/ukm_recorder_interface.cc",
+  "services/metrics/ukm_recorder_interface.h",
+]
+cross_language_forwarding_methods = []
+
+# Active production implementation surface under use_rust_ukm_recorder=true.
+# Generated CXX/Mojo bindings and tests are intentionally excluded by exposure.toml.
+[candidate]
+files = [
+  "services/metrics/rust/ukm_recorder_interface.rs",
+  "services/metrics/ukm_recorder_rust_bridge.cc",
+  "services/metrics/ukm_recorder_rust_bridge.h",
+]
+cross_language_forwarding_methods = [
+  "metrics::BindUkmRecorderInterface",
+  "metrics::UkmRecorderBridge::AddEntry",
+  "metrics::UkmRecorderBridge::UpdateSourceURL",
+]
+
+# These are reviewed contract deltas rather than heuristically inferred C++ API changes.
+# The public Mojom interface and factory entry point are separately parity-gated.
+[contract_review]
+new_public_api_count = 0
+new_mojom_method_count = 0

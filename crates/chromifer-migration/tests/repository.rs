@@ -3,7 +3,7 @@
 use std::fs;
 use std::path::PathBuf;
 
-use chromifer_migration::{MigrationEvidence, PilotStatus};
+use chromifer_migration::{MigrationEvidence, PilotStatus, exposure_measure::ExposureSourceSpec};
 
 fn migrations_root() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../migrations")
@@ -25,8 +25,11 @@ fn committed_migration_records_validate() {
         if !path.is_dir() || !path.join("pilot.toml").is_file() {
             continue;
         }
-        MigrationEvidence::load(&path)
+        let evidence = MigrationEvidence::load(&path)
             .unwrap_or_else(|error| panic!("{}: {error}", path.display()));
+        let source_inventory = path.join(&evidence.exposure.evidence.source_inventory);
+        ExposureSourceSpec::load(&source_inventory)
+            .unwrap_or_else(|error| panic!("{}: {error}", source_inventory.display()));
         pilots += 1;
     }
 
@@ -380,6 +383,24 @@ fn complete_pilot_requires_passed_patch_artifact() {
             .0
             .iter()
             .any(|error| error.contains("complete pilot requires passed implementation patch")),
+        "unexpected validation errors: {:?}",
+        errors.0
+    );
+}
+
+#[test]
+fn exposure_source_inventory_path_must_stay_inside_migration_directory() {
+    let mut evidence = ukm_pilot();
+    evidence.exposure.evidence.source_inventory = "../escape.toml".to_owned();
+
+    let errors = evidence
+        .validate()
+        .expect_err("exposure source inventory traversal must be rejected");
+    assert!(
+        errors.0.iter().any(|error| {
+            error.contains("exposure source inventory path")
+                && error.contains("must be a plain .toml filename")
+        }),
         "unexpected validation errors: {:?}",
         errors.0
     );

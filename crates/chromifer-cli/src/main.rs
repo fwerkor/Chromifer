@@ -444,6 +444,18 @@ enum Command {
         #[arg(long)]
         json: bool,
     },
+    /// Measure memory-safety exposure and structural maintenance metrics for a production migration.
+    MeasureMigrationExposure {
+        directory: PathBuf,
+        /// Chromium checkout containing the candidate working tree and pinned baseline revision.
+        source_root: PathBuf,
+        /// Verify the measured results match the results committed in exposure.toml.
+        #[arg(long)]
+        check: bool,
+        /// Print the complete per-file measurement report as JSON.
+        #[arg(long)]
+        json: bool,
+    },
     /// Validate a production migration evidence directory.
     ValidateMigration { directory: PathBuf },
     /// Parse and structurally validate a migration manifest.
@@ -1273,6 +1285,60 @@ fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
                     "verified Ed25519 evidence signature: runner={}, evidence={}, key={}",
                     summary.runner_id, summary.evidence_sha256, summary.public_key_sha256
                 );
+            }
+        }
+        Command::MeasureMigrationExposure {
+            directory,
+            source_root,
+            check,
+            json,
+        } => {
+            let evidence = MigrationEvidence::load(&directory)?;
+            let spec = directory.join("exposure-sources.toml");
+            let report = evidence.measure_exposure(&source_root, &spec)?;
+            if check {
+                match evidence.exposure.results.as_ref() {
+                    Some(expected) if expected == &report.results => {}
+                    Some(expected) => {
+                        return Err(std::io::Error::other(format!(
+                            "exposure measurement drift: committed={expected:?}, measured={:?}",
+                            report.results
+                        ))
+                        .into());
+                    }
+                    None => {
+                        return Err(std::io::Error::other(
+                            "exposure measurement check requires committed [results] in exposure.toml",
+                        )
+                        .into());
+                    }
+                }
+            }
+            if json {
+                println!("{}", serde_json::to_string_pretty(&report)?);
+            } else {
+                let results = &report.results;
+                println!(
+                    "measured migration {} exposure: unsafe_loc {} -> {}, production_loc {} -> {}, files {} -> {}, branches {} -> {}, raw_pointer_fields {} -> {}, ffi_methods {} -> {}, file_hashes={}, raw_counts={}",
+                    evidence.pilot.id,
+                    results.baseline_authored_memory_unsafe_loc,
+                    results.candidate_authored_memory_unsafe_loc,
+                    results.baseline_authored_production_loc,
+                    results.candidate_authored_production_loc,
+                    results.baseline_active_implementation_files,
+                    results.candidate_active_implementation_files,
+                    results.baseline_branch_points,
+                    results.candidate_branch_points,
+                    results.baseline_manual_raw_pointer_fields,
+                    results.candidate_manual_raw_pointer_fields,
+                    results.baseline_cross_language_forwarding_methods,
+                    results.candidate_cross_language_forwarding_methods,
+                    results.file_hashes_sha256,
+                    results.raw_counts_sha256,
+                );
+                if check {
+                    println!("committed exposure results match measured source evidence");
+                }
             }
         }
         Command::ValidateMigration { directory } => {
