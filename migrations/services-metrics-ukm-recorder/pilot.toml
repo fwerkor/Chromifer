@@ -74,7 +74,7 @@ failed_tests = 0
 [m3_acceptance]
 feature_parity = "partial"
 upstream_test_parity = "passed"
-performance_budget = "defined_not_measured"
+performance_budget = "failed"
 rollback = "verified"
 memory_safety_reduction = "passed"
 maintenance_complexity_reduction = "failed"
@@ -85,7 +85,7 @@ status = "partial"
 
 [performance]
 budget = "performance.toml"
-status = "defined_not_measured"
+status = "failed"
 
 [exposure]
 measurement = "exposure.toml"

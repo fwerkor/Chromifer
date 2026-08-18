@@ -239,6 +239,7 @@ fn passed_performance_requires_measured_results() {
     let mut evidence = ukm_pilot();
     evidence.performance.status = chromifer_migration::EvidenceStatus::Passed;
     evidence.pilot.performance.status = chromifer_migration::EvidenceStatus::Passed;
+    evidence.performance.results = None;
 
     let errors = evidence
         .validate()
@@ -535,6 +536,8 @@ fn failed_performance_status_requires_a_real_budget_violation() {
 #[test]
 fn measured_performance_cannot_remain_defined_not_measured() {
     let mut evidence = ukm_pilot();
+    evidence.performance.status = chromifer_migration::EvidenceStatus::DefinedNotMeasured;
+    evidence.pilot.performance.status = chromifer_migration::EvidenceStatus::DefinedNotMeasured;
     evidence.performance.results = Some(failed_performance_results());
 
     let errors = evidence

@@ -1,6 +1,6 @@
 schema_version = 1
 id = "services-metrics-ukm-recorder-performance"
-status = "defined_not_measured"
+status = "failed"
 
 [comparison]
 upstream_revision = "008cdad85f0721c89b42ef4dcaabcee615482609"
@@ -41,3 +41,32 @@ reject_if_background_load_invalidates_pairing = true
 record_raw_samples = true
 record_binary_hashes = true
 record_gn_args_hashes = true
+
+[results]
+completed_samples = 15
+steady_state_rss_regression_bytes = 67584
+baseline_binary_sha256 = "fd0d951c93a980051ec5427265cb679652ac1d3616bb72239f8ad1f5cadbf0eb"
+candidate_binary_sha256 = "69054956314faf71116eea14173ccbb11ba499990791f561f0dce31ea061fbac"
+baseline_gn_args_sha256 = "47f6cf4454c0b0665d0dc2a25980b7a7e724ea80af9125f004bd1860bb7f21d5"
+candidate_gn_args_sha256 = "840be624249ed1515d6f92205dc6a0aa21af7834c5f5277be57f4f41f478e764"
+raw_samples_sha256 = "86cddfa79698b14f8fba7f5262a63b700fb6af1cc354b1292664f1b6a0c56330"
+
+[[results.cases]]
+id = "add_entry_single_metric"
+median_regression_percent = 122.659825
+p95_regression_percent = 117.979268
+
+[[results.cases]]
+id = "add_entry_eight_metrics"
+median_regression_percent = 177.766039
+p95_regression_percent = 134.605531
+
+[[results.cases]]
+id = "update_source_url"
+median_regression_percent = 62.916083
+p95_regression_percent = 55.480284
+
+[[results.cases]]
+id = "mixed_90_add_entry_10_update_url"
+median_regression_percent = 119.802253
+p95_regression_percent = 129.728586
