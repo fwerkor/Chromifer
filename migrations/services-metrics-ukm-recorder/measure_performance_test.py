@@ -108,6 +108,48 @@ print(
             self.assertEqual(len(evidence["artifacts"]["baseline_binary_sha256"]), 64)
             self.assertEqual(len(evidence["artifacts"]["candidate_binary_sha256"]), 64)
 
+    def test_rejects_non_migration_gn_arg_drift(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            baseline_binary = root / "baseline"
+            candidate_binary = root / "candidate"
+            baseline_binary.write_bytes(b"baseline")
+            candidate_binary.write_bytes(b"candidate")
+            baseline_args = root / "baseline.args"
+            candidate_args = root / "candidate.args"
+            baseline_args.write_text(
+                "enable_rust = true\nuse_rust_ukm_recorder = false\n"
+            )
+            candidate_args.write_text(
+                "enable_rust = true\nis_official_build = true\n"
+                "use_rust_ukm_recorder = true\n"
+            )
+
+            completed = subprocess.run(
+                [
+                    sys.executable,
+                    str(RUNNER),
+                    "--baseline-binary",
+                    str(baseline_binary),
+                    "--candidate-binary",
+                    str(candidate_binary),
+                    "--baseline-args",
+                    str(baseline_args),
+                    "--candidate-args",
+                    str(candidate_args),
+                    "--raw-output",
+                    str(root / "raw.json"),
+                ],
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+            )
+
+            self.assertNotEqual(completed.returncode, 0)
+            self.assertIn(
+                "GN args differ outside the migration flag", completed.stderr
+            )
+
 
 if __name__ == "__main__":
     unittest.main()

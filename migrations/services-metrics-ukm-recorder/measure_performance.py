@@ -45,6 +45,34 @@ def sha256(path: Path) -> str:
     return h.hexdigest()
 
 
+def comparable_gn_args(path: Path, migration_arg: str) -> list[str]:
+    """Return non-migration GN assignments in fail-closed source order."""
+    comparable: list[str] = []
+    for raw_line in path.read_text().splitlines():
+        line = raw_line.split("#", 1)[0].strip()
+        if not line:
+            continue
+        name, separator, _ = line.partition("=")
+        if separator and name.strip() == migration_arg:
+            continue
+        comparable.append(line)
+    return comparable
+
+
+def require_identical_non_migration_args(
+    baseline: Path, candidate: Path, migration_arg: str
+) -> None:
+    baseline_args = comparable_gn_args(baseline, migration_arg)
+    candidate_args = comparable_gn_args(candidate, migration_arg)
+    if baseline_args != candidate_args:
+        raise SystemExit(
+            "baseline/candidate GN args differ outside the migration flag:\n"
+            + json.dumps(
+                {"baseline": baseline_args, "candidate": candidate_args}, indent=2
+            )
+        )
+
+
 def percentile(values: list[float], p: float) -> float:
     if not values:
         raise ValueError("cannot compute a percentile of an empty sample")
@@ -183,8 +211,14 @@ def main() -> int:
 
     with args.manifest.open("rb") as f:
         manifest = tomllib.load(f)
+    comparison = manifest["comparison"]
     workload = manifest["workload"]
     validity = manifest["validity"]
+
+    if comparison["require_identical_non_migration_gn_args"]:
+        require_identical_non_migration_args(
+            args.baseline_args, args.candidate_args, "use_rust_ukm_recorder"
+        )
 
     if validity["reject_if_cpu_migration_or_frequency_policy_differs"] and not hasattr(
         os, "sched_setaffinity"

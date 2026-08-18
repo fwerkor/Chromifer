@@ -29,7 +29,7 @@ python3 migrations/services-metrics-ukm-recorder/measure_performance.py \
   --raw-output /path/to/raw-samples.json
 ```
 
-The runner alternates candidate/baseline order between samples, pins each invocation to one allowed CPU, rejects excessive background load or a changed CPU frequency policy, verifies the forwarded-message count, and prints the `[results]` block expected by `performance.toml`. It does not edit the manifest or declare a pass automatically; the raw evidence and reported budgets must be reviewed first.
+The runner first rejects baseline/candidate GN args that differ outside `use_rust_ukm_recorder`, then alternates candidate/baseline order between samples, pins each invocation to one allowed CPU, rejects excessive background load or a changed CPU frequency policy, verifies the forwarded-message count, and prints the `[results]` block expected by `performance.toml`. It does not edit the manifest or declare a pass automatically; the raw evidence and reported budgets must be reviewed first.
 
 ## M3 acceptance work
 
