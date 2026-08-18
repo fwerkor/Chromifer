@@ -1,6 +1,6 @@
 schema_version = 1
 id = "services-metrics-ukm-recorder-exposure"
-status = "defined_not_measured"
+status = "failed"
 
 [comparison]
 upstream_revision = "008cdad85f0721c89b42ef4dcaabcee615482609"
@@ -54,3 +54,22 @@ source_inventory = "exposure-sources.toml"
 record_file_hashes = true
 record_measurement_tool_version = true
 record_raw_counts = true
+
+[results]
+baseline_authored_memory_unsafe_loc = 98
+candidate_authored_memory_unsafe_loc = 97
+baseline_authored_production_loc = 98
+candidate_authored_production_loc = 160
+baseline_active_implementation_files = 4
+candidate_active_implementation_files = 3
+baseline_branch_points = 1
+candidate_branch_points = 2
+baseline_manual_raw_pointer_fields = 2
+candidate_manual_raw_pointer_fields = 1
+baseline_cross_language_forwarding_methods = 0
+candidate_cross_language_forwarding_methods = 4
+new_public_api_count = 0
+new_mojom_method_count = 0
+measurement_tool_version = "chromifer-exposure-v1"
+file_hashes_sha256 = "bdf21cc045a7711a45fd0d46f82a61bf91cad3fde09ff58a7633d677c6e40a48"
+raw_counts_sha256 = "9739143d58de7d4e8c9d1fbcd8145e1cbcf561680e30e675a2bc08b3a4e2a816"

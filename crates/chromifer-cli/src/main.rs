@@ -1344,14 +1344,19 @@ fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
         Command::ValidateMigration { directory } => {
             let evidence = MigrationEvidence::load(&directory)?;
             println!(
-                "valid migration {}: status={:?}, revision={}, implementation={:?}, parity={:?}, performance={:?}, exposure={:?}, rollback={:?}",
+                "valid migration {}: status={:?}, revision={}, implementation={:?}, parity={:?}, performance={:?}, exposure={:?}, memory_safety={:?}, maintenance={:?}, rollback={:?}",
                 evidence.pilot.id,
                 evidence.pilot.status,
                 evidence.pilot.upstream.revision,
                 evidence.pilot.implementation.status,
                 evidence.pilot.m3_acceptance.feature_parity,
-                evidence.pilot.m3_acceptance.performance_budget,
+                evidence.performance.status,
+                evidence.exposure.status,
                 evidence.pilot.m3_acceptance.memory_safety_reduction,
+                evidence
+                    .pilot
+                    .m3_acceptance
+                    .maintenance_complexity_reduction,
                 evidence.pilot.m3_acceptance.rollback
             );
         }

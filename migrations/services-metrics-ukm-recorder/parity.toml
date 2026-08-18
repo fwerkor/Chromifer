@@ -21,27 +21,28 @@ method = "UpdateSourceURL"
 
 [[contract_cases]]
 id = "add-entry-multiple-metrics"
-status = "pending"
+status = "passed_linux"
 method = "AddEntry"
 
 [[contract_cases]]
 id = "message-ordering"
-status = "pending"
+status = "passed_linux"
 methods = ["AddEntry", "UpdateSourceURL"]
 
 [[contract_cases]]
 id = "multiple-independent-receivers"
-status = "pending"
+status = "passed_linux"
 methods = ["AddEntry", "UpdateSourceURL"]
 
 [[contract_cases]]
 id = "receiver-disconnect-destroys-state"
-status = "pending"
+status = "passed_linux"
 
 [[upstream_suites]]
 id = "components-ukm"
 target = "//components/ukm:ukm_unittests"
-status = "pending"
+status = "passed"
+evidence_sha256 = "405854ffba5b2a233f56301ba8f2fd455407ffe7a9faffa92cf934cad676570f"
 
 [desktop_matrix]
 platforms = ["linux", "mac", "win"]

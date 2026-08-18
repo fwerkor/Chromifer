@@ -30,6 +30,8 @@ jobs:
               cargo run -p chromifer -- validate-migration "$migration"
             fi
           done
+      - name: UKM performance evidence runner is valid
+        run: python3 -m unittest migrations/services-metrics-ukm-recorder/measure_performance_test.py
       - name: Measured source coverage is current
         run: |
           cargo run -p chromifer -- summarize-coverage \

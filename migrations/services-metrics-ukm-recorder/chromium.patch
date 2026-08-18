@@ -1,8 +1,8 @@
 diff --git a/services/metrics/BUILD.gn b/services/metrics/BUILD.gn
-index f66ae03847..afcc7a2bfe 100644
+index f66ae03847..796fa5b908 100644
 --- a/services/metrics/BUILD.gn
 +++ b/services/metrics/BUILD.gn
-@@ -2,20 +2,84 @@
+@@ -2,17 +2,124 @@
  # Use of this source code is governed by a BSD-style license that can be
  # found in the LICENSE file.
  
@@ -12,8 +12,8 @@ index f66ae03847..afcc7a2bfe 100644
 +import("//testing/test.gni")
 +
 +declare_args() {
-+  # Keeps the legacy C++ UkmRecorderInterface available as a stabilization
-+  # fallback while the Rust receiver is validated in production builds.
++  # Keeps the legacy C++ factory and UkmRecorderInterface available as a
++  # rollback path while the Rust Mojo implementation is validated.
 +  use_rust_ukm_recorder = enable_rust
 +}
 +
@@ -23,17 +23,19 @@ index f66ae03847..afcc7a2bfe 100644
 +}
 +
  source_set("metrics") {
-   sources = [
-     "ukm_recorder_factory_impl.cc",
-     "ukm_recorder_factory_impl.h",
+-  sources = [
+-    "ukm_recorder_factory_impl.cc",
+-    "ukm_recorder_factory_impl.h",
 -    "ukm_recorder_interface.cc",
 -    "ukm_recorder_interface.h",
-   ]
+-  ]
++  sources = [ "ukm_recorder_factory_impl.h" ]
  
    configs += [ "//build/config/compiler:wexit_time_destructors" ]
  
    deps = [
 +    ":ukm_recorder_buildflags",
++    "//base",
 +    "//mojo/public/cpp/bindings",
 +    "//services/metrics/public/cpp:metrics_cpp",
 +    "//services/metrics/public/mojom",
@@ -41,16 +43,14 @@ index f66ae03847..afcc7a2bfe 100644
 +  ]
 +
 +  if (use_rust_ukm_recorder) {
-+    sources += [
-+      "ukm_recorder_rust_bridge.cc",
-+      "ukm_recorder_rust_bridge.h",
-+    ]
++    sources += [ "ukm_recorder_factory_impl.cc" ]
 +    deps += [
 +      ":ukm_recorder_interface_rust",
 +      "//mojo/public/rust/system:scoped_handle_interop_cc",
 +    ]
 +  } else {
 +    sources += [
++      "ukm_recorder_factory_impl_legacy.cc",
 +      "ukm_recorder_interface.cc",
 +      "ukm_recorder_interface.h",
 +    ]
@@ -58,22 +58,54 @@ index f66ae03847..afcc7a2bfe 100644
 +}
 +
 +if (use_rust_ukm_recorder) {
++  source_set("ukm_recorder_interface_test_support_cc") {
++    testonly = true
++    sources = [
++      "ukm_recorder_interface_test_support.cc",
++      "ukm_recorder_interface_test_support.h",
++    ]
++    deps = [
++      "//base",
++      "//base/test:test_support",
++      "//mojo/core/embedder",
++    ]
++  }
++
++  rust_static_library("ukm_recorder_interface_test_support") {
++    testonly = true
++    allow_unsafe = true
++    crate_root = "rust/ukm_recorder_interface_test_support.rs"
++    sources = [ "rust/ukm_recorder_interface_test_support.rs" ]
++    cxx_bindings = [ "rust/ukm_recorder_interface_test_support.rs" ]
++    deps = [ ":ukm_recorder_interface_test_support_cc" ]
++  }
++
 +  rust_static_library("ukm_recorder_interface_rust") {
 +    allow_unsafe = true
 +    crate_root = "rust/ukm_recorder_interface.rs"
-+    sources = [ "rust/ukm_recorder_interface.rs" ]
++    sources = [
++      "rust/ukm_recorder_interface.rs",
++      "rust/ukm_recorder_interface_unittest.rs",
++    ]
 +    cxx_bindings = [ "rust/ukm_recorder_interface.rs" ]
++    build_native_rust_unit_tests = true
 +    deps = [
 +      "//base",
 +      "//mojo/public/rust/bindings",
 +      "//mojo/public/rust/system",
 +      "//services/metrics/public/mojom:mojom_rust",
 +    ]
++    test_deps = [
++      ":metrics",
++      ":ukm_recorder_interface_test_support",
++      "//base:run_loop",
++      "//base/test:task_environment",
++    ]
 +  }
 +}
 +
-+# Contract test shared by the Rust receiver and the legacy C++ fallback. Rust
-+# builds additionally exercise the narrow C++ bridge directly.
++# Shared behavioral contract for the Rust implementation and the C++ rollback
++# path. Rust builds additionally exercise the narrow C++ capability directly.
 +test("ukm_recorder_interface_unittests") {
 +  sources = [ "ukm_recorder_interface_unittest.cc" ]
 +  deps = [
@@ -82,22 +114,34 @@ index f66ae03847..afcc7a2bfe 100644
 +    "//base/test:run_all_unittests",
 +    "//base/test:test_support",
 +    "//mojo/core/embedder",
++    "//mojo/public/cpp/bindings",
++    "//services/metrics/public/cpp:metrics_cpp",
++    "//services/metrics/public/mojom",
++    "//testing/gtest",
++    "//url",
++  ]
++}
++
++executable("ukm_recorder_interface_perf") {
++  testonly = true
++  sources = [ "ukm_recorder_interface_perf.cc" ]
++  deps = [
++    ":metrics",
++    "//base",
++    "//base/test:test_support",
++    "//mojo/core/embedder",
      "//mojo/public/cpp/bindings",
      "//services/metrics/public/cpp:metrics_cpp",
      "//services/metrics/public/mojom",
-+    "//testing/gtest",
-     "//url",
-   ]
- }
 diff --git a/services/metrics/public/cpp/ukm_recorder.h b/services/metrics/public/cpp/ukm_recorder.h
-index e8bd8807e8..a9b2246d50 100644
+index e8bd8807e8..8701e74ad6 100644
 --- a/services/metrics/public/cpp/ukm_recorder.h
 +++ b/services/metrics/public/cpp/ukm_recorder.h
 @@ -33,6 +33,7 @@ class IdentityProviderMetrics;
  }  // namespace login_detection
  
  namespace metrics {
-+class UkmRecorderBridge;
++class UkmRecorderFactoryImpl;
  class UkmRecorderInterface;
  }  // namespace metrics
  
@@ -105,7 +149,7 @@ index e8bd8807e8..a9b2246d50 100644
    friend DelegatingUkmRecorder;
    friend TestRecordingHelper;
    friend UkmBackgroundRecorderService;
-+  friend metrics::UkmRecorderBridge;
++  friend metrics::UkmRecorderFactoryImpl;
    friend metrics::UkmRecorderInterface;
    friend PermissionUmaUtil;
    friend content::RenderFrameHostImpl;
@@ -123,15 +167,15 @@ index f3d5fc3cd4..1ad0bcf388 100644
  }
 diff --git a/services/metrics/rust/ukm_recorder_interface.rs b/services/metrics/rust/ukm_recorder_interface.rs
 new file mode 100644
-index 0000000000..f3df149dce
+index 0000000000..39ec82a56f
 --- /dev/null
 +++ b/services/metrics/rust/ukm_recorder_interface.rs
-@@ -0,0 +1,102 @@
+@@ -0,0 +1,110 @@
 +// Copyright 2026 The Chromium Authors
 +// Use of this source code is governed by a BSD-style license that can be
 +// found in the LICENSE file.
 +
-+//! Rust implementation of `ukm.mojom.UkmRecorderInterface`.
++//! Rust implementation of the UKM recorder factory and recorder Mojo receivers.
 +
 +chromium::import! {
 +    "//mojo/public/rust/bindings";
@@ -139,264 +183,610 @@ index 0000000000..f3df149dce
 +    "//services/metrics/public/mojom:mojom_rust";
 +}
 +
-+use mojom_rust::ukm_interface::{UkmEntry, UkmRecorderInterface};
++use mojom_rust::ukm_interface::{
++    UkmEntry, UkmRecorderClientInterface, UkmRecorderFactory, UkmRecorderInterface,
++};
 +use system::scoped_handle_interop;
 +
 +#[cxx::bridge(namespace = "metrics")]
 +mod ffi {
 +    unsafe extern "C++" {
-+        include!("services/metrics/ukm_recorder_rust_bridge.h");
-+
-+        type UkmRecorderBridge;
-+
-+        fn AddEntry(
-+            self: Pin<&mut UkmRecorderBridge>,
-+            source_id: i64,
-+            event_hash: u64,
-+            metric_hashes: &[u64],
-+            metric_values: &[i64],
-+        );
-+        fn UpdateSourceURL(self: Pin<&mut UkmRecorderBridge>, source_id: i64, url: &str);
-+
++        include!("services/metrics/ukm_recorder_factory_impl.h");
 +        include!("mojo/public/rust/system/scoped_handle_interop.h");
++
++        type UkmRecorderFactoryImpl;
++
 +        #[namespace = "mojo::rust"]
 +        type ScopedMessagePipeHandleWrapper =
 +            system::scoped_handle_interop::ScopedMessagePipeHandleWrapper;
++
++        fn AddEntry(
++            self: &UkmRecorderFactoryImpl,
++            source_id: i64,
++            event_hash: u64,
++            hashes: &[u64],
++            values: &[i64],
++        );
++        fn UpdateSourceURL(self: &UkmRecorderFactoryImpl, source_id: i64, url: &str);
++        fn AddUkmClientFromRust(handle: UniquePtr<ScopedMessagePipeHandleWrapper>);
 +    }
 +
 +    extern "Rust" {
-+        fn BindUkmRecorderInterface(
++        fn BindUkmRecorderFactory(
 +            handle: UniquePtr<ScopedMessagePipeHandleWrapper>,
-+            recorder: UniquePtr<UkmRecorderBridge>,
++            bridge: SharedPtr<UkmRecorderFactoryImpl>,
 +        );
 +    }
 +}
 +
-+struct SequenceBoundRecorder(cxx::UniquePtr<ffi::UkmRecorderBridge>);
++#[derive(Clone)]
++struct RecorderInterface(cxx::SharedPtr<ffi::UkmRecorderFactoryImpl>);
 +
-+// SAFETY: `BindUkmRecorderInterface` constructs this value on the sequence
-+// where the C++ factory is running and immediately moves it into a Mojo
-+// receiver bound to that same current default sequence. This private wrapper
-+// is never exposed or moved independently, and all recorder access happens
-+// from callbacks dispatched by that receiver. The C++ bridge additionally
-+// DCHECKs the sequence on every operation and destruction.
-+unsafe impl Send for SequenceBoundRecorder {}
++// SAFETY: Mojo binds this state to the current default sequence. The C++
++// capability enforces that same sequence for every UkmRecorder access.
++unsafe impl Send for RecorderInterface {}
 +
-+struct UkmRecorderInterfaceImpl {
-+    recorder: SequenceBoundRecorder,
-+}
++#[derive(Clone)]
++struct RecorderFactory(cxx::SharedPtr<ffi::UkmRecorderFactoryImpl>);
 +
-+impl UkmRecorderInterfaceImpl {
-+    fn new(recorder: cxx::UniquePtr<ffi::UkmRecorderBridge>) -> Self {
-+        assert!(!recorder.is_null());
-+        Self { recorder: SequenceBoundRecorder(recorder) }
-+    }
-+}
++// SAFETY: the factory receiver and every child receiver bind on the same
++// current default sequence; the shared C++ capability checks that sequence.
++unsafe impl Send for RecorderFactory {}
 +
-+impl UkmRecorderInterface for UkmRecorderInterfaceImpl {
++impl UkmRecorderInterface for RecorderInterface {
 +    fn AddEntry(&mut self, entry: UkmEntry) {
-+        let mut metric_hashes = Vec::with_capacity(entry.metrics.len());
-+        let mut metric_values = Vec::with_capacity(entry.metrics.len());
-+        for (hash, value) in entry.metrics {
-+            metric_hashes.push(hash);
-+            metric_values.push(value);
-+        }
-+        self.recorder.0.pin_mut().AddEntry(
-+            entry.source_id,
-+            entry.event_hash,
-+            &metric_hashes,
-+            &metric_values,
-+        );
++        let (hashes, values): (Vec<_>, Vec<_>) = entry.metrics.into_iter().unzip();
++        self.0.AddEntry(entry.source_id, entry.event_hash, &hashes, &values);
 +    }
 +
 +    fn UpdateSourceURL(&mut self, source_id: i64, url: String) {
-+        self.recorder.0.pin_mut().UpdateSourceURL(source_id, &url);
++        self.0.UpdateSourceURL(source_id, &url);
 +    }
 +}
 +
-+bindings::register_mojom_state_object_impls!(impl UkmRecorderInterface for UkmRecorderInterfaceImpl);
++impl UkmRecorderFactory for RecorderFactory {
++    fn CreateUkmRecorder(
++        &mut self,
++        receiver: bindings::receiver::PendingReceiver<dyn UkmRecorderInterface>,
++        client_remote: Option<bindings::remote::PendingRemote<dyn UkmRecorderClientInterface>>,
++    ) {
++        let _ = receiver.bind_self_owned(RecorderInterface(self.0.clone()));
++
++        if let Some(client_remote) = client_remote {
++            ffi::AddUkmClientFromRust(
++                scoped_handle_interop::ScopedMessagePipeHandleWrapper::from_message_endpoint(
++                    client_remote.into_endpoint(),
++                ),
++            );
++        }
++    }
++}
++
++bindings::register_mojom_state_object_impls!(impl UkmRecorderInterface for RecorderInterface);
++bindings::register_mojom_state_object_impls!(impl UkmRecorderFactory for RecorderFactory);
 +
 +#[allow(non_snake_case)]
-+fn BindUkmRecorderInterface(
++fn BindUkmRecorderFactory(
 +    handle: cxx::UniquePtr<ffi::ScopedMessagePipeHandleWrapper>,
-+    recorder: cxx::UniquePtr<ffi::UkmRecorderBridge>,
++    bridge: cxx::SharedPtr<ffi::UkmRecorderFactoryImpl>,
 +) {
 +    use bindings::receiver::PendingReceiver;
 +
 +    let endpoint =
 +        scoped_handle_interop::ScopedMessagePipeHandleWrapper::into_message_endpoint(handle)
-+            .expect("C++ must pass a valid UkmRecorderInterface message pipe");
-+    let pending_receiver = PendingReceiver::<dyn UkmRecorderInterface>::new(endpoint);
-+    let _ = pending_receiver.bind_self_owned(UkmRecorderInterfaceImpl::new(recorder));
++            .expect("C++ must pass a valid UkmRecorderFactory message pipe");
++    let _ = PendingReceiver::<dyn UkmRecorderFactory>::new(endpoint)
++        .bind_self_owned(RecorderFactory(bridge));
 +}
-diff --git a/services/metrics/ukm_recorder_factory_impl.cc b/services/metrics/ukm_recorder_factory_impl.cc
-index 7f963c3506..fc90d9c679 100644
---- a/services/metrics/ukm_recorder_factory_impl.cc
-+++ b/services/metrics/ukm_recorder_factory_impl.cc
-@@ -4,9 +4,18 @@
- // found in the LICENSE file.
- 
- #include "services/metrics/ukm_recorder_factory_impl.h"
 +
- #include "mojo/public/cpp/bindings/self_owned_receiver.h"
- #include "services/metrics/public/cpp/ukm_recorder_client_interface_registry.h"
-+#include "services/metrics/ukm_recorder_buildflags.h"
-+
-+#if BUILDFLAG(USE_RUST_UKM_RECORDER)
-+#include "mojo/public/rust/system/scoped_handle_interop.h"
-+#include "services/metrics/rust/ukm_recorder_interface.rs.h"
-+#include "services/metrics/ukm_recorder_rust_bridge.h"
-+#else
- #include "services/metrics/ukm_recorder_interface.h"
-+#endif
- 
- namespace metrics {
- 
-@@ -30,7 +39,15 @@ void UkmRecorderFactoryImpl::Create(
- void UkmRecorderFactoryImpl::CreateUkmRecorder(
-     mojo::PendingReceiver<ukm::mojom::UkmRecorderInterface> receiver,
-     mojo::PendingRemote<ukm::mojom::UkmRecorderClientInterface> client_remote) {
-+#if BUILDFLAG(USE_RUST_UKM_RECORDER)
-+  auto pipe = std::make_unique<mojo::rust::ScopedMessagePipeHandleWrapper>(
-+      receiver.PassPipe());
-+  metrics::BindUkmRecorderInterface(
-+      std::move(pipe),
-+      std::make_unique<metrics::UkmRecorderBridge>(ukm_recorder_));
-+#else
-   metrics::UkmRecorderInterface::Create(ukm_recorder_, std::move(receiver));
-+#endif
-   // |client_remote| is null when kUkmReduceAddEntryIPC feature is disabled and
-   // thus UkmRecorderClientInterface is not attached.
-   if (client_remote.is_valid()) {
-diff --git a/services/metrics/ukm_recorder_rust_bridge.cc b/services/metrics/ukm_recorder_rust_bridge.cc
++#[cfg(test)]
++mod ukm_recorder_interface_unittest;
+diff --git a/services/metrics/rust/ukm_recorder_interface_test_support.rs b/services/metrics/rust/ukm_recorder_interface_test_support.rs
 new file mode 100644
-index 0000000000..02f90eb804
+index 0000000000..21941452f2
 --- /dev/null
-+++ b/services/metrics/ukm_recorder_rust_bridge.cc
-@@ -0,0 +1,46 @@
++++ b/services/metrics/rust/ukm_recorder_interface_test_support.rs
+@@ -0,0 +1,18 @@
 +// Copyright 2026 The Chromium Authors
 +// Use of this source code is governed by a BSD-style license that can be
 +// found in the LICENSE file.
 +
-+#include "services/metrics/ukm_recorder_rust_bridge.h"
++//! Test-only initialization support for UKM Rust native unit tests.
++
++#[cxx::bridge(namespace = "metrics")]
++mod ffi {
++    unsafe extern "C++" {
++        include!("services/metrics/ukm_recorder_interface_test_support.h");
++
++        fn InitializeUkmRustTestEnvironment();
++    }
++}
++
++pub fn init_test_environment() {
++    ffi::InitializeUkmRustTestEnvironment();
++}
+diff --git a/services/metrics/rust/ukm_recorder_interface_unittest.rs b/services/metrics/rust/ukm_recorder_interface_unittest.rs
+new file mode 100644
+index 0000000000..01f29c0512
+--- /dev/null
++++ b/services/metrics/rust/ukm_recorder_interface_unittest.rs
+@@ -0,0 +1,30 @@
++// Copyright 2026 The Chromium Authors
++// Use of this source code is governed by a BSD-style license that can be
++// found in the LICENSE file.
++
++use super::*;
++
++chromium::import! {
++    "//base:run_loop";
++    "//base/test:task_environment";
++    "//services/metrics:ukm_recorder_interface_test_support";
++}
++
++use bindings::remote::PendingRemote;
++use run_loop::RunLoop;
++
++#[test]
++fn self_owned_receiver_drops_component_state_on_disconnect() {
++    ukm_recorder_interface_test_support::init_test_environment();
++    let _task_environment = task_environment::ffi::CreateTaskEnvironment();
++    let (pending_remote, pending_receiver) =
++        PendingRemote::<dyn UkmRecorderInterface>::new_pipe().expect("create message pipe");
++
++    let receiver = pending_receiver.bind_self_owned(RecorderInterface(cxx::SharedPtr::null()));
++    assert!(receiver.upgrade().is_some());
++
++    drop(pending_remote);
++    RunLoop::new().run_until_idle();
++
++    assert!(receiver.upgrade().is_none());
++}
+diff --git a/services/metrics/ukm_recorder_factory_impl.cc b/services/metrics/ukm_recorder_factory_impl.cc
+index 7f963c3506..8d65699f7f 100644
+--- a/services/metrics/ukm_recorder_factory_impl.cc
++++ b/services/metrics/ukm_recorder_factory_impl.cc
+@@ -1,42 +1,57 @@
+-
+ // Copyright 2023 The Chromium Authors
+ // Use of this source code is governed by a BSD-style license that can be
+ // found in the LICENSE file.
+ 
+ #include "services/metrics/ukm_recorder_factory_impl.h"
+-#include "mojo/public/cpp/bindings/self_owned_receiver.h"
 +
 +#include <memory>
 +#include <utility>
 +
 +#include "base/check.h"
-+#include "services/metrics/public/cpp/ukm_recorder.h"
-+#include "services/metrics/public/mojom/ukm_interface.mojom.h"
++#include "mojo/public/rust/system/scoped_handle_interop.h"
+ #include "services/metrics/public/cpp/ukm_recorder_client_interface_registry.h"
+-#include "services/metrics/ukm_recorder_interface.h"
++#include "services/metrics/rust/ukm_recorder_interface.rs.h"
 +#include "url/gurl.h"
-+
-+namespace metrics {
-+
-+UkmRecorderBridge::UkmRecorderBridge(ukm::UkmRecorder* recorder)
-+    : recorder_(recorder) {
-+  CHECK(recorder_);
-+}
-+
-+UkmRecorderBridge::~UkmRecorderBridge() {
+ 
+ namespace metrics {
+ 
+-UkmRecorderFactoryImpl::UkmRecorderFactoryImpl(ukm::UkmRecorder* ukm_recorder)
+-    : ukm_recorder_(ukm_recorder) {}
++void UkmRecorderFactoryImpl::AddEntry(int64_t source_id,
++                                      uint64_t event_hash,
++                                      rust::Slice<const uint64_t> hashes,
++                                      rust::Slice<const int64_t> values) const {
 +  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
-+}
++  CHECK_EQ(hashes.size(), values.size());
 +
-+void UkmRecorderBridge::AddEntry(int64_t source_id,
-+                                 uint64_t event_hash,
-+                                 rust::Slice<const uint64_t> metric_hashes,
-+                                 rust::Slice<const int64_t> metric_values) {
-+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
-+  CHECK_EQ(metric_hashes.size(), metric_values.size());
 +  auto entry = ukm::mojom::UkmEntry::New();
 +  entry->source_id = source_id;
 +  entry->event_hash = event_hash;
-+  for (size_t index = 0; index < metric_hashes.size(); ++index) {
-+    entry->metrics.emplace(metric_hashes[index], metric_values[index]);
++  for (size_t i = 0; i < hashes.size(); ++i) {
++    entry->metrics.emplace(hashes[i], values[i]);
 +  }
 +  recorder_->AddEntry(std::move(entry));
 +}
-+
-+void UkmRecorderBridge::UpdateSourceURL(int64_t source_id, rust::Str url) {
+ 
+-UkmRecorderFactoryImpl::~UkmRecorderFactoryImpl() = default;
++void UkmRecorderFactoryImpl::UpdateSourceURL(int64_t source_id,
++                                             rust::Str url) const {
 +  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
 +  recorder_->UpdateSourceURL(source_id, GURL(std::string(url)));
 +}
+ 
+ void UkmRecorderFactoryImpl::Create(
+-    ukm::UkmRecorder* ukm_recorder,
++    ukm::UkmRecorder* recorder,
+     mojo::PendingReceiver<ukm::mojom::UkmRecorderFactory> receiver) {
+-  // Binds the lifetime of an UkmRecorderFactory implementation to the lifetime
+-  // of the |receiver|. When the |receiver| is disconnected (typically by the
+-  // remote end closing the entangled Remote), the implementation will be
+-  // deleted.
+-  mojo::MakeSelfOwnedReceiver(
+-      std::make_unique<UkmRecorderFactoryImpl>(ukm_recorder),
+-      std::move(receiver));
++  BindUkmRecorderFactory(
++      std::make_unique<mojo::rust::ScopedMessagePipeHandleWrapper>(
++          receiver.PassPipe()),
++      std::make_shared<UkmRecorderFactoryImpl>(recorder));
+ }
+ 
+-void UkmRecorderFactoryImpl::CreateUkmRecorder(
+-    mojo::PendingReceiver<ukm::mojom::UkmRecorderInterface> receiver,
+-    mojo::PendingRemote<ukm::mojom::UkmRecorderClientInterface> client_remote) {
+-  metrics::UkmRecorderInterface::Create(ukm_recorder_, std::move(receiver));
+-  // |client_remote| is null when kUkmReduceAddEntryIPC feature is disabled and
+-  // thus UkmRecorderClientInterface is not attached.
+-  if (client_remote.is_valid()) {
+-    metrics::UkmRecorderClientInterfaceRegistry::AddClientToCurrentRegistry(
+-        std::move(client_remote));
+-  }
++void AddUkmClientFromRust(
++    std::unique_ptr<mojo::rust::ScopedMessagePipeHandleWrapper> handle) {
++  CHECK(handle);
++  UkmRecorderClientInterfaceRegistry::AddClientToCurrentRegistry(
++      mojo::PendingRemote<ukm::mojom::UkmRecorderClientInterface>(
++          handle->take_handle(), 0));
+ }
+ 
+ }  // namespace metrics
+diff --git a/services/metrics/ukm_recorder_factory_impl.h b/services/metrics/ukm_recorder_factory_impl.h
+index 3475d255a3..e39c180502 100644
+--- a/services/metrics/ukm_recorder_factory_impl.h
++++ b/services/metrics/ukm_recorder_factory_impl.h
+@@ -5,36 +5,46 @@
+ #ifndef SERVICES_METRICS_UKM_RECORDER_FACTORY_IMPL_H_
+ #define SERVICES_METRICS_UKM_RECORDER_FACTORY_IMPL_H_
+ 
++#include <cstdint>
++#include <memory>
++
++#include "base/check_deref.h"
++#include "base/memory/raw_ref.h"
++#include "base/sequence_checker.h"
+ #include "services/metrics/public/cpp/ukm_recorder.h"
+ #include "services/metrics/public/mojom/ukm_interface.mojom.h"
++#include "third_party/rust/cxx/v1/cxx.h"
++
++namespace mojo::rust {
++class ScopedMessagePipeHandleWrapper;
++}
+ 
+ namespace metrics {
+ 
+-// Implements the public mojo UkmRecorderFactory interface by wrapping the
+-// UkmRecorder instance.
+-class UkmRecorderFactoryImpl : public ukm::mojom::UkmRecorderFactory {
++// Stable Chromium entry point and narrow C++ capability shared by the Rust
++// factory and recorder receivers.
++class UkmRecorderFactoryImpl {
+  public:
+-  explicit UkmRecorderFactoryImpl(ukm::UkmRecorder* ukm_recorder);
+-
+-  UkmRecorderFactoryImpl(const UkmRecorderFactoryImpl&) = delete;
+-  UkmRecorderFactoryImpl& operator=(const UkmRecorderFactoryImpl&) = delete;
+-  ~UkmRecorderFactoryImpl() override;
++  explicit UkmRecorderFactoryImpl(ukm::UkmRecorder* recorder)
++      : recorder_(CHECK_DEREF(recorder)) {}
+ 
+-  // Binds |ukm_recorder| to the lifetime of UkmRecorderFactory.
+   static void Create(
+-      ukm::UkmRecorder* ukm_recorder,
++      ukm::UkmRecorder* recorder,
+       mojo::PendingReceiver<ukm::mojom::UkmRecorderFactory> receiver);
++  void AddEntry(int64_t source_id,
++                uint64_t event_hash,
++                rust::Slice<const uint64_t> hashes,
++                rust::Slice<const int64_t> values) const;
++  void UpdateSourceURL(int64_t source_id, rust::Str url) const;
+ 
+  private:
+-  // ukm::mojom::UkmRecorderFactory:
+-  void CreateUkmRecorder(
+-      mojo::PendingReceiver<ukm::mojom::UkmRecorderInterface> receiver,
+-      mojo::PendingRemote<ukm::mojom::UkmRecorderClientInterface> client_remote)
+-      override;
+-
+-  raw_ptr<ukm::UkmRecorder> ukm_recorder_;
++  raw_ref<ukm::UkmRecorder> recorder_;
++  SEQUENCE_CHECKER(sequence_checker_);
+ };
+ 
++void AddUkmClientFromRust(
++    std::unique_ptr<mojo::rust::ScopedMessagePipeHandleWrapper> handle);
++
+ }  // namespace metrics
+ 
+ #endif  // SERVICES_METRICS_UKM_RECORDER_FACTORY_IMPL_H_
+diff --git a/services/metrics/ukm_recorder_factory_impl_legacy.cc b/services/metrics/ukm_recorder_factory_impl_legacy.cc
+new file mode 100644
+index 0000000000..11b2b56ae1
+--- /dev/null
++++ b/services/metrics/ukm_recorder_factory_impl_legacy.cc
+@@ -0,0 +1,51 @@
++// Copyright 2023 The Chromium Authors
++// Use of this source code is governed by a BSD-style license that can be
++// found in the LICENSE file.
++
++#include <memory>
++#include <utility>
++
++#include "base/memory/raw_ptr.h"
++#include "mojo/public/cpp/bindings/self_owned_receiver.h"
++#include "services/metrics/public/cpp/ukm_recorder_client_interface_registry.h"
++#include "services/metrics/ukm_recorder_factory_impl.h"
++#include "services/metrics/ukm_recorder_interface.h"
++
++namespace metrics {
++namespace {
++
++class LegacyUkmRecorderFactory final : public ukm::mojom::UkmRecorderFactory {
++ public:
++  explicit LegacyUkmRecorderFactory(ukm::UkmRecorder* recorder)
++      : recorder_(recorder) {}
++
++  LegacyUkmRecorderFactory(const LegacyUkmRecorderFactory&) = delete;
++  LegacyUkmRecorderFactory& operator=(const LegacyUkmRecorderFactory&) = delete;
++  ~LegacyUkmRecorderFactory() override = default;
++
++ private:
++  void CreateUkmRecorder(
++      mojo::PendingReceiver<ukm::mojom::UkmRecorderInterface> receiver,
++      mojo::PendingRemote<ukm::mojom::UkmRecorderClientInterface> client_remote)
++      override {
++    UkmRecorderInterface::Create(recorder_, std::move(receiver));
++    if (client_remote.is_valid()) {
++      UkmRecorderClientInterfaceRegistry::AddClientToCurrentRegistry(
++          std::move(client_remote));
++    }
++  }
++
++  raw_ptr<ukm::UkmRecorder> recorder_;
++};
++
++}  // namespace
++
++void UkmRecorderFactoryImpl::Create(
++    ukm::UkmRecorder* recorder,
++    mojo::PendingReceiver<ukm::mojom::UkmRecorderFactory> receiver) {
++  mojo::MakeSelfOwnedReceiver(
++      std::make_unique<LegacyUkmRecorderFactory>(recorder),
++      std::move(receiver));
++}
 +
 +}  // namespace metrics
-diff --git a/services/metrics/ukm_recorder_rust_bridge.h b/services/metrics/ukm_recorder_rust_bridge.h
+diff --git a/services/metrics/ukm_recorder_interface_perf.cc b/services/metrics/ukm_recorder_interface_perf.cc
 new file mode 100644
-index 0000000000..2cae0552df
+index 0000000000..fa6b143fc4
 --- /dev/null
-+++ b/services/metrics/ukm_recorder_rust_bridge.h
-@@ -0,0 +1,44 @@
++++ b/services/metrics/ukm_recorder_interface_perf.cc
+@@ -0,0 +1,173 @@
 +// Copyright 2026 The Chromium Authors
 +// Use of this source code is governed by a BSD-style license that can be
 +// found in the LICENSE file.
 +
-+#ifndef SERVICES_METRICS_UKM_RECORDER_RUST_BRIDGE_H_
-+#define SERVICES_METRICS_UKM_RECORDER_RUST_BRIDGE_H_
-+
++#include <cstddef>
 +#include <cstdint>
++#include <cstdlib>
++#include <iostream>
++#include <set>
++#include <string>
++#include <string_view>
++#include <utility>
 +
-+#include "base/memory/raw_ptr.h"
-+#include "base/sequence_checker.h"
-+#include "third_party/rust/cxx/v1/cxx.h"
++#include "base/command_line.h"
++#include "base/process/process_metrics.h"
++#include "base/strings/string_number_conversions.h"
++#include "base/test/task_environment.h"
++#include "base/test/test_timeouts.h"
++#include "base/time/time.h"
++#include "mojo/core/embedder/embedder.h"
++#include "mojo/public/cpp/bindings/remote.h"
++#include "services/metrics/public/cpp/ukm_recorder.h"
++#include "services/metrics/public/mojom/ukm_interface.mojom.h"
++#include "services/metrics/ukm_recorder_factory_impl.h"
++#include "url/gurl.h"
 +
-+namespace ukm {
-+class UkmRecorder;
++namespace metrics {
++namespace {
++
++constexpr uint64_t kDrainBatchSize = 1024;
++constexpr char kPerformanceUrl[] = "https://performance.test/path";
++
++class CountingUkmRecorder final : public ukm::UkmRecorder {
++ public:
++  void AddEntry(ukm::mojom::UkmEntryPtr entry) override {
++    ++entry_count_;
++    last_source_id_ = entry->source_id;
++  }
++
++  void RecordWebDXFeatures(ukm::SourceId,
++                           const std::set<int32_t>&,
++                           size_t) override {}
++
++  uint64_t call_count() const { return entry_count_ + url_count_; }
++  ukm::SourceId last_source_id() const { return last_source_id_; }
++
++ private:
++  void UpdateSourceURL(ukm::SourceId source_id, const GURL& url) override {
++    ++url_count_;
++    last_source_id_ = source_id;
++  }
++
++  void UpdateAppURL(ukm::SourceId, const GURL&, ukm::AppType) override {}
++  void RecordNavigation(ukm::SourceId,
++                        const ukm::UkmSource::NavigationData&) override {}
++  void MarkSourceForDeletion(ukm::SourceId) override {}
++
++  uint64_t entry_count_ = 0;
++  uint64_t url_count_ = 0;
++  ukm::SourceId last_source_id_ = 0;
++};
++
++uint64_t ParsePositiveSwitch(const base::CommandLine& command_line,
++                             std::string_view name) {
++  uint64_t value = 0;
++  if (!base::StringToUint64(command_line.GetSwitchValueASCII(name), &value) ||
++      value == 0) {
++    std::cerr << "invalid --" << name << " value\n";
++    std::exit(2);
++  }
++  return value;
 +}
++
++uint64_t ResidentSetBytes() {
++  auto metrics = base::ProcessMetrics::CreateCurrentProcessMetrics();
++  auto memory_info = metrics->GetMemoryInfo();
++  if (!memory_info.has_value()) {
++    std::cerr << "failed to read current-process memory info\n";
++    std::exit(3);
++  }
++  return memory_info->resident_set_bytes;
++}
++
++void SendEntry(mojo::Remote<ukm::mojom::UkmRecorderInterface>& remote,
++               uint64_t sequence,
++               size_t metric_count) {
++  auto entry = ukm::mojom::UkmEntry::New();
++  entry->source_id = static_cast<ukm::SourceId>(sequence + 1);
++  entry->event_hash = 0x4348524f4d494645ULL;
++  for (size_t i = 0; i < metric_count; ++i) {
++    entry->metrics.emplace(1000 + i, static_cast<int64_t>(sequence + i));
++  }
++  remote->AddEntry(std::move(entry));
++}
++
++void SendMessages(std::string_view workload,
++                  uint64_t messages,
++                  mojo::Remote<ukm::mojom::UkmRecorderInterface>& remote,
++                  base::test::TaskEnvironment& task_environment) {
++  for (uint64_t i = 0; i < messages; ++i) {
++    if (workload == "add_entry_single_metric") {
++      SendEntry(remote, i, 1);
++    } else if (workload == "add_entry_eight_metrics") {
++      SendEntry(remote, i, 8);
++    } else if (workload == "update_source_url") {
++      remote->UpdateSourceURL(static_cast<ukm::SourceId>(i + 1),
++                              kPerformanceUrl);
++    } else if (workload == "mixed_90_add_entry_10_update_url") {
++      if (i % 10 == 9) {
++        remote->UpdateSourceURL(static_cast<ukm::SourceId>(i + 1),
++                                kPerformanceUrl);
++      } else {
++        SendEntry(remote, i, 1);
++      }
++    } else {
++      std::cerr << "unknown --case value: " << workload << "\n";
++      std::exit(2);
++    }
++
++    if ((i + 1) % kDrainBatchSize == 0) {
++      task_environment.RunUntilIdle();
++    }
++  }
++  task_environment.RunUntilIdle();
++}
++
++}  // namespace
++}  // namespace metrics
++
++int main(int argc, char** argv) {
++  base::CommandLine::Init(argc, argv);
++  const base::CommandLine& command_line =
++      *base::CommandLine::ForCurrentProcess();
++  const std::string workload = command_line.GetSwitchValueASCII("case");
++  const uint64_t warmup = metrics::ParsePositiveSwitch(command_line, "warmup");
++  const uint64_t messages =
++      metrics::ParsePositiveSwitch(command_line, "messages");
++
++  TestTimeouts::Initialize();
++  mojo::core::Init();
++  base::test::TaskEnvironment task_environment;
++  metrics::CountingUkmRecorder recorder;
++  mojo::Remote<ukm::mojom::UkmRecorderFactory> factory;
++  metrics::UkmRecorderFactoryImpl::Create(&recorder,
++                                          factory.BindNewPipeAndPassReceiver());
++  mojo::Remote<ukm::mojom::UkmRecorderInterface> remote;
++  factory->CreateUkmRecorder(remote.BindNewPipeAndPassReceiver(), {});
++  task_environment.RunUntilIdle();
++
++  metrics::SendMessages(workload, warmup, remote, task_environment);
++  const uint64_t rss_after_warmup = metrics::ResidentSetBytes();
++  const uint64_t calls_before_sample = recorder.call_count();
++
++  const base::TimeTicks start = base::TimeTicks::Now();
++  metrics::SendMessages(workload, messages, remote, task_environment);
++  const base::TimeDelta elapsed = base::TimeTicks::Now() - start;
++  const uint64_t rss_after_sample = metrics::ResidentSetBytes();
++  const uint64_t forwarded = recorder.call_count() - calls_before_sample;
++  if (forwarded != messages) {
++    std::cerr << "forwarding mismatch: expected=" << messages
++              << " actual=" << forwarded << "\n";
++    return 4;
++  }
++
++  const double ns_per_message = static_cast<double>(elapsed.InNanoseconds()) /
++                                static_cast<double>(messages);
++  std::cout << "case=" << workload << " ns_per_message=" << ns_per_message
++            << " rss_after_warmup=" << rss_after_warmup
++            << " rss_after_sample=" << rss_after_sample
++            << " forwarded_messages=" << forwarded
++            << " last_source_id=" << recorder.last_source_id() << '\n';
++  return 0;
++}
+diff --git a/services/metrics/ukm_recorder_interface_test_support.cc b/services/metrics/ukm_recorder_interface_test_support.cc
+new file mode 100644
+index 0000000000..16cee3b23d
+--- /dev/null
++++ b/services/metrics/ukm_recorder_interface_test_support.cc
+@@ -0,0 +1,21 @@
++// Copyright 2026 The Chromium Authors
++// Use of this source code is governed by a BSD-style license that can be
++// found in the LICENSE file.
++
++#include "services/metrics/ukm_recorder_interface_test_support.h"
++
++#include "base/command_line.h"
++#include "base/test/test_timeouts.h"
++#include "mojo/core/embedder/embedder.h"
 +
 +namespace metrics {
 +
-+// Narrow C++ capability retained by the Rust UkmRecorderInterface. The
-+// wrapper is owned by Rust, while the underlying UkmRecorder lifetime follows
-+// the same browser-owned contract as the legacy implementation.
-+class UkmRecorderBridge {
-+ public:
-+  explicit UkmRecorderBridge(ukm::UkmRecorder* recorder);
-+  ~UkmRecorderBridge();
-+
-+  UkmRecorderBridge(const UkmRecorderBridge&) = delete;
-+  UkmRecorderBridge& operator=(const UkmRecorderBridge&) = delete;
-+
-+  void AddEntry(int64_t source_id,
-+                uint64_t event_hash,
-+                rust::Slice<const uint64_t> metric_hashes,
-+                rust::Slice<const int64_t> metric_values);
-+  void UpdateSourceURL(int64_t source_id, rust::Str url);
-+
-+ private:
-+  raw_ptr<ukm::UkmRecorder> recorder_;
-+  SEQUENCE_CHECKER(sequence_checker_);
-+};
++void InitializeUkmRustTestEnvironment() {
++  if (!base::CommandLine::InitializedForCurrentProcess()) {
++    base::CommandLine::Init(0, nullptr);
++  }
++  TestTimeouts::Initialize();
++  mojo::core::Init();
++}
 +
 +}  // namespace metrics
-+
-+#endif  // SERVICES_METRICS_UKM_RECORDER_RUST_BRIDGE_H_
-diff --git a/url/mojom/BUILD.gn b/url/mojom/BUILD.gn
-index e503ce484f..b8548603b8 100644
---- a/url/mojom/BUILD.gn
-+++ b/url/mojom/BUILD.gn
-@@ -6,6 +6,7 @@ import("//mojo/public/tools/bindings/mojom.gni")
- 
- mojom("url_mojom_gurl") {
-   generate_java = true
-+  generate_rust = true
-   sources = [ "url.mojom" ]
- 
-   cpp_typemaps = [
-diff --git a/services/metrics/ukm_recorder_interface_unittest.cc b/services/metrics/ukm_recorder_interface_unittest.cc
+diff --git a/services/metrics/ukm_recorder_interface_test_support.h b/services/metrics/ukm_recorder_interface_test_support.h
 new file mode 100644
-index 0000000000..4cee72487e
+index 0000000000..3c4a836cbf
 --- /dev/null
-+++ b/services/metrics/ukm_recorder_interface_unittest.cc
-@@ -0,0 +1,148 @@
++++ b/services/metrics/ukm_recorder_interface_test_support.h
+@@ -0,0 +1,14 @@
 +// Copyright 2026 The Chromium Authors
 +// Use of this source code is governed by a BSD-style license that can be
 +// found in the LICENSE file.
 +
-+#include "services/metrics/ukm_recorder_buildflags.h"
++#ifndef SERVICES_METRICS_UKM_RECORDER_INTERFACE_TEST_SUPPORT_H_
++#define SERVICES_METRICS_UKM_RECORDER_INTERFACE_TEST_SUPPORT_H_
 +
-+#if BUILDFLAG(USE_RUST_UKM_RECORDER)
-+#include "services/metrics/ukm_recorder_rust_bridge.h"
-+#endif
++namespace metrics {
++
++void InitializeUkmRustTestEnvironment();
++
++}  // namespace metrics
++
++#endif  // SERVICES_METRICS_UKM_RECORDER_INTERFACE_TEST_SUPPORT_H_
+diff --git a/services/metrics/ukm_recorder_interface_unittest.cc b/services/metrics/ukm_recorder_interface_unittest.cc
+new file mode 100644
+index 0000000000..548f944d24
+--- /dev/null
++++ b/services/metrics/ukm_recorder_interface_unittest.cc
+@@ -0,0 +1,179 @@
++// Copyright 2026 The Chromium Authors
++// Use of this source code is governed by a BSD-style license that can be
++// found in the LICENSE file.
 +
 +#include <array>
 +#include <cstdint>
@@ -410,6 +800,7 @@ index 0000000000..4cee72487e
 +#include "mojo/public/cpp/bindings/remote.h"
 +#include "services/metrics/public/cpp/ukm_recorder.h"
 +#include "services/metrics/public/mojom/ukm_interface.mojom.h"
++#include "services/metrics/ukm_recorder_buildflags.h"
 +#include "services/metrics/ukm_recorder_factory_impl.h"
 +#include "testing/gtest/include/gtest/gtest.h"
 +#include "url/gurl.h"
@@ -419,10 +810,17 @@ index 0000000000..4cee72487e
 +
 +class FakeUkmRecorder final : public ukm::UkmRecorder {
 + public:
++  enum class OperationKind { kAddEntry, kUpdateSourceUrl };
++  struct Operation {
++    OperationKind kind;
++    ukm::SourceId source_id;
++  };
++
 +  FakeUkmRecorder() = default;
 +  ~FakeUkmRecorder() override = default;
 +
 +  void AddEntry(ukm::mojom::UkmEntryPtr entry) override {
++    operations_.push_back({OperationKind::kAddEntry, entry->source_id});
 +    entries_.push_back(std::move(entry));
 +  }
 +
@@ -439,9 +837,11 @@ index 0000000000..4cee72487e
 +  size_t entry_count() const { return entries_.size(); }
 +  ukm::SourceId last_source_id() const { return last_source_id_; }
 +  const GURL& last_source_url() const { return last_source_url_; }
++  const std::vector<Operation>& operations() const { return operations_; }
 +
 + private:
 +  void UpdateSourceURL(ukm::SourceId source_id, const GURL& url) override {
++    operations_.push_back({OperationKind::kUpdateSourceUrl, source_id});
 +    last_source_id_ = source_id;
 +    last_source_url_ = url;
 +  }
@@ -457,6 +857,7 @@ index 0000000000..4cee72487e
 +  void MarkSourceForDeletion(ukm::SourceId source_id) override {}
 +
 +  std::vector<ukm::mojom::UkmEntryPtr> entries_;
++  std::vector<Operation> operations_;
 +  ukm::SourceId last_source_id_ = 0;
 +  GURL last_source_url_;
 +};
@@ -464,7 +865,7 @@ index 0000000000..4cee72487e
 +#if BUILDFLAG(USE_RUST_UKM_RECORDER)
 +TEST(UkmRecorderInterfaceTest, RustBridgeForwardsEntry) {
 +  FakeUkmRecorder recorder;
-+  UkmRecorderBridge bridge(&recorder);
++  UkmRecorderFactoryImpl bridge(&recorder);
 +  constexpr std::array<uint64_t, 2> kMetricHashes = {11, 22};
 +  constexpr std::array<int64_t, 2> kMetricValues = {-5, 7};
 +
@@ -483,7 +884,7 @@ index 0000000000..4cee72487e
 +
 +TEST(UkmRecorderInterfaceTest, RustBridgeForwardsSourceUrl) {
 +  FakeUkmRecorder recorder;
-+  UkmRecorderBridge bridge(&recorder);
++  UkmRecorderFactoryImpl bridge(&recorder);
 +  const std::string url = "https://example.test/path";
 +
 +  bridge.UpdateSourceURL(789, rust::Str(url));
@@ -532,6 +933,32 @@ index 0000000000..4cee72487e
 +  EXPECT_EQ(recorder.entry_at(1)->metrics.at(55), 0);
 +  EXPECT_EQ(recorder.last_source_id(), 987);
 +  EXPECT_EQ(recorder.last_source_url(), GURL("https://receiver.test/path"));
++  ASSERT_EQ(recorder.operations().size(), 3u);
++  EXPECT_EQ(recorder.operations()[0].kind,
++            FakeUkmRecorder::OperationKind::kAddEntry);
++  EXPECT_EQ(recorder.operations()[0].source_id, 321);
++  EXPECT_EQ(recorder.operations()[1].kind,
++            FakeUkmRecorder::OperationKind::kAddEntry);
++  EXPECT_EQ(recorder.operations()[1].source_id, 322);
++  EXPECT_EQ(recorder.operations()[2].kind,
++            FakeUkmRecorder::OperationKind::kUpdateSourceUrl);
++  EXPECT_EQ(recorder.operations()[2].source_id, 987);
++
++  // A second child receiver must remain independent while sharing the same
++  // recorder capability owned by the Rust factory.
++  mojo::Remote<ukm::mojom::UkmRecorderInterface> second_remote;
++  factory->CreateUkmRecorder(second_remote.BindNewPipeAndPassReceiver(), {});
++  auto third_entry = ukm::mojom::UkmEntry::New();
++  third_entry->source_id = 323;
++  third_entry->event_hash = 656;
++  third_entry->metrics.emplace(66, 19);
++  second_remote->AddEntry(std::move(third_entry));
++  task_environment.RunUntilIdle();
++
++  ASSERT_EQ(recorder.entry_count(), 3u);
++  EXPECT_EQ(recorder.entry_at(2)->source_id, 323);
++  EXPECT_EQ(recorder.entry_at(2)->event_hash, 656u);
++  EXPECT_EQ(recorder.entry_at(2)->metrics.at(66), 19);
 +}
 +
 +}  // namespace

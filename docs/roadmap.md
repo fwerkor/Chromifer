@@ -65,7 +65,7 @@ Target a self-contained browser service rather than Blink or V8. Candidate selec
 - rollback through a build flag during stabilization;
 - a measured reduction in memory-safety exposure and maintenance complexity.
 
-The active pilot is `services/metrics`' `ukm.mojom.UkmRecorderInterface` at pinned Chromium revision `008cdad85f0721c89b42ef4dcaabcee615482609`. Its Linux Rust contract path and dependency-clean C++ rollback path are verified, and the exact Chromium implementation patch is stored and digest-bound to that revision. The repository carries machine-readable parity, performance, and exposure criteria plus a fail-closed `chromifer-migration` validator. The pilot remains in progress until broader UKM regression results, the supported-desktop matrix, performance measurements, and safety/maintenance measurements are recorded and pass.
+The active pilot is the `services/metrics` UKM factory/recorder Mojo path at pinned Chromium revision `008cdad85f0721c89b42ef4dcaabcee615482609`. Rust owns `UkmRecorderFactory` dispatch together with its `UkmRecorderInterface` child receivers while the existing C++ factory entry point and Mojom contract remain stable. The Linux focused contract path, source-separated C++ rollback path, and `//components/ukm:ukm_unittests` regression suite are verified. Reproducible exposure measurement now shows a strict reduction in authored memory-unsafe LOC and raw-pointer fields, but the maintenance gate remains open because total authored production LOC grows at the Rust/CXX boundary. The pilot remains in progress until the supported-desktop matrix, performance measurements, and all required exposure/maintenance criteria are recorded and pass.
 
 ## M4 — Service migration pipeline
 

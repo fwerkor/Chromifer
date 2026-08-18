@@ -22,6 +22,8 @@ kind = "mojo"
 interface = "ukm.mojom.UkmRecorderInterface"
 mojom = "services/metrics/public/mojom/ukm_interface.mojom"
 legacy_sources = [
+  "services/metrics/ukm_recorder_factory_impl.cc",
+  "services/metrics/ukm_recorder_factory_impl.h",
   "services/metrics/ukm_recorder_interface.cc",
   "services/metrics/ukm_recorder_interface.h",
 ]
@@ -43,7 +45,7 @@ status = "passed"
 [implementation.patch]
 path = "chromium.patch"
 base_revision = "008cdad85f0721c89b42ef4dcaabcee615482609"
-sha256 = "654b759b6991b1b4639330f2a98500dff72074b020162a2ba546a37878e02c97"
+sha256 = "189d67fc53f5759e5f87221c9c02cdd505463fd610e71087b17bfa71e91fcb39"
 
 [[verification]]
 id = "rust-interface-contract"
@@ -64,16 +66,18 @@ rust_receiver_dependencies_present = false
 
 [[verification]]
 id = "broader-ukm-regression"
-status = "pending"
+status = "passed"
 target = "//components/ukm:ukm_unittests"
+passed_tests = 96
+failed_tests = 0
 
 [m3_acceptance]
 feature_parity = "partial"
-upstream_test_parity = "pending"
+upstream_test_parity = "passed"
 performance_budget = "defined_not_measured"
 rollback = "verified"
-memory_safety_reduction = "defined_not_measured"
-maintenance_complexity_reduction = "defined_not_measured"
+memory_safety_reduction = "passed"
+maintenance_complexity_reduction = "failed"
 
 [parity]
 matrix = "parity.toml"
@@ -85,8 +89,8 @@ status = "defined_not_measured"
 
 [exposure]
 measurement = "exposure.toml"
-status = "defined_not_measured"
+status = "failed"
 
 [notes]
 verified_platform = "linux"
-feature_parity_scope = "The shared Mojo contract exercises both UkmRecorderInterface methods; full supported-desktop parity is not yet claimed."
+feature_parity_scope = "The shared Mojo contract exercises both UkmRecorderInterface methods plus Rust-owned factory creation, ordering, multi-metric forwarding, and multiple child receivers on Linux; a Rust-native test directly verifies component state destruction on receiver disconnect. Full supported-desktop parity is not yet claimed."

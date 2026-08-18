@@ -958,38 +958,11 @@ impl MigrationEvidence {
                         result.id
                     ));
                 }
-                if result.median_regression_percent
-                    > self
-                        .performance
-                        .latency_budget
-                        .median_regression_percent_max
-                {
-                    errors.push(format!(
-                        "performance result `{}` exceeds the median regression budget",
-                        result.id
-                    ));
-                }
-                if result.p95_regression_percent
-                    > self.performance.latency_budget.p95_regression_percent_max
-                {
-                    errors.push(format!(
-                        "performance result `{}` exceeds the p95 regression budget",
-                        result.id
-                    ));
-                }
             }
             if result_ids != as_set(&self.performance.workload.cases) {
                 errors.push(
                     "performance result cases do not match configured workload cases".to_owned(),
                 );
-            }
-            if results.steady_state_rss_regression_bytes
-                > self
-                    .performance
-                    .memory_budget
-                    .steady_state_rss_regression_bytes_max as i64
-            {
-                errors.push("performance results exceed the steady-state RSS budget".to_owned());
             }
             for (label, digest) in [
                 (
@@ -1013,8 +986,28 @@ impl MigrationEvidence {
                 check_sha256(label, digest, errors);
             }
         }
-        if self.performance.status == EvidenceStatus::Passed && self.performance.results.is_none() {
-            errors.push("passed performance record requires measured results".to_owned());
+        match (&self.performance.results, self.performance.status) {
+            (Some(results), EvidenceStatus::Passed) => {
+                errors.extend(performance_budget_violations(&self.performance, results));
+            }
+            (Some(results), EvidenceStatus::Failed) => {
+                if performance_budget_violations(&self.performance, results).is_empty() {
+                    errors.push(
+                        "failed performance record must violate at least one configured budget"
+                            .to_owned(),
+                    );
+                }
+            }
+            (Some(_), _) => errors.push(
+                "measured performance results require status `passed` or `failed`".to_owned(),
+            ),
+            (None, EvidenceStatus::Passed) => {
+                errors.push("passed performance record requires measured results".to_owned());
+            }
+            (None, EvidenceStatus::Failed) => {
+                errors.push("failed performance record requires measured results".to_owned());
+            }
+            (None, _) => {}
         }
         if self.pilot.m3_acceptance.performance_budget.is_satisfied()
             && self.performance.status != EvidenceStatus::Passed
@@ -1139,51 +1132,25 @@ impl MigrationEvidence {
                     }
                 }
             }
-            let mut strict_decrease = false;
-            for metric in &self.exposure.maintenance.non_increasing_metrics {
-                if let Some((baseline, candidate)) = maintenance_metric_pair(Some(results), metric)
-                {
-                    if candidate > baseline {
-                        errors.push(format!(
-                            "maintenance metric `{metric}` increases from {baseline} to {candidate}"
-                        ));
-                    }
-                    strict_decrease |= candidate < baseline;
+            let memory_safety_violations =
+                exposure_memory_safety_violations(&self.exposure, results);
+            let maintenance_violations = exposure_maintenance_violations(&self.exposure, results);
+            match self.exposure.status {
+                EvidenceStatus::Passed => {
+                    errors.extend(memory_safety_violations.iter().cloned());
+                    errors.extend(maintenance_violations.iter().cloned());
                 }
-            }
-            if self.exposure.maintenance.require_strict_decrease && !strict_decrease {
-                errors.push(
-                    "maintenance results require at least one strict structural decrease"
-                        .to_owned(),
-                );
-            }
-            if self
-                .exposure
-                .memory_safety
-                .require_candidate_less_than_baseline
-                && results.candidate_authored_memory_unsafe_loc
-                    >= results.baseline_authored_memory_unsafe_loc
-            {
-                errors.push("exposure results do not reduce authored memory-unsafe LOC".to_owned());
-            }
-            if self
-                .exposure
-                .maintenance
-                .require_no_increase_manual_raw_pointer_fields
-                && results.candidate_manual_raw_pointer_fields
-                    > results.baseline_manual_raw_pointer_fields
-            {
-                errors.push("exposure results increase manual raw-pointer fields".to_owned());
-            }
-            if self.exposure.maintenance.require_no_new_public_api
-                && results.new_public_api_count != 0
-            {
-                errors.push("exposure results introduce new public API".to_owned());
-            }
-            if self.exposure.maintenance.require_no_new_mojom_methods
-                && results.new_mojom_method_count != 0
-            {
-                errors.push("exposure results introduce new Mojom methods".to_owned());
+                EvidenceStatus::Failed => {
+                    if memory_safety_violations.is_empty() && maintenance_violations.is_empty() {
+                        errors.push(
+                            "failed exposure record must violate at least one configured acceptance criterion"
+                                .to_owned(),
+                        );
+                    }
+                }
+                _ => errors.push(
+                    "measured exposure results require status `passed` or `failed`".to_owned(),
+                ),
             }
             check_nonempty(
                 "exposure measurement tool version",
@@ -1193,20 +1160,60 @@ impl MigrationEvidence {
             check_sha256("exposure file hashes", &results.file_hashes_sha256, errors);
             check_sha256("exposure raw counts", &results.raw_counts_sha256, errors);
         }
-        if self.exposure.status == EvidenceStatus::Passed && self.exposure.results.is_none() {
-            errors.push("passed exposure record requires measured results".to_owned());
+        match (&self.exposure.results, self.exposure.status) {
+            (None, EvidenceStatus::Passed) => {
+                errors.push("passed exposure record requires measured results".to_owned());
+            }
+            (None, EvidenceStatus::Failed) => {
+                errors.push("failed exposure record requires measured results".to_owned());
+            }
+            _ => {}
         }
-        let exposure_satisfied = self
+
+        if self
             .pilot
             .m3_acceptance
             .memory_safety_reduction
             .is_satisfied()
-            || self
+        {
+            match self.exposure.results.as_ref() {
+                Some(results) => {
+                    errors.extend(exposure_memory_safety_violations(&self.exposure, results))
+                }
+                None => errors.push(
+                    "satisfied memory-safety acceptance requires measured exposure results"
+                        .to_owned(),
+                ),
+            }
+        }
+        if self
+            .pilot
+            .m3_acceptance
+            .maintenance_complexity_reduction
+            .is_satisfied()
+        {
+            match self.exposure.results.as_ref() {
+                Some(results) => {
+                    errors.extend(exposure_maintenance_violations(&self.exposure, results))
+                }
+                None => errors.push(
+                    "satisfied maintenance acceptance requires measured exposure results"
+                        .to_owned(),
+                ),
+            }
+        }
+        if self
+            .pilot
+            .m3_acceptance
+            .memory_safety_reduction
+            .is_satisfied()
+            && self
                 .pilot
                 .m3_acceptance
                 .maintenance_complexity_reduction
-                .is_satisfied();
-        if exposure_satisfied && self.exposure.status != EvidenceStatus::Passed {
+                .is_satisfied()
+            && self.exposure.status != EvidenceStatus::Passed
+        {
             errors
                 .push("satisfied exposure acceptance requires a passed exposure record".to_owned());
         }
@@ -1365,6 +1372,87 @@ fn maintenance_metric_pair(results: Option<&ExposureResults>, metric: &str) -> O
         },
         _ => None,
     }
+}
+
+fn performance_budget_violations(
+    performance: &PerformanceManifest,
+    results: &PerformanceResults,
+) -> Vec<String> {
+    let mut violations = Vec::new();
+    for result in &results.cases {
+        if result.median_regression_percent
+            > performance.latency_budget.median_regression_percent_max
+        {
+            violations.push(format!(
+                "performance result `{}` exceeds the median regression budget",
+                result.id
+            ));
+        }
+        if result.p95_regression_percent > performance.latency_budget.p95_regression_percent_max {
+            violations.push(format!(
+                "performance result `{}` exceeds the p95 regression budget",
+                result.id
+            ));
+        }
+    }
+    if results.steady_state_rss_regression_bytes
+        > performance
+            .memory_budget
+            .steady_state_rss_regression_bytes_max as i64
+    {
+        violations.push("performance results exceed the steady-state RSS budget".to_owned());
+    }
+    violations
+}
+
+fn exposure_memory_safety_violations(
+    exposure: &ExposureManifest,
+    results: &ExposureResults,
+) -> Vec<String> {
+    let mut violations = Vec::new();
+    if exposure.memory_safety.require_candidate_less_than_baseline
+        && results.candidate_authored_memory_unsafe_loc
+            >= results.baseline_authored_memory_unsafe_loc
+    {
+        violations.push("exposure results do not reduce authored memory-unsafe LOC".to_owned());
+    }
+    violations
+}
+
+fn exposure_maintenance_violations(
+    exposure: &ExposureManifest,
+    results: &ExposureResults,
+) -> Vec<String> {
+    let mut violations = Vec::new();
+    let mut strict_decrease = false;
+    for metric in &exposure.maintenance.non_increasing_metrics {
+        if let Some((baseline, candidate)) = maintenance_metric_pair(Some(results), metric) {
+            if candidate > baseline {
+                violations.push(format!(
+                    "maintenance metric `{metric}` increases from {baseline} to {candidate}"
+                ));
+            }
+            strict_decrease |= candidate < baseline;
+        }
+    }
+    if exposure.maintenance.require_strict_decrease && !strict_decrease {
+        violations
+            .push("maintenance results require at least one strict structural decrease".to_owned());
+    }
+    if exposure
+        .maintenance
+        .require_no_increase_manual_raw_pointer_fields
+        && results.candidate_manual_raw_pointer_fields > results.baseline_manual_raw_pointer_fields
+    {
+        violations.push("exposure results increase manual raw-pointer fields".to_owned());
+    }
+    if exposure.maintenance.require_no_new_public_api && results.new_public_api_count != 0 {
+        violations.push("exposure results introduce new public API".to_owned());
+    }
+    if exposure.maintenance.require_no_new_mojom_methods && results.new_mojom_method_count != 0 {
+        violations.push("exposure results introduce new Mojom methods".to_owned());
+    }
+    violations
 }
 
 fn check_platform_evidence(

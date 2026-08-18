@@ -14,6 +14,65 @@ fn ukm_pilot() -> MigrationEvidence {
         .expect("load UKM pilot")
 }
 
+fn failed_performance_results() -> chromifer_migration::PerformanceResults {
+    use chromifer_migration::PerformanceCaseResult;
+
+    chromifer_migration::PerformanceResults {
+        completed_samples: 15,
+        cases: vec![
+            PerformanceCaseResult {
+                id: "add_entry_single_metric".to_owned(),
+                median_regression_percent: 6.0,
+                p95_regression_percent: 7.0,
+            },
+            PerformanceCaseResult {
+                id: "add_entry_eight_metrics".to_owned(),
+                median_regression_percent: 0.0,
+                p95_regression_percent: 0.0,
+            },
+            PerformanceCaseResult {
+                id: "update_source_url".to_owned(),
+                median_regression_percent: 0.0,
+                p95_regression_percent: 0.0,
+            },
+            PerformanceCaseResult {
+                id: "mixed_90_add_entry_10_update_url".to_owned(),
+                median_regression_percent: 0.0,
+                p95_regression_percent: 0.0,
+            },
+        ],
+        steady_state_rss_regression_bytes: 0,
+        baseline_binary_sha256: "a".repeat(64),
+        candidate_binary_sha256: "b".repeat(64),
+        baseline_gn_args_sha256: "c".repeat(64),
+        candidate_gn_args_sha256: "d".repeat(64),
+        raw_samples_sha256: "e".repeat(64),
+    }
+}
+
+fn failed_exposure_results() -> chromifer_migration::ExposureResults {
+    chromifer_migration::ExposureResults {
+        baseline_authored_memory_unsafe_loc: 98,
+        candidate_authored_memory_unsafe_loc: 97,
+        baseline_authored_production_loc: 98,
+        candidate_authored_production_loc: 158,
+        baseline_active_implementation_files: 4,
+        candidate_active_implementation_files: 3,
+        baseline_branch_points: 1,
+        candidate_branch_points: 1,
+        baseline_manual_raw_pointer_fields: 2,
+        candidate_manual_raw_pointer_fields: 1,
+        baseline_cross_language_forwarding_methods: 0,
+        candidate_cross_language_forwarding_methods: 4,
+        new_public_api_count: 0,
+        new_mojom_method_count: 0,
+        measurement_tool_version:
+            chromifer_migration::exposure_measure::EXPOSURE_MEASUREMENT_TOOL_VERSION.to_owned(),
+        file_hashes_sha256: "a".repeat(64),
+        raw_counts_sha256: "b".repeat(64),
+    }
+}
+
 #[test]
 fn committed_migration_records_validate() {
     let migrations = migrations_root();
@@ -199,6 +258,7 @@ fn passed_exposure_requires_measured_results() {
     let mut evidence = ukm_pilot();
     evidence.exposure.status = chromifer_migration::EvidenceStatus::Passed;
     evidence.pilot.exposure.status = chromifer_migration::EvidenceStatus::Passed;
+    evidence.exposure.results = None;
 
     let errors = evidence
         .validate()
@@ -319,6 +379,7 @@ fn upstream_parity_pass_requires_suite_evidence_digest() {
     evidence.pilot.m3_acceptance.upstream_test_parity = chromifer_migration::EvidenceStatus::Passed;
     for suite in &mut evidence.parity.upstream_suites {
         suite.status = chromifer_migration::EvidenceStatus::Passed;
+        suite.evidence_sha256 = None;
     }
     let errors = evidence
         .validate()
@@ -403,5 +464,106 @@ fn exposure_source_inventory_path_must_stay_inside_migration_directory() {
         }),
         "unexpected validation errors: {:?}",
         errors.0
+    );
+}
+
+#[test]
+fn failed_performance_measurement_can_be_recorded_without_passing_budget() {
+    let mut evidence = ukm_pilot();
+    evidence.performance.status = chromifer_migration::EvidenceStatus::Failed;
+    evidence.pilot.performance.status = chromifer_migration::EvidenceStatus::Failed;
+    evidence.performance.results = Some(failed_performance_results());
+
+    evidence
+        .validate()
+        .expect("complete measured performance failure should remain valid evidence");
+}
+
+#[test]
+fn failed_exposure_can_record_memory_safety_pass_and_maintenance_failure() {
+    let mut evidence = ukm_pilot();
+    evidence.exposure.status = chromifer_migration::EvidenceStatus::Failed;
+    evidence.pilot.exposure.status = chromifer_migration::EvidenceStatus::Failed;
+    evidence.exposure.results = Some(failed_exposure_results());
+    evidence.pilot.m3_acceptance.memory_safety_reduction =
+        chromifer_migration::EvidenceStatus::Passed;
+    evidence
+        .pilot
+        .m3_acceptance
+        .maintenance_complexity_reduction = chromifer_migration::EvidenceStatus::Failed;
+
+    evidence
+        .validate()
+        .expect("memory-safety pass plus measured maintenance failure should be valid evidence");
+}
+
+#[test]
+fn passed_exposure_still_rejects_a_measured_maintenance_regression() {
+    let mut evidence = ukm_pilot();
+    evidence.exposure.status = chromifer_migration::EvidenceStatus::Passed;
+    evidence.pilot.exposure.status = chromifer_migration::EvidenceStatus::Passed;
+    evidence.exposure.results = Some(failed_exposure_results());
+
+    let errors = evidence
+        .validate()
+        .expect_err("passed exposure must still reject a maintenance regression");
+    assert!(errors.0.iter().any(|error| {
+        error == "maintenance metric `authored_production_loc` increases from 98 to 158"
+    }));
+}
+
+#[test]
+fn failed_performance_status_requires_a_real_budget_violation() {
+    let mut evidence = ukm_pilot();
+    let mut results = failed_performance_results();
+    for case in &mut results.cases {
+        case.median_regression_percent = 0.0;
+        case.p95_regression_percent = 0.0;
+    }
+    evidence.performance.status = chromifer_migration::EvidenceStatus::Failed;
+    evidence.pilot.performance.status = chromifer_migration::EvidenceStatus::Failed;
+    evidence.performance.results = Some(results);
+
+    let errors = evidence
+        .validate()
+        .expect_err("failed status must not hide a passing performance measurement");
+    assert!(errors.0.iter().any(|error| {
+        error == "failed performance record must violate at least one configured budget"
+    }));
+}
+
+#[test]
+fn measured_performance_cannot_remain_defined_not_measured() {
+    let mut evidence = ukm_pilot();
+    evidence.performance.results = Some(failed_performance_results());
+
+    let errors = evidence
+        .validate()
+        .expect_err("measured performance must have a terminal pass/fail status");
+    assert!(errors.0.iter().any(|error| {
+        error == "measured performance results require status `passed` or `failed`"
+    }));
+}
+
+#[test]
+fn measured_exposure_cannot_remain_defined_not_measured() {
+    let mut evidence = ukm_pilot();
+    evidence.exposure.status = chromifer_migration::EvidenceStatus::DefinedNotMeasured;
+    evidence.pilot.exposure.status = chromifer_migration::EvidenceStatus::DefinedNotMeasured;
+    evidence.exposure.results = Some(failed_exposure_results());
+    evidence.pilot.m3_acceptance.memory_safety_reduction =
+        chromifer_migration::EvidenceStatus::DefinedNotMeasured;
+    evidence
+        .pilot
+        .m3_acceptance
+        .maintenance_complexity_reduction = chromifer_migration::EvidenceStatus::DefinedNotMeasured;
+
+    let errors = evidence
+        .validate()
+        .expect_err("measured exposure must have a terminal pass/fail status");
+    assert!(
+        errors.0.iter().any(|error| {
+            error == "measured exposure results require status `passed` or `failed`"
+        })
     );
 }

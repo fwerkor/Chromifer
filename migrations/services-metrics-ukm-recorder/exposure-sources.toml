@@ -1,29 +1,33 @@
 schema_version = 1
 
-# Active production implementation surface under use_rust_ukm_recorder=false.
+# Active production implementation surface at the pinned Chromium revision.
 [baseline]
 files = [
+  "services/metrics/ukm_recorder_factory_impl.cc",
+  "services/metrics/ukm_recorder_factory_impl.h",
   "services/metrics/ukm_recorder_interface.cc",
   "services/metrics/ukm_recorder_interface.h",
 ]
 cross_language_forwarding_methods = []
 
-# Active production implementation surface under use_rust_ukm_recorder=true.
-# Generated CXX/Mojo bindings and tests are intentionally excluded by exposure.toml.
+# Active authored production surface under use_rust_ukm_recorder=true.
+# The source-separated C++ rollback implementation, tests, and generated
+# CXX/Mojo bindings are intentionally excluded by exposure.toml.
 [candidate]
 files = [
   "services/metrics/rust/ukm_recorder_interface.rs",
-  "services/metrics/ukm_recorder_rust_bridge.cc",
-  "services/metrics/ukm_recorder_rust_bridge.h",
+  "services/metrics/ukm_recorder_factory_impl.cc",
+  "services/metrics/ukm_recorder_factory_impl.h",
 ]
 cross_language_forwarding_methods = [
-  "metrics::BindUkmRecorderInterface",
-  "metrics::UkmRecorderBridge::AddEntry",
-  "metrics::UkmRecorderBridge::UpdateSourceURL",
+  "metrics::BindUkmRecorderFactory",
+  "metrics::UkmRecorderFactoryImpl::AddEntry",
+  "metrics::UkmRecorderFactoryImpl::UpdateSourceURL",
+  "metrics::AddUkmClientFromRust",
 ]
 
-# These are reviewed contract deltas rather than heuristically inferred C++ API changes.
-# The public Mojom interface and factory entry point are separately parity-gated.
+# These are reviewed contract deltas rather than heuristically inferred C++ API
+# changes. The public factory entry point and Mojom methods remain unchanged.
 [contract_review]
 new_public_api_count = 0
 new_mojom_method_count = 0
