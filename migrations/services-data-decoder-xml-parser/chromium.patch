@@ -1,14 +1,435 @@
+diff --git a/mojo/public/mojom/base/BUILD.gn b/mojo/public/mojom/base/BUILD.gn
+index 725f22b966..0bb2f2c8e7 100644
+--- a/mojo/public/mojom/base/BUILD.gn
++++ b/mojo/public/mojom/base/BUILD.gn
+@@ -7,6 +7,7 @@ import("//third_party/protobuf/proto_library.gni")
+ 
+ mojom_component("base") {
+   generate_java = true
++  generate_rust = true
+   sources = [
+     "absl_status.mojom",
+     "application_state.mojom",
+diff --git a/mojo/public/rust/mojom_value_parser/ast.rs b/mojo/public/rust/mojom_value_parser/ast.rs
+index 6886dc455c..26681f291f 100644
+--- a/mojo/public/rust/mojom_value_parser/ast.rs
++++ b/mojo/public/rust/mojom_value_parser/ast.rs
+@@ -46,16 +46,36 @@ pub enum MojomType {
+     PendingRemote,
+     PendingAssociatedReceiver,
+     PendingAssociatedRemote,
+-    Enum { is_valid: Predicate<i32> },
+-    Union { variants: BTreeMap<i32, MojomType> },
++    Enum {
++        is_valid: Predicate<i32>,
++    },
++    Union {
++        variants: BTreeMap<i32, MojomType>,
++    },
+     // `field_names` is only for debugging; it should have the same
+     // length as `fields`
+-    Struct { field_names: Vec<String>, fields: Vec<MojomType> },
++    Struct {
++        field_names: Vec<String>,
++        fields: Vec<MojomType>,
++    },
+     // Mojom has separate sized/unsized array types; we could have two variants here, but
+     // rust's type system can't enforce that the length is correct so there's little point.
+-    Array { element_type: Box<MojomType>, num_elements: Option<usize> },
+-    Map { key_type: Box<MojomType>, value_type: Box<MojomType> },
+-    Nullable { inner_type: Box<MojomType> },
++    Array {
++        element_type: Box<MojomType>,
++        num_elements: Option<usize>,
++    },
++    Map {
++        key_type: Box<MojomType>,
++        value_type: Box<MojomType>,
++    },
++    Nullable {
++        inner_type: Box<MojomType>,
++    },
++    /// A lazy reference back to a Mojom type currently being constructed.
++    /// This is used for recursive definitions such as mojo_base.mojom.Value.
++    Recursive {
++        resolver: WireTypeResolver,
++    },
+ }
+ 
+ /// This is the contents of an associated remote/receiver on the wire.
+@@ -156,6 +176,39 @@ pub enum MojomWireType {
+     /// A 128-bit value (not a pointer!) which contains a tag and a 64-bit value
+     /// (which may be a pointer).
+     Union { variants: BTreeMap<i32, MojomWireType>, is_nullable: bool },
++    /// A lazy reference to the cached wire type for a recursive Rust type.
++    Recursive { resolver: WireTypeResolver },
++}
++
++/// A lazily-resolved reference to another Rust type's cached Mojom wire type.
++/// Equality is based on the Rust `TypeId`, rather than function-pointer
++/// equality, which is not stable across codegen units.
++#[derive(Clone, Copy)]
++pub struct WireTypeResolver {
++    resolver: fn() -> &'static MojomWireType,
++    id: std::any::TypeId,
++}
++
++impl WireTypeResolver {
++    pub fn new<T: 'static>(resolver: fn() -> &'static MojomWireType) -> Self {
++        Self { resolver, id: std::any::TypeId::of::<T>() }
++    }
++
++    pub fn resolve(self) -> &'static MojomWireType {
++        (self.resolver)()
++    }
++}
++
++impl std::fmt::Debug for WireTypeResolver {
++    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
++        f.debug_struct("WireTypeResolver").field("id", &self.id).finish()
++    }
++}
++
++impl PartialEq for WireTypeResolver {
++    fn eq(&self, other: &Self) -> bool {
++        self.id == other.id
++    }
+ }
+ 
+ /// This type represents an element in the body of a struct, array, or union.
+@@ -252,10 +305,18 @@ pub enum PackedArrayType {
+ /*************************************************************** */
+ 
+ impl MojomWireType {
++    /// Follow lazy recursive references to the concrete cached wire type.
++    pub fn resolve_recursive(&self) -> &MojomWireType {
++        match self {
++            MojomWireType::Recursive { resolver } => resolver.resolve().resolve_recursive(),
++            _ => self,
++        }
++    }
++
+     /// Returns the size (in bytes) of a wire type, when stored as a struct
+     /// field.
+     pub fn size(&self) -> usize {
+-        match self {
++        match self.resolve_recursive() {
+             MojomWireType::Leaf { leaf_type, .. } => match leaf_type {
+                 PackedLeafType::Int8 | PackedLeafType::UInt8 | PackedLeafType::Bool => 1,
+                 PackedLeafType::Int16 | PackedLeafType::UInt16 => 2,
+@@ -270,6 +331,7 @@ impl MojomWireType {
+             MojomWireType::Pointer { .. } => 8,
+ 
+             MojomWireType::Union { .. } => 16,
++            MojomWireType::Recursive { .. } => unreachable!(),
+         }
+     }
+ 
+@@ -278,7 +340,7 @@ impl MojomWireType {
+     /// is 8 bytes. PendingRemote is an exception to this, the alignment is
+     // 4 bytes.
+     pub fn alignment(&self) -> usize {
+-        match self {
++        match self.resolve_recursive() {
+             MojomWireType::Union { .. } => 8,
+             MojomWireType::Leaf { leaf_type: PackedLeafType::PendingRemote, .. }
+             | MojomWireType::Leaf { leaf_type: PackedLeafType::PendingAssociatedRemote, .. } => 4,
+@@ -287,15 +349,16 @@ impl MojomWireType {
+     }
+ 
+     pub fn is_nullable(&self) -> bool {
+-        match self {
++        match self.resolve_recursive() {
+             MojomWireType::Leaf { is_nullable, .. }
+             | MojomWireType::Pointer { is_nullable, .. }
+             | MojomWireType::Union { is_nullable, .. } => *is_nullable,
++            MojomWireType::Recursive { .. } => unreachable!(),
+         }
+     }
+ 
+     pub fn is_nullable_primitive(&self) -> bool {
+-        match self {
++        match self.resolve_recursive() {
+             // Handles have their own nullability semantics
+             MojomWireType::Leaf { leaf_type: PackedLeafType::Handle, .. }
+             | MojomWireType::Leaf { leaf_type: PackedLeafType::PendingReceiver, .. }
+@@ -322,6 +385,7 @@ impl MojomWireType {
+             MojomWireType::Union { variants, .. } => {
+                 MojomWireType::Union { variants, is_nullable: true }
+             }
++            MojomWireType::Recursive { resolver } => resolver.resolve().clone().make_nullable(),
+         }
+     }
+ 
+@@ -329,7 +393,7 @@ impl MojomWireType {
+     /// Valid keys are non-nullable primitives and strings.
+     pub fn is_valid_map_key(&self) -> bool {
+         matches!(
+-            self,
++            self.resolve_recursive(),
+             MojomWireType::Leaf { is_nullable: false, .. }
+                 | MojomWireType::Pointer {
+                     nested_data_type: PackedStructuredType::Array {
+diff --git a/mojo/public/rust/mojom_value_parser/deparse_values.rs b/mojo/public/rust/mojom_value_parser/deparse_values.rs
+index 8dd1e0e3c0..b6b6f7bd4b 100644
+--- a/mojo/public/rust/mojom_value_parser/deparse_values.rs
++++ b/mojo/public/rust/mojom_value_parser/deparse_values.rs
+@@ -450,6 +450,7 @@ where
+                 data.push(bitfield)
+             }
+             StructuredBodyElement::SingleValue(ordinal, wire_type) => {
++                let wire_type = wire_type.resolve_recursive();
+                 match wire_type {
+                     MojomWireType::Leaf { leaf_type, is_nullable } => {
+                         let num_bytes = wire_type.size();
+@@ -540,6 +541,7 @@ where
+                             variants,
+                         )?;
+                     }
++                    MojomWireType::Recursive { .. } => unreachable!(),
+                 }
+             }
+         }
+diff --git a/mojo/public/rust/mojom_value_parser/pack.rs b/mojo/public/rust/mojom_value_parser/pack.rs
+index 76d4931e92..ac4ce3576c 100644
+--- a/mojo/public/rust/mojom_value_parser/pack.rs
++++ b/mojo/public/rust/mojom_value_parser/pack.rs
+@@ -291,6 +291,10 @@ pub fn pack_mojom_type(ty: &MojomType) -> MojomWireType {
+         MojomType::Union { variants } => {
+             MojomWireType::Union { variants: pack_union_variants(variants), is_nullable }
+         }
++        MojomType::Recursive { resolver } => {
++            assert!(!is_nullable, "Nullable recursive Mojom types are not supported yet");
++            MojomWireType::Recursive { resolver: *resolver }
++        }
+         MojomType::Nullable { .. } => {
+             panic!("Mojom does not permit doubly-nullable types.")
+         }
+@@ -365,6 +369,7 @@ pub fn pack_array_body<'a>(
+     element_type: &'a MojomWireType,
+     num_elements: usize,
+ ) -> impl Iterator<Item = StructuredBodyElementMixed<'a>> + 'a {
++    let element_type = element_type.resolve_recursive();
+     // If the array contains nullable primitives, then each element needs a tag
+     // bit. Those tag bits appear at the beginning of the array body, in order,
+     // before any of the array elements.
+diff --git a/mojo/public/rust/mojom_value_parser/parse_values.rs b/mojo/public/rust/mojom_value_parser/parse_values.rs
+index 325143c43d..bce6198729 100644
+--- a/mojo/public/rust/mojom_value_parser/parse_values.rs
++++ b/mojo/public/rust/mojom_value_parser/parse_values.rs
+@@ -578,6 +578,7 @@ where
+                 }
+             }
+             StructuredBodyElement::SingleValue(ordinal, mojom_wire_type) => {
++                let mojom_wire_type = mojom_wire_type.resolve_recursive();
+                 match mojom_wire_type {
+                     // Nested structured data, record for later unless it was null.
+                     MojomWireType::Pointer { nested_data_type, is_nullable } => {
+@@ -647,6 +648,7 @@ where
+                             }
+                         }
+                     }
++                    MojomWireType::Recursive { .. } => unreachable!(),
+                 }
+             }
+         }
+diff --git a/mojo/public/rust/mojom_value_parser/parsing_attribute.rs b/mojo/public/rust/mojom_value_parser/parsing_attribute.rs
+index b64b55ed6b..e5cb92c474 100644
+--- a/mojo/public/rust/mojom_value_parser/parsing_attribute.rs
++++ b/mojo/public/rust/mojom_value_parser/parsing_attribute.rs
+@@ -117,9 +117,9 @@ fn derive_mojomparse_struct(
+             let name = field.ident.as_ref().unwrap().to_string();
+             if let Some(parse_as) = MojomAttributes::parse(&field.attrs).parse_as {
+                 let parse_as_ty = syn::Ident::new(&parse_as, proc_macro2::Span::call_site());
+-                quote! { (#name.to_string(), <#parse_as_ty as MojomParse<Context>>::mojom_type()) }
++                quote! { (#name.to_string(), <#parse_as_ty as MojomParse<Context>>::guarded_mojom_type()) }
+             } else {
+-                quote! { (#name.to_string(), <#ty as MojomParse<Context>>::mojom_type()) }
++                quote! { (#name.to_string(), <#ty as MojomParse<Context>>::guarded_mojom_type()) }
+             }
+         })
+         .collect();
+@@ -278,7 +278,7 @@ fn derive_mojomparse_union(
+ 
+     let mojom_type_fields = variant_info
+         .iter()
+-        .map(|(_, ty, discriminant)| quote! { (#discriminant, <#ty as MojomParse<Context>>::mojom_type()) });
++        .map(|(_, ty, discriminant)| quote! { (#discriminant, <#ty as MojomParse<Context>>::guarded_mojom_type()) });
+     let context_ident = syn::Ident::new("context", proc_macro2::Span::mixed_site());
+     let value_ident = syn::Ident::new("value", proc_macro2::Span::mixed_site());
+ 
+diff --git a/mojo/public/rust/mojom_value_parser/parsing_trait.rs b/mojo/public/rust/mojom_value_parser/parsing_trait.rs
+index 594614051b..9f64f617ca 100644
+--- a/mojo/public/rust/mojom_value_parser/parsing_trait.rs
++++ b/mojo/public/rust/mojom_value_parser/parsing_trait.rs
+@@ -23,11 +23,34 @@ use crate::ast::*;
+ use crate::pack::pack_mojom_type;
+ use itertools::Itertools;
+ use ordered_float::OrderedFloat;
++use std::cell::RefCell;
+ use std::collections::HashMap;
++use std::collections::HashSet;
+ 
+ use system::message_pipe::MessageEndpoint;
+ use system::mojo_types::UntypedHandle;
+ 
++thread_local! {
++    static BUILDING_MOJOM_TYPES: RefCell<HashSet<std::any::TypeId>> = RefCell::new(HashSet::new());
++}
++
++struct MojomTypeBuildGuard(std::any::TypeId);
++
++impl Drop for MojomTypeBuildGuard {
++    fn drop(&mut self) {
++        BUILDING_MOJOM_TYPES.with(|building| {
++            building.borrow_mut().remove(&self.0);
++        });
++    }
++}
++
++fn resolve_wire_type<Context, T>() -> &'static MojomWireType
++where
++    T: MojomParse<Context>,
++{
++    T::wire_type()
++}
++
+ /// This trait allows a type to be serialized/deserialized into a Mojom message.
+ ///
+ /// The `Context` parameter allows the trait to specify additional information
+@@ -43,6 +66,27 @@ pub trait MojomParse<Context = ()>: Sized + 'static {
+ 
+     fn try_from_mojom_value(value: MojomValue, context: &Context) -> anyhow::Result<Self>;
+ 
++    /// Returns this type's Mojom AST, replacing a recursive reference to a
++    /// type already being constructed on this thread with a lazy wire-type
++    /// resolver. Generated and container implementations should use this for
++    /// nested types rather than calling `mojom_type()` directly.
++    fn guarded_mojom_type() -> MojomType {
++        let id = std::any::TypeId::of::<Self>();
++        let already_building =
++            BUILDING_MOJOM_TYPES.with(|building| building.borrow().contains(&id));
++        if already_building {
++            return MojomType::Recursive {
++                resolver: WireTypeResolver::new::<Self>(resolve_wire_type::<Context, Self>),
++            };
++        }
++
++        BUILDING_MOJOM_TYPES.with(|building| {
++            building.borrow_mut().insert(id);
++        });
++        let _guard = MojomTypeBuildGuard(id);
++        Self::mojom_type()
++    }
++
+     /// Returns the packed format for this type.
+     ///
+     /// Logically, this just returns pack_mojom_type(T::mojom_type(), 0).
+@@ -75,7 +119,7 @@ pub trait MojomParse<Context = ()>: Sized + 'static {
+             }
+             None => {
+                 // No current entry, initialize it by packing the input type.
+-                let wire_type_box = Box::new(pack_mojom_type(&Self::mojom_type()));
++                let wire_type_box = Box::new(pack_mojom_type(&Self::guarded_mojom_type()));
+                 let wire_type_ref: &'static MojomWireType = Box::leak(wire_type_box);
+                 WIRE_TYPE.write().unwrap().insert(TypeId::of::<Self>(), wire_type_ref);
+                 wire_type_ref
+@@ -183,7 +227,7 @@ where
+     T: MojomParse<Context>,
+ {
+     fn mojom_type() -> MojomType {
+-        MojomType::Array { element_type: Box::new(T::mojom_type()), num_elements: None }
++        MojomType::Array { element_type: Box::new(T::guarded_mojom_type()), num_elements: None }
+     }
+ 
+     fn into_mojom_value(self, context: &Context) -> MojomValue {
+@@ -210,7 +254,7 @@ where
+     T: MojomParse<Context>,
+ {
+     fn mojom_type() -> MojomType {
+-        MojomType::Array { element_type: Box::new(T::mojom_type()), num_elements: Some(N) }
++        MojomType::Array { element_type: Box::new(T::guarded_mojom_type()), num_elements: Some(N) }
+     }
+ 
+     fn into_mojom_value(self, context: &Context) -> MojomValue {
+@@ -257,8 +301,8 @@ where
+ {
+     fn mojom_type() -> MojomType {
+         MojomType::Map {
+-            key_type: Box::new(K::mojom_type()),
+-            value_type: Box::new(V::mojom_type()),
++            key_type: Box::new(K::guarded_mojom_type()),
++            value_type: Box::new(V::guarded_mojom_type()),
+         }
+     }
+ 
+@@ -297,7 +341,7 @@ where
+     T: MojomParse<Context>,
+ {
+     fn mojom_type() -> MojomType {
+-        MojomType::Nullable { inner_type: Box::new(T::mojom_type()) }
++        MojomType::Nullable { inner_type: Box::new(T::guarded_mojom_type()) }
+     }
+ 
+     fn into_mojom_value(self, context: &Context) -> MojomValue {
+diff --git a/mojo/public/rust/mojom_value_parser/test/test_parser.rs b/mojo/public/rust/mojom_value_parser/test/test_parser.rs
+index 230386c159..ff6d4774c7 100644
+--- a/mojo/public/rust/mojom_value_parser/test/test_parser.rs
++++ b/mojo/public/rust/mojom_value_parser/test/test_parser.rs
+@@ -22,6 +22,7 @@
+ //! The types in this file are defined in
+ //! //mojo/public/rust/test_mojom/parser_unittests.mojom
+ chromium::import! {
++    "//mojo/public/rust/mojom_value_parser";
+     "//mojo/public/rust/mojom_value_parser:mojom_value_parser_core";
+     "//mojo/public/rust/mojom_value_parser:parser_unittests_rust";
+     "//mojo/public/rust/mojom_value_parser:validation_parser";
+@@ -39,6 +40,33 @@ use rust_gtest_interop::prelude::*;
+ 
+ use crate::helpers::*;
+ 
++#[derive(Debug, Clone, PartialEq, mojom_value_parser::MojomParse)]
++struct RecursiveTree {
++    value: u32,
++    children: Vec<RecursiveTree>,
++}
++
++#[gtest(MojomParserTest, RecursiveTypeRoundTrip)]
++fn recursive_type_round_trip() {
++    let value = RecursiveTree {
++        value: 1,
++        children: vec![
++            RecursiveTree { value: 2, children: vec![] },
++            RecursiveTree {
++                value: 3,
++                children: vec![RecursiveTree { value: 4, children: vec![] }],
++            },
++        ],
++    };
++
++    let wire_type = <RecursiveTree as MojomParse<()>>::wire_type();
++    let encoded =
++        deparse_single_value_for_testing(into_mojom_value(value.clone()), wire_type).unwrap();
++    let parsed = parse_single_value_for_testing(&encoded, &mut [], wire_type).unwrap();
++    let round_tripped: RecursiveTree = try_from_mojom_value(parsed).unwrap();
++    expect_eq!(round_tripped, value);
++}
++
+ // Verify that `value` serializes to the binary data represented by `data`,
+ // which is a string in the mojom validation text format, as defined in
+ // //mojo/public/cpp/bindings/tests/validation_test_input_parser.h
 diff --git a/services/data_decoder/BUILD.gn b/services/data_decoder/BUILD.gn
-index 9ec647da02..9f857bac96 100644
+index 9ec647da02..14217a8377 100644
 --- a/services/data_decoder/BUILD.gn
 +++ b/services/data_decoder/BUILD.gn
-@@ -2,8 +2,44 @@
+@@ -2,8 +2,60 @@
  # Use of this source code is governed by a BSD-style license that can be
  # found in the LICENSE file.
  
 +import("//build/buildflag_header.gni")
  import("//build/config/features.gni")
 +import("//build/config/rust.gni")
++import("//build/rust/rust_static_library.gni")
  import("//testing/libfuzzer/fuzzer_test.gni")
 +import("//testing/test.gni")
 +
@@ -26,7 +447,6 @@ index 9ec647da02..9f857bac96 100644
 +}
 +
 +source_set("xml_parser_impl") {
-+  public = [ "xml_parser.h" ]
 +  deps = [
 +    ":xml_parser_buildflags",
 +    "//base",
@@ -34,20 +454,36 @@ index 9ec647da02..9f857bac96 100644
 +  ]
 +
 +  if (use_rust_data_decoder_xml_parser) {
-+    sources = [ "xml_parser.cc" ]
-+    deps += [ "//services/data_decoder/public/cpp:xml_dom" ]
++    public_deps = [ ":xml_parser_rust" ]
 +  } else {
-+    sources = [ "xml_parser_legacy.cc" ]
++    public = [ "xml_parser.h" ]
++    sources = [ "xml_parser.cc" ]
 +    deps += [
 +      "//third_party/libxml:libxml_utils",
 +      "//third_party/libxml:xml_reader",
 +    ]
 +  }
 +}
++
++if (use_rust_data_decoder_xml_parser) {
++  rust_static_library("xml_parser_rust") {
++    allow_unsafe = true
++    crate_root = "xml/xml_parser_mojo.rs"
++    sources = [ "xml/xml_parser_mojo.rs" ]
++    cxx_bindings = [ "xml/xml_parser_mojo.rs" ]
++    deps = [
++      "//mojo/public/mojom/base:base_rust",
++      "//mojo/public/rust/bindings",
++      "//mojo/public/rust/system",
++      "//services/data_decoder/public/mojom:mojom_xml_parser_rust",
++      "//third_party/rust/xml/v1:lib",
++    ]
++  }
++}
  
  source_set("lib") {
    # This target should only be depended upon by components that host a
-@@ -25,13 +61,12 @@ source_set("lib") {
+@@ -25,13 +77,12 @@ source_set("lib") {
      "gzipper.h",
      "structured_headers_parser_impl.cc",
      "structured_headers_parser_impl.h",
@@ -62,7 +498,7 @@ index 9ec647da02..9f857bac96 100644
      "//base",
      "//build:blink_buildflags",
      "//components/cbor",
-@@ -41,8 +76,6 @@ source_set("lib") {
+@@ -41,8 +92,6 @@ source_set("lib") {
      "//mojo/public/cpp/bindings",
      "//net",
      "//skia",
@@ -71,7 +507,7 @@ index 9ec647da02..9f857bac96 100644
      "//third_party/zlib/google:compression_utils",
      "//ui/gfx",
      "//ui/gfx/geometry",
-@@ -108,6 +141,26 @@ source_set("tests") {
+@@ -108,6 +157,26 @@ source_set("tests") {
    }
  }
  
@@ -98,11 +534,57 @@ index 9ec647da02..9f857bac96 100644
  # This is a separate target because //third_party/libxml:libxml_utils
  # wants to limit its visibility to a select number of target, but the
  # "fuzzer_test" template expands on iOS to many targets that need to
+@@ -115,9 +184,13 @@ source_set("tests") {
+ # binaries.
+ source_set("xml_parser_fuzzer_deps") {
+   visibility = [ ":*" ]
++  sources = [
++    "xml_parser.cc",
++    "xml_parser.h",
++  ]
+   public_deps = [
+-    ":lib",
+     "//base",
++    "//services/data_decoder/public/mojom:mojom_xml_parser",
+     "//third_party/libxml:libxml_utils",
+     "//third_party/libxml:xml_reader",
+   ]
+diff --git a/services/data_decoder/data_decoder_service.cc b/services/data_decoder/data_decoder_service.cc
+index 920b62490c..800b19fd3a 100644
+--- a/services/data_decoder/data_decoder_service.cc
++++ b/services/data_decoder/data_decoder_service.cc
+@@ -18,7 +18,13 @@
+ #include "services/data_decoder/gzipper.h"
+ #include "services/data_decoder/public/mojom/image_decoder.mojom.h"
+ #include "services/data_decoder/structured_headers_parser_impl.h"
++#include "services/data_decoder/xml_parser_buildflags.h"
++
++#if BUILDFLAG(USE_RUST_DATA_DECODER_XML_PARSER)
++#include "services/data_decoder/xml/xml_parser_mojo.rs.h"
++#else
+ #include "services/data_decoder/xml_parser.h"
++#endif
+ 
+ #if BUILDFLAG(USE_BLINK)
+ #include "services/data_decoder/image_decoder_impl.h"
+@@ -58,8 +64,12 @@ void DataDecoderService::BindStructuredHeadersParser(
+ 
+ void DataDecoderService::BindXmlParser(
+     mojo::PendingReceiver<mojom::XmlParser> receiver) {
++#if BUILDFLAG(USE_RUST_DATA_DECODER_XML_PARSER)
++  BindRustXmlParser(receiver.PassPipe().release().value());
++#else
+   mojo::MakeSelfOwnedReceiver(std::make_unique<XmlParser>(),
+                               std::move(receiver));
++#endif
+ }
+ 
+ void DataDecoderService::BindWebBundleParserFactory(
 diff --git a/services/data_decoder/public/cpp/BUILD.gn b/services/data_decoder/public/cpp/BUILD.gn
-index 94835c0276..effee8d61f 100644
+index 94835c0276..0344d1327a 100644
 --- a/services/data_decoder/public/cpp/BUILD.gn
 +++ b/services/data_decoder/public/cpp/BUILD.gn
-@@ -97,7 +97,11 @@ source_set("xml_dom_core") {
+@@ -97,7 +97,10 @@ source_set("xml_dom_core") {
  }
  
  source_set("xml_dom") {
@@ -110,45 +592,24 @@ index 94835c0276..effee8d61f 100644
 +  visibility = [
 +    ":*",
 +    "//services/data_decoder:xml_migration_unittests",
-+    "//services/data_decoder:xml_parser_impl",
 +  ]
  
    public_deps = [ ":xml_dom_core" ]
    sources = [ "xml_dom_parser.cc" ]
-diff --git a/services/data_decoder/public/cpp/xml_dom_parser.cc b/services/data_decoder/public/cpp/xml_dom_parser.cc
-index 92a917ef6d..70a5c65c15 100644
---- a/services/data_decoder/public/cpp/xml_dom_parser.cc
-+++ b/services/data_decoder/public/cpp/xml_dom_parser.cc
-@@ -14,7 +14,9 @@ namespace data_decoder::xml {
- base::expected<Document, std::string> Document::FromBytes(
-     base::span<const uint8_t> bytes) {
-   std::string err;
--  auto root = ffi::decode_xml_bytes(base::SpanToRustSlice(bytes), err);
-+  auto root =
-+      ffi::decode_xml_bytes(base::SpanToRustSlice(bytes),
-+                            /*preserve_significant_whitespace=*/false, err);
-   if (root) {
-     return Document(std::move(root));
-   }
-diff --git a/services/data_decoder/xml/cxx.rs b/services/data_decoder/xml/cxx.rs
-index 7c2ec65c11..4af6f94118 100644
---- a/services/data_decoder/xml/cxx.rs
-+++ b/services/data_decoder/xml/cxx.rs
-@@ -22,7 +22,11 @@ pub mod ffi {
-     extern "Rust" {
-         // TODO(dcheng): decide if we really need to handle both bytes and
-         // strings and/or where the conversion should happen.
--        fn decode_xml_bytes(xml: &[u8], err: Pin<&mut CxxString>) -> UniquePtr<Node>;
-+        fn decode_xml_bytes(
-+            xml: &[u8],
-+            preserve_significant_whitespace: bool,
-+            err: Pin<&mut CxxString>,
-+        ) -> UniquePtr<Node>;
-         fn decode_xml_str(xml: &str, mut err: Pin<&mut CxxString>) -> UniquePtr<Node>;
-     }
+diff --git a/services/data_decoder/public/mojom/BUILD.gn b/services/data_decoder/public/mojom/BUILD.gn
+index 9df1a8d610..f5b1ca0528 100644
+--- a/services/data_decoder/public/mojom/BUILD.gn
++++ b/services/data_decoder/public/mojom/BUILD.gn
+@@ -28,6 +28,7 @@ mojom("mojom") {
+ 
+ mojom("mojom_xml_parser") {
+   sources = [ "xml_parser.mojom" ]
++  generate_rust = true
+ 
+   public_deps = [ "//mojo/public/mojom/base" ]
  }
 diff --git a/services/data_decoder/xml/parser.rs b/services/data_decoder/xml/parser.rs
-index d848048fc6..1928ec5aa2 100644
+index d848048fc6..ec1dacf2fe 100644
 --- a/services/data_decoder/xml/parser.rs
 +++ b/services/data_decoder/xml/parser.rs
 @@ -17,8 +17,8 @@ const MAX_DEPTH: usize = 200;
@@ -162,20 +623,17 @@ index d848048fc6..1928ec5aa2 100644
  ) {
      for attr in attributes {
          let prefix = attr.name.prefix.as_deref().unwrap_or("");
-@@ -29,70 +29,80 @@ fn populate_node(
+@@ -29,24 +29,11 @@ fn populate_node(
              &attr.value,
          );
      }
 -    for (prefix, uri) in namespace {
-+    for (prefix, uri) in namespace_declarations {
-         // Per https://www.w3.org/TR/xml-names/#ns-decl, "xml" is reserved and may be declared, but
+-        // Per https://www.w3.org/TR/xml-names/#ns-decl, "xml" is reserved and may be declared, but
 -        // must be bound to ttp://www.w3.org/XML/1998/namespace. xml-rs already checks
 -        // that, so no need to validate that here.
 -        // "xmlns" is also reserved but must not be declared; this is also enforced by
 -        // xml-rs.
-+        // must be bound to http://www.w3.org/XML/1998/namespace. xml-rs already checks
-+        // that, so no need to validate that here. "xmlns" is also reserved but must not
-+        // be declared; this is also enforced by xml-rs.
++    for (prefix, uri) in namespace_declarations {
          if prefix == "xml" || prefix == "xmlns" {
              continue;
          }
@@ -188,40 +646,16 @@ index d848048fc6..1928ec5aa2 100644
 -        // nodes); avoid duplicating inherited declarations into all descendant
 -        // nodes.
 -        if parent_namespace.and_then(|ns| ns.get(prefix)) == Some(uri) {
-+        // For compatibility with the original C++ parser, omit the implicit empty
-+        // default namespace on the root element.
 +        if prefix.is_empty() && uri.is_empty() && is_root {
              continue;
          }
          crate::cxx::ffi::set_namespace(node.as_mut().unwrap(), prefix, uri);
-     }
+@@ -61,38 +48,39 @@ pub fn decode_xml_bytes(xml: &[u8], err: Pin<&mut CxxString>) -> UniquePtr<Node>
  }
  
--pub fn decode_xml_bytes(xml: &[u8], err: Pin<&mut CxxString>) -> UniquePtr<Node> {
-+pub fn decode_xml_bytes(
-+    xml: &[u8],
-+    preserve_significant_whitespace: bool,
-+    err: Pin<&mut CxxString>,
-+) -> UniquePtr<Node> {
-     let Ok(xml) = str::from_utf8(xml) else {
-         return UniquePtr::null();
-     };
--    decode_xml_str(xml, err)
-+    decode_xml_str_impl(xml, preserve_significant_whitespace, err)
- }
- 
--pub fn decode_xml_str(xml: &str, mut err: Pin<&mut CxxString>) -> UniquePtr<Node> {
+ pub fn decode_xml_str(xml: &str, mut err: Pin<&mut CxxString>) -> UniquePtr<Node> {
 -    let parser = EventReader::from_str(xml);
 -    let mut stack: Vec<(UniquePtr<Node>, Namespace)> = Vec::new();
-+pub fn decode_xml_str(xml: &str, err: Pin<&mut CxxString>) -> UniquePtr<Node> {
-+    decode_xml_str_impl(xml, false, err)
-+}
-+
-+fn decode_xml_str_impl(
-+    xml: &str,
-+    preserve_significant_whitespace: bool,
-+    mut err: Pin<&mut CxxString>,
-+) -> UniquePtr<Node> {
 +    let mut parser = EventReader::from_str(xml);
 +    let mut stack: Vec<UniquePtr<Node>> = Vec::new();
      let mut root: UniquePtr<Node> = UniquePtr::null();
@@ -235,7 +669,7 @@ index d848048fc6..1928ec5aa2 100644
                  if !root.is_null() || stack.len() >= MAX_DEPTH {
                      return UniquePtr::null();
                  }
- 
+-
                  let prefix = name.prefix.as_deref().unwrap_or("");
                  let mut node = crate::cxx::ffi::create_element(&name.local_name, prefix);
 -
@@ -266,14 +700,11 @@ index d848048fc6..1928ec5aa2 100644
              }
              Ok(XmlEvent::Characters(data)) => {
 -                if let Some((parent, _)) = stack.last_mut() {
-+                if data.trim().is_empty() && !preserve_significant_whitespace {
-+                    continue;
-+                }
 +                if let Some(parent) = stack.last_mut() {
                      let text_node = crate::cxx::ffi::create_text_node(&data);
                      crate::cxx::ffi::add_child(parent.as_mut().unwrap(), text_node);
                  } else if !data.trim().is_empty() {
-@@ -100,19 +110,26 @@ pub fn decode_xml_str(xml: &str, mut err: Pin<&mut CxxString>) -> UniquePtr<Node
+@@ -100,18 +88,18 @@ pub fn decode_xml_str(xml: &str, mut err: Pin<&mut CxxString>) -> UniquePtr<Node
                  }
              }
              Ok(XmlEvent::CData(data)) => {
@@ -285,30 +716,325 @@ index d848048fc6..1928ec5aa2 100644
                      return UniquePtr::null();
                  }
              }
--            Ok(XmlEvent::Whitespace(_))
--            | Ok(XmlEvent::Comment(_))
-+            Ok(XmlEvent::Whitespace(data)) => {
-+                if preserve_significant_whitespace {
-+                    if let Some(parent) = stack.last_mut() {
-+                        let text_node = crate::cxx::ffi::create_text_node(&data);
-+                        crate::cxx::ffi::add_child(parent.as_mut().unwrap(), text_node);
-+                    }
-+                }
-+            }
-+            Ok(XmlEvent::Comment(_))
++            Ok(XmlEvent::EndDocument) => break,
+             Ok(XmlEvent::Whitespace(_))
+             | Ok(XmlEvent::Comment(_))
              | Ok(XmlEvent::ProcessingInstruction { .. })
              | Ok(XmlEvent::StartDocument { .. })
 -            | Ok(XmlEvent::EndDocument)
              | Ok(XmlEvent::Doctype { .. }) => {}
-+            Ok(XmlEvent::EndDocument) => break,
              Err(e) => {
                  write!(&mut err, "{}", e).unwrap();
-                 return UniquePtr::null();
+diff --git a/services/data_decoder/xml/xml_parser_mojo.rs b/services/data_decoder/xml/xml_parser_mojo.rs
+new file mode 100644
+index 0000000000..09e7503719
+--- /dev/null
++++ b/services/data_decoder/xml/xml_parser_mojo.rs
+@@ -0,0 +1,204 @@
++// Copyright 2026 The Chromium Authors
++// Use of this source code is governed by a BSD-style license that can be
++// found in the LICENSE file.
++
++//! Rust-native implementation of the production data_decoder XmlParser Mojo
++//! service.
++
++chromium::import! {
++    "//mojo/public/mojom/base:base_rust";
++    "//mojo/public/rust/bindings";
++    "//mojo/public/rust/system";
++    "//services/data_decoder/public/mojom:mojom_xml_parser_rust";
++}
++
++use base_rust::values::{DictionaryValue, ListValue, Value};
++use bindings::receiver::PendingReceiver;
++use mojom_xml_parser_rust::xml_parser::{
++    XmlParser as XmlParserMojom, XmlParser_WhitespaceBehavior as WhitespaceBehavior,
++};
++use std::collections::HashMap;
++use system::message_pipe::MessageEndpoint;
++use system::mojo_types::UntypedHandle;
++use xml::reader::{EventReader, XmlEvent};
++
++const MAX_DEPTH: usize = 200;
++const TYPE: &str = "type";
++const TAG: &str = "tag";
++const TEXT: &str = "text";
++const ATTRIBUTES: &str = "attributes";
++const CHILDREN: &str = "children";
++const NAMESPACES: &str = "namespaces";
++const ELEMENT: &str = "element";
++const TEXT_NODE: &str = "text";
++const CDATA_NODE: &str = "cdata";
++
++type Dict = HashMap<String, Value>;
++
++#[cxx::bridge(namespace = "data_decoder")]
++mod ffi {
++    extern "Rust" {
++        fn BindRustXmlParser(raw_handle: usize);
++    }
++}
++
++struct XmlParser;
++
++fn string(value: impl Into<String>) -> Value {
++    Value::string_value(value.into())
++}
++
++fn dictionary(storage: Dict) -> Value {
++    Value::dictionary_value(DictionaryValue { storage })
++}
++
++fn qualified_name(local: &str, prefix: Option<&str>) -> String {
++    prefix.map_or_else(|| local.to_owned(), |prefix| format!("{prefix}:{local}"))
++}
++
++fn add_child(parent: &mut Dict, child: Value) {
++    let value = parent
++        .entry(CHILDREN.to_owned())
++        .or_insert_with(|| Value::list_value(ListValue { storage: Vec::new() }));
++    let Value::list_value(children) = value else {
++        unreachable!("XmlParser children must remain a list")
++    };
++    children.storage.push(child);
++}
++
++fn text_node(kind: &str, text: String) -> Value {
++    dictionary(Dict::from([(TYPE.to_owned(), string(kind)), (TEXT.to_owned(), string(text))]))
++}
++
++fn legacy_error(input: &str, error: &str) -> String {
++    let mut message = error.to_owned();
++    if error.contains("Unexpected end of stream: no root element found") {
++        message =
++            if input.is_empty() { "Document is empty" } else { "Start tag expected" }.to_owned();
++    } else if error.contains("Unexpected characters outside the root element") {
++        message = "Start tag expected".to_owned();
++    } else if error.contains("Unexpected end of stream: still inside the root element") {
++        message = "Premature end of data in tag".to_owned();
++    } else if let Some(rest) = error.split("Unexpected closing tag: ").nth(1) {
++        if let Some((closing, opening)) = rest.split_once(" != ") {
++            let line = error.split(':').next().unwrap_or("1");
++            message =
++                format!("Opening and ending tag mismatch: {opening} line {line} and {closing}");
++        }
++    }
++    format!("Invalid XML: failed to load: {message}")
++}
++
++fn parse(xml: &str, preserve_whitespace: bool) -> Result<Value, String> {
++    let mut parser = EventReader::from_str(xml);
++    let mut stack: Vec<Dict> = Vec::new();
++    let mut root = None;
++
++    loop {
++        match parser.next() {
++            Ok(XmlEvent::StartElement { name, attributes, .. }) => {
++                if root.is_some() || stack.len() >= MAX_DEPTH {
++                    return Err("Invalid XML".to_owned());
++                }
++                let mut node = Dict::from([
++                    (TYPE.to_owned(), string(ELEMENT)),
++                    (
++                        TAG.to_owned(),
++                        string(qualified_name(&name.local_name, name.prefix.as_deref())),
++                    ),
++                ]);
++                if !attributes.is_empty() {
++                    let values = attributes
++                        .into_iter()
++                        .map(|attr| {
++                            (
++                                qualified_name(&attr.name.local_name, attr.name.prefix.as_deref()),
++                                string(attr.value),
++                            )
++                        })
++                        .collect();
++                    node.insert(ATTRIBUTES.to_owned(), dictionary(values));
++                }
++                let namespaces: Dict = parser
++                    .namespace_declarations()
++                    .iter()
++                    .filter(|(prefix, _)| *prefix != "xml" && *prefix != "xmlns")
++                    .filter(|(prefix, uri)| {
++                        !(stack.is_empty() && prefix.is_empty() && uri.is_empty())
++                    })
++                    .map(|(prefix, uri)| (prefix.to_owned(), string(uri.to_owned())))
++                    .collect();
++                if !namespaces.is_empty() {
++                    node.insert(NAMESPACES.to_owned(), dictionary(namespaces));
++                }
++                stack.push(node);
++            }
++            Ok(XmlEvent::EndElement { .. }) => {
++                let Some(child) = stack.pop() else {
++                    return Err("Invalid XML".to_owned());
++                };
++                let child = dictionary(child);
++                if let Some(parent) = stack.last_mut() {
++                    add_child(parent, child);
++                } else {
++                    root = Some(child);
++                }
++            }
++            Ok(XmlEvent::Characters(data)) => {
++                if !data.trim().is_empty() || preserve_whitespace {
++                    if let Some(parent) = stack.last_mut() {
++                        add_child(parent, text_node(TEXT_NODE, data));
++                    } else if !data.trim().is_empty() {
++                        return Err("Invalid XML".to_owned());
++                    }
++                }
++            }
++            Ok(XmlEvent::CData(data)) => {
++                let Some(parent) = stack.last_mut() else {
++                    return Err("Invalid XML".to_owned());
++                };
++                add_child(parent, text_node(CDATA_NODE, data));
++            }
++            Ok(XmlEvent::Whitespace(data)) => {
++                if preserve_whitespace {
++                    if let Some(parent) = stack.last_mut() {
++                        add_child(parent, text_node(TEXT_NODE, data));
++                    }
++                }
++            }
++            Ok(XmlEvent::EndDocument) => break,
++            Ok(XmlEvent::Comment(_))
++            | Ok(XmlEvent::ProcessingInstruction { .. })
++            | Ok(XmlEvent::StartDocument { .. })
++            | Ok(XmlEvent::Doctype { .. }) => {}
++            Err(error) => return Err(legacy_error(xml, &error.to_string())),
++        }
++    }
++
++    root.ok_or_else(|| legacy_error(xml, "Unexpected end of stream: no root element found"))
++}
++
++impl XmlParserMojom for XmlParser {
++    fn Parse(
++        &mut self,
++        xml: String,
++        whitespace_behavior: WhitespaceBehavior,
++        response_callback: impl Send + 'static + FnOnce(Option<Value>, Option<String>),
++    ) {
++        match parse(&xml, whitespace_behavior == WhitespaceBehavior::kPreserveSignificant) {
++            Ok(value) => response_callback(Some(value), None),
++            Err(error) => response_callback(None, Some(error)),
++        }
++    }
++}
++
++bindings::register_mojom_state_object_impls!(impl XmlParserMojom for XmlParser);
++
++#[allow(non_snake_case)]
++fn BindRustXmlParser(raw_handle: usize) {
++    // SAFETY: C++ releases a live PendingReceiver handle immediately before
++    // this call, transferring unique ownership of that raw handle to Rust.
++    let untyped = unsafe { UntypedHandle::wrap_raw_value(raw_handle) };
++    let endpoint: MessageEndpoint = untyped.into();
++    let _ = PendingReceiver::<dyn XmlParserMojom>::new(endpoint).bind_self_owned(XmlParser);
++}
 diff --git a/services/data_decoder/xml/xml_parser_rs_unittest.cc b/services/data_decoder/xml/xml_parser_rs_unittest.cc
-index a5d7da19a2..196fba1435 100644
+index a5d7da19a2..0e269c804c 100644
 --- a/services/data_decoder/xml/xml_parser_rs_unittest.cc
 +++ b/services/data_decoder/xml/xml_parser_rs_unittest.cc
-@@ -206,14 +206,12 @@ TEST_F(XmlParserRsTest, BasicNamespaces) {
+@@ -9,11 +9,22 @@
+ #include <vector>
+ 
+ #include "base/strings/to_string.h"
+-#include "base/test/bind.h"
+ #include "base/test/gmock_expected_support.h"
++#include "base/test/task_environment.h"
++#include "base/test/test_future.h"
+ #include "base/types/expected.h"
++#include "mojo/public/cpp/bindings/remote.h"
++#include "mojo/public/cpp/bindings/self_owned_receiver.h"
+ #include "services/data_decoder/public/cpp/xml_dom.h"
++#include "services/data_decoder/public/mojom/xml_parser.mojom.h"
++#include "services/data_decoder/xml_migration_test_support.h"
++#include "services/data_decoder/xml_parser_buildflags.h"
++
++#if BUILDFLAG(USE_RUST_DATA_DECODER_XML_PARSER)
++#include "services/data_decoder/xml/xml_parser_mojo.rs.h"
++#else
+ #include "services/data_decoder/xml_parser.h"
++#endif
+ #include "testing/gmock/include/gmock/gmock.h"
+ #include "testing/gtest/include/gtest/gtest.h"
+ 
+@@ -41,16 +52,16 @@ class XmlParserRsTest : public testing::Test {
+       std::string_view xml) {
+     base::expected<Document, std::string> rust_result = ParseWithRust(xml);
+     base::expected<base::Value, std::string> libxml2_result =
+-        ParseWithLibxml2(xml);
++        ParseWithProductionParser(xml);
+ 
+     if (rust_result.has_value() != libxml2_result.has_value()) {
+       if (rust_result.has_value()) {
+         return base::unexpected(
+-            "Rust parser succeeded, but libxml2 parser failed: " +
++            "Rust DOM parser succeeded, but production parser failed: " +
+             libxml2_result.error());
+       }
+       return base::unexpected(
+-          "libxml2 parser succeeded, but Rust parser failed: " +
++          "Production parser succeeded, but Rust DOM parser failed: " +
+           rust_result.error());
+     }
+ 
+@@ -72,30 +83,28 @@ class XmlParserRsTest : public testing::Test {
+     return Document::FromUtf8(xml);
+   }
+ 
+-  base::expected<base::Value, std::string> ParseWithLibxml2(
++  base::expected<base::Value, std::string> ParseWithProductionParser(
+       std::string_view xml) {
+-    XmlParser parser_impl;
+-    // `XmlParser`'s overrides for `mojom::XmlParser` are private so cheat to
+-    // make them visible.
+-    mojom::XmlParser& parser = parser_impl;
+-
+-    std::optional<base::Value> value;
+-    std::optional<std::string> error;
+-    // This call does not actually go over Mojo, so the results will be
+-    // available synchronously.
+-    parser.Parse(std::string(xml),
+-                 mojom::XmlParser::WhitespaceBehavior::kIgnore,
+-                 base::BindLambdaForTesting(
+-                     [&](std::optional<base::Value> maybe_value,
+-                         const std::optional<std::string>& maybe_error) {
+-                       value = std::move(maybe_value);
+-                       error = std::move(maybe_error);
+-                     }));
+-
+-    // The legacy C++ parser promises to only set exactly one of `cpp_value`
+-    // or `cpp_error`, so make sure that's the case.
++    test::EnsureMojoInitializedForXmlMigrationTests();
++    base::test::SingleThreadTaskEnvironment task_environment;
++    mojo::Remote<mojom::XmlParser> parser;
++    auto receiver = parser.BindNewPipeAndPassReceiver();
++#if BUILDFLAG(USE_RUST_DATA_DECODER_XML_PARSER)
++    BindRustXmlParser(receiver.PassPipe().release().value());
++#else
++    mojo::MakeSelfOwnedReceiver(std::make_unique<XmlParser>(),
++                                std::move(receiver));
++#endif
++
++    base::test::TestFuture<std::optional<base::Value>,
++                           std::optional<std::string>>
++        future;
++    parser->Parse(std::string(xml),
++                  mojom::XmlParser::WhitespaceBehavior::kIgnore,
++                  future.GetCallback<std::optional<base::Value>,
++                                     const std::optional<std::string>&>());
++    auto [value, error] = future.Take();
+     CHECK_NE(value.has_value(), error.has_value());
+-
+     if (value) {
+       return *std::move(value);
+     }
+@@ -206,14 +215,12 @@ TEST_F(XmlParserRsTest, BasicNamespaces) {
  }
  
  TEST_F(XmlParserRsTest, OverrideNamespaceInChild) {
@@ -329,7 +1055,7 @@ index a5d7da19a2..196fba1435 100644
    ASSERT_OK(doc);
  
    const Node* root = doc->GetRoot();
-@@ -225,12 +223,12 @@ TEST_F(XmlParserRsTest, OverrideNamespaceInChild) {
+@@ -225,12 +232,12 @@ TEST_F(XmlParserRsTest, OverrideNamespaceInChild) {
    EXPECT_THAT(children[0]->GetNamespaces(),
                UnorderedElementsAre(Pair("a", "https://example.com/2")));
  
@@ -346,503 +1072,148 @@ index a5d7da19a2..196fba1435 100644
  }
  
  TEST_F(XmlParserRsTest, UndeclareDefaultNamespaceTest) {
-diff --git a/services/data_decoder/xml_parser.cc b/services/data_decoder/xml_parser.cc
-index 6aa37858e6..6aa315a6d4 100644
---- a/services/data_decoder/xml_parser.cc
-+++ b/services/data_decoder/xml_parser.cc
-@@ -1,221 +1,74 @@
--// Copyright 2017 The Chromium Authors
-+// Copyright 2026 The Chromium Authors
- // Use of this source code is governed by a BSD-style license that can be
- // found in the LICENSE file.
- 
- #include "services/data_decoder/xml_parser.h"
- 
--#include <map>
-+#include <string_view>
- #include <utility>
- 
-+#include "base/containers/span.h"
-+#include "base/containers/span_rust.h"
- #include "base/strings/strcat.h"
--#include "base/strings/string_util.h"
--#include "base/strings/stringprintf.h"
--#include "base/values.h"
--#include "third_party/libxml/chromium/libxml_utils.h"
--#include "third_party/libxml/chromium/xml_reader.h"
-+#include "services/data_decoder/public/cpp/xml_dom.h"
-+#include "services/data_decoder/xml/cxx.rs.h"
- 
- namespace data_decoder {
- 
--using AttributeMap = std::map<std::string, std::string>;
--using NamespaceMap = std::map<std::string, std::string>;
--
- namespace {
- 
--void ReportError(XmlParser::ParseCallback callback,
--                 const std::string& generic_error,
--                 const std::string& libxml_error) {
--  std::string error;
--  if (!libxml_error.empty()) {
--    error = base::StrCat({generic_error, ": ", libxml_error});
--    // libxml errors have trailing lines, spaces, and a carrot to try and
--    // indicate where an error is. For instance, an error string may be:
--    // Entity: line 1: parser error : Opening and ending tag mismatch: hello
--    // line 1 and goodbye
--    // <hello>bad tag</goodbye>
--    //                         ^
--    // This is helpful in a terminal, but not when gathering and returning the
--    // error. Instead, just trim the trailing whitespace and '^'.
--    base::TrimString(error, " \n^", &error);
--  } else {
--    error = generic_error;
--  }
--
--  std::move(callback).Run(/*result=*/std::nullopt,
--                          std::make_optional(std::move(error)));
--}
--
--enum class TextNodeType { kText, kCData };
--
--// Returns false if the current node in |xml_reader| is not text or CData.
--// Otherwise returns true and sets |text| to the text/CData of the current node
--// and |node_type| to kText or kCData.
--bool GetTextFromNode(XmlReader* xml_reader,
--                     std::string* text,
--                     TextNodeType* node_type) {
--  if (xml_reader->GetTextIfTextElement(text)) {
--    *node_type = TextNodeType::kText;
--    return true;
--  }
--  if (xml_reader->GetTextIfCDataElement(text)) {
--    *node_type = TextNodeType::kCData;
--    return true;
--  }
--  return false;
--}
--
--base::DictValue CreateTextNode(const std::string& text,
--                               TextNodeType node_type) {
--  base::DictValue element;
--  element.Set(mojom::XmlParser::kTypeKey,
--              node_type == TextNodeType::kText
--                  ? mojom::XmlParser::kTextNodeType
--                  : mojom::XmlParser::kCDataNodeType);
--  element.Set(mojom::XmlParser::kTextKey, text);
--  return element;
--}
--
--// Creates and returns new element node with the tag name |name|.
--base::DictValue CreateNewElement(const std::string& name) {
--  base::DictValue element;
--  element.Set(mojom::XmlParser::kTypeKey, mojom::XmlParser::kElementType);
--  element.Set(mojom::XmlParser::kTagKey, name);
--  return element;
--}
--
--// Adds |child| as a child of |element|, creating the children list if
--// necessary. Returns a ponter to |child|.
--base::DictValue* AddChildToElement(base::DictValue& element,
--                                   base::DictValue child) {
--  DCHECK(!element.contains(mojom::XmlParser::kChildrenKey) ||
--         element.FindList(mojom::XmlParser::kChildrenKey));
--  base::ListValue* children =
--      element.EnsureList(mojom::XmlParser::kChildrenKey);
--  children->Append(std::move(child));
--  return &children->back().GetDict();
--}
--
--void PopulateNamespaces(base::DictValue& node_value, XmlReader* xml_reader) {
--  NamespaceMap namespaces;
--  if (!xml_reader->GetAllDeclaredNamespaces(&namespaces) || namespaces.empty())
--    return;
--
--  base::DictValue namespace_dict;
--  for (const auto& ns : namespaces) {
--    namespace_dict.Set(ns.first, ns.second);
--  }
--  node_value.Set(mojom::XmlParser::kNamespacesKey, std::move(namespace_dict));
--}
--
--void PopulateAttributes(base::DictValue& node_value, XmlReader* xml_reader) {
--  AttributeMap attributes;
--  if (!xml_reader->GetAllNodeAttributes(&attributes) || attributes.empty())
--    return;
--
--  base::DictValue attribute_dict;
--  for (const auto& attribute : attributes) {
--    attribute_dict.Set(attribute.first, base::Value(attribute.second));
-+std::string LegacyError(std::string_view input, const std::string& error) {
-+  std::string normalized;
-+  std::string_view message = error;
-+  if (message.find("Unexpected end of stream: no root element found") !=
-+      std::string_view::npos) {
-+    message = input.empty() ? "Document is empty" : "Start tag expected";
-+  } else if (message.find("Unexpected characters outside the root element") !=
-+             std::string_view::npos) {
-+    message = "Start tag expected";
-+  } else if (message.find(
-+                 "Unexpected end of stream: still inside the root element") !=
-+             std::string_view::npos) {
-+    message = "Premature end of data in tag";
-+  } else if (const size_t marker = message.find("Unexpected closing tag: ");
-+             marker != std::string_view::npos) {
-+    const size_t mismatch = message.find(" != ", marker);
-+    const size_t line_end = message.find(':');
-+    if (mismatch != std::string_view::npos &&
-+        line_end != std::string_view::npos) {
-+      constexpr std::string_view kMarker = "Unexpected closing tag: ";
-+      const std::string_view closing = message.substr(
-+          marker + kMarker.size(), mismatch - marker - kMarker.size());
-+      const std::string_view opening = message.substr(mismatch + 4);
-+      normalized =
-+          base::StrCat({"Opening and ending tag mismatch: ", opening, " line ",
-+                        message.substr(0, line_end), " and ", closing});
-+      message = normalized;
-+    }
-   }
--  node_value.Set(mojom::XmlParser::kAttributesKey, std::move(attribute_dict));
--}
--
--// A function to capture XML errors. Otherwise, by default, they are printed to
--// stderr. `context` is a pointer to a std::string stack-allocated in the
--// Parse(); `message` and the subsequent arguments are passed by libxml.
--void CaptureXmlErrors(void* context, const char* message, ...) {
--  va_list args;
--  va_start(args, message);
--  std::string* error = static_cast<std::string*>(context);
--  UNSAFE_TODO(base::StringAppendV(error, message, args));
--  va_end(args);
-+  return base::StrCat({"Invalid XML: failed to load: ", message});
- }
- 
- }  // namespace
- 
- XmlParser::XmlParser() = default;
--
- XmlParser::~XmlParser() = default;
- 
- void XmlParser::Parse(const std::string& xml,
-                       WhitespaceBehavior whitespace_behavior,
-                       ParseCallback callback) {
--  std::string errors;
--  ScopedXmlErrorFunc error_func(&errors, CaptureXmlErrors);
--
--  XmlReader xml_reader;
--  if (!xml_reader.Load(xml)) {
--    ReportError(std::move(callback), "Invalid XML: failed to load", errors);
-+  std::string error;
-+  auto root = xml::ffi::decode_xml_bytes(
-+      base::SpanToRustSlice(base::as_byte_span(xml)),
-+      whitespace_behavior == WhitespaceBehavior::kPreserveSignificant, error);
-+  if (!root) {
-+    std::move(callback).Run(std::nullopt,
-+                            std::make_optional(LegacyError(xml, error)));
-     return;
-   }
- 
--  base::Value root_element;
--  std::vector<base::DictValue*> element_stack;
--  while (xml_reader.Read()) {
--    if (xml_reader.IsClosingElement()) {
--      if (element_stack.empty()) {
--        ReportError(std::move(callback), "Invalid XML: unbalanced elements",
--                    errors);
--        return;
--      }
--      element_stack.pop_back();
--      continue;
--    }
--
--    std::string text;
--    TextNodeType text_node_type = TextNodeType::kText;
--    base::DictValue* current_element =
--        element_stack.empty() ? nullptr : element_stack.back();
--    bool push_new_node_to_stack = false;
--    base::DictValue new_element;
--    if (GetTextFromNode(&xml_reader, &text, &text_node_type)) {
--      if (!base::IsStringUTF8(text)) {
--        ReportError(std::move(callback), "Invalid XML: invalid UTF8 text.",
--                    errors);
--        return;
--      }
--      new_element = CreateTextNode(text, text_node_type);
--    } else if (xml_reader.IsElement()) {
--      new_element = CreateNewElement(xml_reader.NodeFullName());
--      PopulateNamespaces(new_element, &xml_reader);
--      PopulateAttributes(new_element, &xml_reader);
--      // Self-closing (empty) element have no close tag (or children); don't
--      // push them on the element stack.
--      push_new_node_to_stack = !xml_reader.IsEmptyElement();
--    } else if (whitespace_behavior ==
--                   WhitespaceBehavior::kPreserveSignificant &&
--               xml_reader.GetTextIfSignificantWhitespaceElement(&text)) {
--      new_element = CreateTextNode(text, TextNodeType::kText);
--    } else {
--      // Ignore all other node types (comments, processing instructions,
--      // DTDs...).
--      continue;
--    }
--
--    base::DictValue* new_element_ptr;
--    if (current_element) {
--      new_element_ptr =
--          AddChildToElement(*current_element, std::move(new_element));
--    } else {
--      // First element we are parsing, it becomes the root element.
--      DCHECK(xml_reader.IsElement());
--      DCHECK(root_element.is_none());
--      root_element = base::Value(std::move(new_element));
--      new_element_ptr = &root_element.GetDict();
--    }
--    if (push_new_node_to_stack)
--      element_stack.push_back(new_element_ptr);
--  }
--
--  if (!element_stack.empty()) {
--    ReportError(std::move(callback), "Invalid XML: unbalanced elements",
--                errors);
--    return;
--  }
--  if (!root_element.is_dict() || root_element.GetDict().empty()) {
--    ReportError(std::move(callback), "Invalid XML: bad content", errors);
--    return;
--  }
--  std::move(callback).Run(std::make_optional(std::move(root_element)),
--                          std::optional<std::string>());
-+  std::move(callback).Run(std::make_optional(root->ToValueForTesting()),
-+                          std::nullopt);
- }
- 
- }  // namespace data_decoder
-diff --git a/services/data_decoder/xml_parser_legacy.cc b/services/data_decoder/xml_parser_legacy.cc
+diff --git a/services/data_decoder/xml_migration_test_support.h b/services/data_decoder/xml_migration_test_support.h
 new file mode 100644
-index 0000000000..6aa37858e6
+index 0000000000..e21faa53f4
 --- /dev/null
-+++ b/services/data_decoder/xml_parser_legacy.cc
-@@ -0,0 +1,221 @@
-+// Copyright 2017 The Chromium Authors
++++ b/services/data_decoder/xml_migration_test_support.h
+@@ -0,0 +1,22 @@
++// Copyright 2026 The Chromium Authors
 +// Use of this source code is governed by a BSD-style license that can be
 +// found in the LICENSE file.
 +
-+#include "services/data_decoder/xml_parser.h"
++#ifndef SERVICES_DATA_DECODER_XML_MIGRATION_TEST_SUPPORT_H_
++#define SERVICES_DATA_DECODER_XML_MIGRATION_TEST_SUPPORT_H_
 +
-+#include <map>
-+#include <utility>
++#include "mojo/core/embedder/embedder.h"
 +
-+#include "base/strings/strcat.h"
++namespace data_decoder::test {
++
++inline void EnsureMojoInitializedForXmlMigrationTests() {
++  static const bool initialized = [] {
++    mojo::core::Init();
++    return true;
++  }();
++  (void)initialized;
++}
++
++}  // namespace data_decoder::test
++
++#endif  // SERVICES_DATA_DECODER_XML_MIGRATION_TEST_SUPPORT_H_
+diff --git a/services/data_decoder/xml_parser_unittest.cc b/services/data_decoder/xml_parser_unittest.cc
+index d42a295c4b..7e2890bcfd 100644
+--- a/services/data_decoder/xml_parser_unittest.cc
++++ b/services/data_decoder/xml_parser_unittest.cc
+@@ -2,12 +2,25 @@
+ // Use of this source code is governed by a BSD-style license that can be
+ // found in the LICENSE file.
+ 
+-#include "services/data_decoder/xml_parser.h"
+-
+ #include <memory>
+ 
+-#include "base/functional/bind.h"
++#include "base/containers/span.h"
 +#include "base/strings/string_util.h"
-+#include "base/strings/stringprintf.h"
-+#include "base/values.h"
-+#include "third_party/libxml/chromium/libxml_utils.h"
-+#include "third_party/libxml/chromium/xml_reader.h"
++#include "base/test/task_environment.h"
++#include "base/test/test_future.h"
+ #include "base/test/values_test_util.h"
++#include "mojo/public/cpp/bindings/remote.h"
++#include "mojo/public/cpp/bindings/self_owned_receiver.h"
++#include "services/data_decoder/public/cpp/xml_dom.h"
++#include "services/data_decoder/public/mojom/xml_parser.mojom.h"
++#include "services/data_decoder/xml_migration_test_support.h"
++#include "services/data_decoder/xml_parser_buildflags.h"
 +
-+namespace data_decoder {
-+
-+using AttributeMap = std::map<std::string, std::string>;
-+using NamespaceMap = std::map<std::string, std::string>;
-+
-+namespace {
-+
-+void ReportError(XmlParser::ParseCallback callback,
-+                 const std::string& generic_error,
-+                 const std::string& libxml_error) {
-+  std::string error;
-+  if (!libxml_error.empty()) {
-+    error = base::StrCat({generic_error, ": ", libxml_error});
-+    // libxml errors have trailing lines, spaces, and a carrot to try and
-+    // indicate where an error is. For instance, an error string may be:
-+    // Entity: line 1: parser error : Opening and ending tag mismatch: hello
-+    // line 1 and goodbye
-+    // <hello>bad tag</goodbye>
-+    //                         ^
-+    // This is helpful in a terminal, but not when gathering and returning the
-+    // error. Instead, just trim the trailing whitespace and '^'.
-+    base::TrimString(error, " \n^", &error);
-+  } else {
-+    error = generic_error;
-+  }
-+
-+  std::move(callback).Run(/*result=*/std::nullopt,
-+                          std::make_optional(std::move(error)));
-+}
-+
-+enum class TextNodeType { kText, kCData };
-+
-+// Returns false if the current node in |xml_reader| is not text or CData.
-+// Otherwise returns true and sets |text| to the text/CData of the current node
-+// and |node_type| to kText or kCData.
-+bool GetTextFromNode(XmlReader* xml_reader,
-+                     std::string* text,
-+                     TextNodeType* node_type) {
-+  if (xml_reader->GetTextIfTextElement(text)) {
-+    *node_type = TextNodeType::kText;
-+    return true;
-+  }
-+  if (xml_reader->GetTextIfCDataElement(text)) {
-+    *node_type = TextNodeType::kCData;
-+    return true;
-+  }
-+  return false;
-+}
-+
-+base::DictValue CreateTextNode(const std::string& text,
-+                               TextNodeType node_type) {
-+  base::DictValue element;
-+  element.Set(mojom::XmlParser::kTypeKey,
-+              node_type == TextNodeType::kText
-+                  ? mojom::XmlParser::kTextNodeType
-+                  : mojom::XmlParser::kCDataNodeType);
-+  element.Set(mojom::XmlParser::kTextKey, text);
-+  return element;
-+}
-+
-+// Creates and returns new element node with the tag name |name|.
-+base::DictValue CreateNewElement(const std::string& name) {
-+  base::DictValue element;
-+  element.Set(mojom::XmlParser::kTypeKey, mojom::XmlParser::kElementType);
-+  element.Set(mojom::XmlParser::kTagKey, name);
-+  return element;
-+}
-+
-+// Adds |child| as a child of |element|, creating the children list if
-+// necessary. Returns a ponter to |child|.
-+base::DictValue* AddChildToElement(base::DictValue& element,
-+                                   base::DictValue child) {
-+  DCHECK(!element.contains(mojom::XmlParser::kChildrenKey) ||
-+         element.FindList(mojom::XmlParser::kChildrenKey));
-+  base::ListValue* children =
-+      element.EnsureList(mojom::XmlParser::kChildrenKey);
-+  children->Append(std::move(child));
-+  return &children->back().GetDict();
-+}
-+
-+void PopulateNamespaces(base::DictValue& node_value, XmlReader* xml_reader) {
-+  NamespaceMap namespaces;
-+  if (!xml_reader->GetAllDeclaredNamespaces(&namespaces) || namespaces.empty())
-+    return;
-+
-+  base::DictValue namespace_dict;
-+  for (const auto& ns : namespaces) {
-+    namespace_dict.Set(ns.first, ns.second);
-+  }
-+  node_value.Set(mojom::XmlParser::kNamespacesKey, std::move(namespace_dict));
-+}
-+
-+void PopulateAttributes(base::DictValue& node_value, XmlReader* xml_reader) {
-+  AttributeMap attributes;
-+  if (!xml_reader->GetAllNodeAttributes(&attributes) || attributes.empty())
-+    return;
-+
-+  base::DictValue attribute_dict;
-+  for (const auto& attribute : attributes) {
-+    attribute_dict.Set(attribute.first, base::Value(attribute.second));
-+  }
-+  node_value.Set(mojom::XmlParser::kAttributesKey, std::move(attribute_dict));
-+}
-+
-+// A function to capture XML errors. Otherwise, by default, they are printed to
-+// stderr. `context` is a pointer to a std::string stack-allocated in the
-+// Parse(); `message` and the subsequent arguments are passed by libxml.
-+void CaptureXmlErrors(void* context, const char* message, ...) {
-+  va_list args;
-+  va_start(args, message);
-+  std::string* error = static_cast<std::string*>(context);
-+  UNSAFE_TODO(base::StringAppendV(error, message, args));
-+  va_end(args);
-+}
-+
-+}  // namespace
-+
-+XmlParser::XmlParser() = default;
-+
-+XmlParser::~XmlParser() = default;
-+
-+void XmlParser::Parse(const std::string& xml,
-+                      WhitespaceBehavior whitespace_behavior,
-+                      ParseCallback callback) {
-+  std::string errors;
-+  ScopedXmlErrorFunc error_func(&errors, CaptureXmlErrors);
-+
-+  XmlReader xml_reader;
-+  if (!xml_reader.Load(xml)) {
-+    ReportError(std::move(callback), "Invalid XML: failed to load", errors);
++#if BUILDFLAG(USE_RUST_DATA_DECODER_XML_PARSER)
++#include "services/data_decoder/xml/xml_parser_mojo.rs.h"
++#else
++#include "services/data_decoder/xml_parser.h"
++#endif
+ #include "testing/gmock/include/gmock/gmock.h"
+ #include "testing/gtest/include/gtest/gtest.h"
+ 
+@@ -15,16 +28,6 @@ namespace data_decoder {
+ 
+ namespace {
+ 
+-void TestParseXmlCallback(std::unique_ptr<base::Value>* value_out,
+-                          std::optional<std::string>* error_out,
+-                          std::optional<base::Value> value,
+-                          const std::optional<std::string>& error) {
+-  std::unique_ptr<base::Value> value_ptr =
+-      value ? base::Value::ToUniquePtrValue(std::move(value.value())) : nullptr;
+-  *value_out = std::move(value_ptr);
+-  *error_out = error;
+-}
+-
+ // Parses the passed in |xml| and compares the result to |json|.
+ // If |json| is empty, the parsing is expected to fail.
+ void TestParseXml(const std::string& xml,
+@@ -32,29 +35,47 @@ void TestParseXml(const std::string& xml,
+                   const std::string& expected_error = "",
+                   mojom::XmlParser::WhitespaceBehavior whitespace_behavior =
+                       mojom::XmlParser::WhitespaceBehavior::kIgnore) {
+-  XmlParser parser_impl;
+-  // Use a reference to mojom::XmlParser as XmlParser implements the interface
+-  // privately.
+-  mojom::XmlParser& parser = parser_impl;
+-
+-  std::unique_ptr<base::Value> actual_value;
+-  std::optional<std::string> error;
+-  parser.Parse(xml, whitespace_behavior,
+-               base::BindOnce(&TestParseXmlCallback, &actual_value, &error));
++#if BUILDFLAG(USE_RUST_DATA_DECODER_XML_PARSER)
++  // Mojom strings are UTF-8. Keep the legacy implementation's extra invalid-
++  // byte coverage at the Rust parser layer without attempting to send an
++  // invalid Mojom message.
++  if (!base::IsStringUTF8(xml)) {
++    EXPECT_FALSE(xml::Document::FromBytes(base::as_byte_span(xml)).has_value());
++    EXPECT_TRUE(json.empty());
 +    return;
 +  }
++#endif
 +
-+  base::Value root_element;
-+  std::vector<base::DictValue*> element_stack;
-+  while (xml_reader.Read()) {
-+    if (xml_reader.IsClosingElement()) {
-+      if (element_stack.empty()) {
-+        ReportError(std::move(callback), "Invalid XML: unbalanced elements",
-+                    errors);
-+        return;
-+      }
-+      element_stack.pop_back();
-+      continue;
++  test::EnsureMojoInitializedForXmlMigrationTests();
++  base::test::SingleThreadTaskEnvironment task_environment;
++  mojo::Remote<mojom::XmlParser> parser;
++  auto receiver = parser.BindNewPipeAndPassReceiver();
++#if BUILDFLAG(USE_RUST_DATA_DECODER_XML_PARSER)
++  BindRustXmlParser(receiver.PassPipe().release().value());
++#else
++  mojo::MakeSelfOwnedReceiver(std::make_unique<XmlParser>(),
++                              std::move(receiver));
++#endif
++
++  base::test::TestFuture<std::optional<base::Value>, std::optional<std::string>>
++      future;
++  parser->Parse(xml, whitespace_behavior,
++                future.GetCallback<std::optional<base::Value>,
++                                   const std::optional<std::string>&>());
++  auto [value, error] = future.Take();
++
+   if (json.empty()) {
+     EXPECT_TRUE(error);
+-    EXPECT_FALSE(actual_value)
+-        << "Unexpected success, value: " << *actual_value;
+-    if (!expected_error.empty())
++    EXPECT_FALSE(value) << "Unexpected success, value: " << *value;
++    if (!expected_error.empty()) {
+       EXPECT_THAT(*error, testing::HasSubstr(expected_error));
 +    }
-+
-+    std::string text;
-+    TextNodeType text_node_type = TextNodeType::kText;
-+    base::DictValue* current_element =
-+        element_stack.empty() ? nullptr : element_stack.back();
-+    bool push_new_node_to_stack = false;
-+    base::DictValue new_element;
-+    if (GetTextFromNode(&xml_reader, &text, &text_node_type)) {
-+      if (!base::IsStringUTF8(text)) {
-+        ReportError(std::move(callback), "Invalid XML: invalid UTF8 text.",
-+                    errors);
-+        return;
-+      }
-+      new_element = CreateTextNode(text, text_node_type);
-+    } else if (xml_reader.IsElement()) {
-+      new_element = CreateNewElement(xml_reader.NodeFullName());
-+      PopulateNamespaces(new_element, &xml_reader);
-+      PopulateAttributes(new_element, &xml_reader);
-+      // Self-closing (empty) element have no close tag (or children); don't
-+      // push them on the element stack.
-+      push_new_node_to_stack = !xml_reader.IsEmptyElement();
-+    } else if (whitespace_behavior ==
-+                   WhitespaceBehavior::kPreserveSignificant &&
-+               xml_reader.GetTextIfSignificantWhitespaceElement(&text)) {
-+      new_element = CreateTextNode(text, TextNodeType::kText);
-+    } else {
-+      // Ignore all other node types (comments, processing instructions,
-+      // DTDs...).
-+      continue;
-+    }
-+
-+    base::DictValue* new_element_ptr;
-+    if (current_element) {
-+      new_element_ptr =
-+          AddChildToElement(*current_element, std::move(new_element));
-+    } else {
-+      // First element we are parsing, it becomes the root element.
-+      DCHECK(xml_reader.IsElement());
-+      DCHECK(root_element.is_none());
-+      root_element = base::Value(std::move(new_element));
-+      new_element_ptr = &root_element.GetDict();
-+    }
-+    if (push_new_node_to_stack)
-+      element_stack.push_back(new_element_ptr);
-+  }
-+
-+  if (!element_stack.empty()) {
-+    ReportError(std::move(callback), "Invalid XML: unbalanced elements",
-+                errors);
-+    return;
-+  }
-+  if (!root_element.is_dict() || root_element.GetDict().empty()) {
-+    ReportError(std::move(callback), "Invalid XML: bad content", errors);
-+    return;
-+  }
-+  std::move(callback).Run(std::make_optional(std::move(root_element)),
-+                          std::optional<std::string>());
-+}
-+
-+}  // namespace data_decoder
+     return;
+   }
+ 
+   EXPECT_FALSE(error) << "Unexpected error: " << *error;
+-  EXPECT_TRUE(actual_value);
+-
+-  base::Value expected_value = base::test::ParseJson(json);
+-  EXPECT_EQ(expected_value, *actual_value);
++  ASSERT_TRUE(value);
++  EXPECT_EQ(base::test::ParseJson(json), *value);
+ }
+ 
+ }  // namespace
 diff --git a/third_party/libxml/BUILD.gn b/third_party/libxml/BUILD.gn
 index 890afc0e83..10df36598d 100644
 --- a/third_party/libxml/BUILD.gn

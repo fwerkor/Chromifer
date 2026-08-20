@@ -1,27 +1,17 @@
 # data_decoder XmlParser Rust successor (WIP)
 
-This directory tracks the M3 successor candidate that moves Chromium's production `data_decoder.mojom.XmlParser` off the legacy libxml implementation and onto Chromium's existing Rust XML parser at upstream revision `04f9a8144d9b1701aa0b329b6000cf3299bbaf22`.
+This directory tracks the current M3 successor for Chromium's production `data_decoder.mojom.XmlParser` at upstream revision `04f9a8144d9b1701aa0b329b6000cf3299bbaf22`.
 
-The candidate adds `use_rust_data_decoder_xml_parser`, defaulting to `enable_rust`, and a source-separated `xml_parser_impl` target. The Rust configuration links the existing `services/data_decoder/xml` parser/DOM path and excludes libxml from the production XmlParser dependency graph. Setting the flag to `false` compiles an exact copy of the pinned upstream `xml_parser.cc` as `xml_parser_legacy.cc` and restores the libxml dependencies.
+The current design is Rust-native at the production Mojo boundary. `use_rust_data_decoder_xml_parser` defaults to `enable_rust`. With the flag enabled, `DataDecoderService` transfers the `XmlParser` receiver to `services/data_decoder/xml/xml_parser_mojo.rs` once; parsing, tree construction, `mojo_base.mojom.Value` construction, and the response all stay in Rust. The candidate `//services/data_decoder:xml_parser_impl` dependency graph explicitly contains neither libxml nor the pre-existing C++ XML DOM/CXX builder path. Setting the flag to `false` restores the pinned upstream `xml_parser.cc` implementation and its libxml dependencies.
 
-Compatibility work completed in this checkpoint:
+Current Linux parity is 46/46 in both configurations. The focused suite contains the 25 legacy production `XmlParser` tests plus 21 Rust/parser compatibility cases. Valid Mojom-string cases call the real candidate or fallback receiver through a Mojo pipe. Legacy invalid-byte `std::string` cases remain parser-layer regressions in the Rust configuration because Mojom `string` itself requires UTF-8. `WhitespaceBehavior::kPreserveSignificant`, legacy error categories, text/CDATA behavior, attributes, namespaces, and explicit namespace redeclarations are covered.
 
-- arbitrary non-UTF-8 `std::string` inputs are passed to Rust as bytes and fail safely instead of aborting at the CXX `rust::Str` boundary;
-- `WhitespaceBehavior::kPreserveSignificant` is preserved;
-- legacy error categories used by the existing Mojo contract are normalized from xml-rs diagnostics;
-- whitespace-only `Characters` events follow legacy ignore-whitespace behavior;
-- explicit namespace redeclarations are preserved, including declarations identical to an inherited mapping.
+Explicit namespace redeclarations required a small Chromium patch to the already-patched `xml-v1` crate: `0005-Expose-element-local-namespace-declarations.patch`. It exposes the current `NamespaceStack` layer through `EventReader` without changing the cumulative namespace carried by `XmlEvent::StartElement`. `gnrt vendor --force 'xml*'` reproduced identical patched sources, so this vendor change is rebuildable rather than an ad-hoc edit.
 
-The last item required a small Chromium patch to the already-patched `xml-v1` crate: `0005-Expose-element-local-namespace-declarations.patch`. It exposes the current `NamespaceStack` layer through `EventReader` without changing the cumulative namespace carried by `XmlEvent::StartElement`. `gnrt vendor --force 'xml*'` was run successfully and reproduced identical patched source hashes.
+The direct Rust response also exposed a generic Rust Mojo limitation: recursive Mojom types such as `mojo_base.mojom.Value` previously caused infinite recursion while constructing `MojomWireType`. The patch adds lazy recursive wire-type references to `mojom_value_parser`; the real XmlParser suite now exercises nested dictionary/list `Value` responses end-to-end across Rust→C++ Mojo. A standalone recursive `MojomParse` regression has also been added to the Rust parser tests.
 
-Current Linux checkpoint:
+The exact current Chromium patch SHA-256 is `a47d90b659de742366946c722e6dc26e9545b219252b143c896c57cc74444731`.
 
-- Rust production configuration: focused `XmlParserTest.*:XmlParserRsTest.*` suite passes 46/46.
-- libxml rollback configuration: the same focused suite passes 46/46.
-- Rust production `//services/data_decoder:xml_parser_impl` graph excludes `//third_party/libxml`.
-- rollback source is `xml_parser_legacy.cc` and the rollback graph restores `libxml`, `libxml_utils`, and `xml_reader`.
-- exact Chromium patch SHA-256: `cc5edd9df397fb92dccecea4b6065d120a6d9d83c7094383a75f0474a8bdc784`.
+A previous parity-green design routed the production Mojo implementation through Chromium's existing Rust XML parser and C++ DOM/CXX builder. Its strict exposure measurement failed badly (memory-unsafe LOC 187→460, production LOC 187→597, files 2→8), and that evidence remains in `evidence/linux-exposure-cxx-dom-adapter.json`. That architecture is superseded; the current exposure definition measures the actual direct-Rust production graph and will be recomputed without weakening the M3 gate.
 
-A first strict exposure measurement of this C++ DOM adapter design failed both M3 exposure gates. Counting every Chromium-authored file newly active on the production path, memory-unsafe LOC grows from 187 to 460 and authored production LOC from 187 to 597; active implementation files grow from 2 to 8. The parity result remains valid, but this adapter architecture is therefore not an acceptable final M3 migration.
-
-The next design step is to keep the same proven Rust XML parsing behavior while moving the production `data_decoder.mojom.XmlParser` receiver and result construction into Rust directly. That removes the production dependency on the C++ DOM/CXX builder path instead of narrowing the measurement scope. Broader upstream regression, desktop portability, and performance remain pending.
+Broader upstream regression, desktop portability, performance, and the new direct-Rust exposure measurement remain pending before M3 acceptance.

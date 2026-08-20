@@ -1,12 +1,14 @@
 revision=04f9a8144d9b1701aa0b329b6000cf3299bbaf22
 configuration=use_rust_data_decoder_xml_parser=true
-production_graph=libxml excluded
+production_graph_check:
+PASS: candidate production graph excludes libxml and C++ xml_dom
+note=valid Mojom string cases traverse the real Mojo receiver; legacy invalid-byte cases remain Rust parser-layer regressions because Mojom string requires UTF-8
 Note: Google Test filter = XmlParserTest.*:XmlParserRsTest.*
 [==========] Running 46 tests from 2 test suites.
 [----------] Global test environment set-up.
 [----------] 21 tests from XmlParserRsTest
 [ RUN      ] XmlParserRsTest.Basic
-[       OK ] XmlParserRsTest.Basic (0 ms)
+[       OK ] XmlParserRsTest.Basic (1 ms)
 [ RUN      ] XmlParserRsTest.MultipleAttributes
 [       OK ] XmlParserRsTest.MultipleAttributes (0 ms)
 [ RUN      ] XmlParserRsTest.DuplicateAttributes
@@ -20,7 +22,7 @@ Note: Google Test filter = XmlParserTest.*:XmlParserRsTest.*
 [ RUN      ] XmlParserRsTest.OverrideNamespaceInChild
 [       OK ] XmlParserRsTest.OverrideNamespaceInChild (0 ms)
 [ RUN      ] XmlParserRsTest.UndeclareDefaultNamespaceTest
-[       OK ] XmlParserRsTest.UndeclareDefaultNamespaceTest (0 ms)
+[       OK ] XmlParserRsTest.UndeclareDefaultNamespaceTest (2 ms)
 [ RUN      ] XmlParserRsTest.CdataNode
 [       OK ] XmlParserRsTest.CdataNode (0 ms)
 [ RUN      ] XmlParserRsTest.NestedSiblings
@@ -30,7 +32,7 @@ Note: Google Test filter = XmlParserTest.*:XmlParserRsTest.*
 [ RUN      ] XmlParserRsTest.MaxDepth
 [       OK ] XmlParserRsTest.MaxDepth (3 ms)
 [ RUN      ] XmlParserRsTest.NoRootElement
-[       OK ] XmlParserRsTest.NoRootElement (0 ms)
+[       OK ] XmlParserRsTest.NoRootElement (1 ms)
 [ RUN      ] XmlParserRsTest.WhitespaceAroundRootElement
 [       OK ] XmlParserRsTest.WhitespaceAroundRootElement (0 ms)
 [ RUN      ] XmlParserRsTest.MultipleRootElements
@@ -40,26 +42,26 @@ Note: Google Test filter = XmlParserTest.*:XmlParserRsTest.*
 [ RUN      ] XmlParserRsTest.CdataAroundRoot
 [       OK ] XmlParserRsTest.CdataAroundRoot (0 ms)
 [ RUN      ] XmlParserRsTest.MismatchedTags
-[       OK ] XmlParserRsTest.MismatchedTags (0 ms)
+[       OK ] XmlParserRsTest.MismatchedTags (1 ms)
 [ RUN      ] XmlParserRsTest.DoctypeIgnored
 [       OK ] XmlParserRsTest.DoctypeIgnored (0 ms)
 [ RUN      ] XmlParserRsTest.ProcessingInstructionsIgnored
-[       OK ] XmlParserRsTest.ProcessingInstructionsIgnored (0 ms)
+[       OK ] XmlParserRsTest.ProcessingInstructionsIgnored (1 ms)
 [ RUN      ] XmlParserRsTest.CommentsIgnored
-[       OK ] XmlParserRsTest.CommentsIgnored (0 ms)
-[----------] 21 tests from XmlParserRsTest (7 ms total)
+[       OK ] XmlParserRsTest.CommentsIgnored (1 ms)
+[----------] 21 tests from XmlParserRsTest (22 ms total)
 
 [----------] 25 tests from XmlParserTest
 [ RUN      ] XmlParserTest.ParseBadXml
-[       OK ] XmlParserTest.ParseBadXml (0 ms)
+[       OK ] XmlParserTest.ParseBadXml (2 ms)
 [ RUN      ] XmlParserTest.IgnoreComments
 [       OK ] XmlParserTest.IgnoreComments (0 ms)
 [ RUN      ] XmlParserTest.IgnoreProcessingCommands
-[       OK ] XmlParserTest.IgnoreProcessingCommands (0 ms)
+[       OK ] XmlParserTest.IgnoreProcessingCommands (1 ms)
 [ RUN      ] XmlParserTest.IgnoreDocumentTypes
 [       OK ] XmlParserTest.IgnoreDocumentTypes (0 ms)
 [ RUN      ] XmlParserTest.ParseSelfClosingTag
-[       OK ] XmlParserTest.ParseSelfClosingTag (0 ms)
+[       OK ] XmlParserTest.ParseSelfClosingTag (1 ms)
 [ RUN      ] XmlParserTest.ParseEmptyTag
 [       OK ] XmlParserTest.ParseEmptyTag (0 ms)
 [ RUN      ] XmlParserTest.ParseBadTag
@@ -73,7 +75,7 @@ Note: Google Test filter = XmlParserTest.*:XmlParserRsTest.*
 [ RUN      ] XmlParserTest.ParseBadCDataElement
 [       OK ] XmlParserTest.ParseBadCDataElement (0 ms)
 [ RUN      ] XmlParserTest.ParseTextWithEntities
-[       OK ] XmlParserTest.ParseTextWithEntities (0 ms)
+[       OK ] XmlParserTest.ParseTextWithEntities (1 ms)
 [ RUN      ] XmlParserTest.ParseMultipleSimilarTextElement
 [       OK ] XmlParserTest.ParseMultipleSimilarTextElement (0 ms)
 [ RUN      ] XmlParserTest.ParseMixMatchTextNonTextElement
@@ -89,7 +91,7 @@ Note: Google Test filter = XmlParserTest.*:XmlParserRsTest.*
 [ RUN      ] XmlParserTest.JsonInjection
 [       OK ] XmlParserTest.JsonInjection (0 ms)
 [ RUN      ] XmlParserTest.ParseAttributes
-[       OK ] XmlParserTest.ParseAttributes (0 ms)
+[       OK ] XmlParserTest.ParseAttributes (1 ms)
 [ RUN      ] XmlParserTest.ParseBadAttributes
 [       OK ] XmlParserTest.ParseBadAttributes (0 ms)
 [ RUN      ] XmlParserTest.MultipleNamespacesDefined
@@ -99,9 +101,9 @@ Note: Google Test filter = XmlParserTest.*:XmlParserRsTest.*
 [ RUN      ] XmlParserTest.WhitespaceBehavior
 [       OK ] XmlParserTest.WhitespaceBehavior (0 ms)
 [ RUN      ] XmlParserTest.ParseTypicalXml
-[       OK ] XmlParserTest.ParseTypicalXml (0 ms)
-[----------] 25 tests from XmlParserTest (3 ms total)
+[       OK ] XmlParserTest.ParseTypicalXml (1 ms)
+[----------] 25 tests from XmlParserTest (18 ms total)
 
 [----------] Global test environment tear-down
-[==========] 46 tests from 2 test suites ran. (11 ms total)
+[==========] 46 tests from 2 test suites ran. (41 ms total)
 [  PASSED  ] 46 tests.

@@ -1,6 +1,6 @@
 schema_version = 1
 id = "services-data-decoder-xml-parser-exposure"
-status = "failed"
+status = "defined_not_measured"
 
 [comparison]
 upstream_revision = "04f9a8144d9b1701aa0b329b6000cf3299bbaf22"
@@ -43,22 +43,3 @@ source_inventory = "exposure-sources.toml"
 record_file_hashes = true
 record_measurement_tool_version = true
 record_raw_counts = true
-
-[results]
-baseline_authored_memory_unsafe_loc = 187
-candidate_authored_memory_unsafe_loc = 460
-baseline_authored_production_loc = 187
-candidate_authored_production_loc = 597
-baseline_active_implementation_files = 2
-candidate_active_implementation_files = 8
-baseline_branch_points = 21
-candidate_branch_points = 50
-baseline_manual_raw_pointer_fields = 1
-candidate_manual_raw_pointer_fields = 1
-baseline_cross_language_forwarding_methods = 0
-candidate_cross_language_forwarding_methods = 7
-new_public_api_count = 0
-new_mojom_method_count = 0
-measurement_tool_version = "chromifer-exposure-v1"
-file_hashes_sha256 = "f924015b910c6c1adb9de1319b5294ddd81f0974723cd96673340be73ac668e2"
-raw_counts_sha256 = "02b4bb7b22c07a7a64112345b7437275fa476c6f0b2d873c7a11864086e58ad9"

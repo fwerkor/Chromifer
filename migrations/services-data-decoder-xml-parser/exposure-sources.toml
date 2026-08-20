@@ -1,11 +1,12 @@
 schema_version = 1
 
-# Count the complete Chromium-authored implementation that becomes active for
-# the production XmlParser path. Shared Rust/C++ XML DOM/parser glue is counted
-# on the candidate side even though it predates this migration, because the
-# production Mojo path newly depends on it.
+# Count the complete Chromium-authored production implementation selected by
+# the GN flag. The DataDecoderService receiver handoff is included on both
+# sides. The candidate does not depend on the pre-existing C++ XML DOM path;
+# GN dependency checks in the focused evidence explicitly enforce that.
 [baseline]
 files = [
+  "services/data_decoder/data_decoder_service.cc",
   "services/data_decoder/xml_parser.cc",
   "services/data_decoder/xml_parser.h",
 ]
@@ -13,23 +14,11 @@ cross_language_forwarding_methods = []
 
 [candidate]
 files = [
-  "services/data_decoder/xml_parser.cc",
-  "services/data_decoder/xml_parser.h",
-  "services/data_decoder/xml/parser.rs",
-  "services/data_decoder/xml/cxx.rs",
-  "services/data_decoder/xml/dom_builder.cc",
-  "services/data_decoder/xml/dom_builder.h",
-  "services/data_decoder/public/cpp/xml_dom.cc",
-  "services/data_decoder/public/cpp/xml_dom.h",
+  "services/data_decoder/data_decoder_service.cc",
+  "services/data_decoder/xml/xml_parser_mojo.rs",
 ]
 cross_language_forwarding_methods = [
-  "data_decoder::xml::ffi::decode_xml_bytes",
-  "data_decoder::xml::ffi::create_element",
-  "data_decoder::xml::ffi::set_attribute",
-  "data_decoder::xml::ffi::set_namespace",
-  "data_decoder::xml::ffi::add_child",
-  "data_decoder::xml::ffi::create_text_node",
-  "data_decoder::xml::ffi::create_cdata_node",
+  "data_decoder::BindRustXmlParser",
 ]
 
 [contract_review]

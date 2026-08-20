@@ -22,7 +22,7 @@ kind = "mojo"
 interface = "data_decoder.mojom.XmlParser"
 mojom = "services/data_decoder/public/mojom/xml_parser.mojom"
 legacy_sources = ["services/data_decoder/xml_parser.cc", "services/data_decoder/xml_parser.h"]
-rust_source = "services/data_decoder/xml/parser.rs"
+rust_source = "services/data_decoder/xml/xml_parser_mojo.rs"
 factory = "services/data_decoder/data_decoder_service.cc"
 methods = ["Parse"]
 
@@ -40,7 +40,7 @@ status = "passed"
 [implementation.patch]
 path = "chromium.patch"
 base_revision = "04f9a8144d9b1701aa0b329b6000cf3299bbaf22"
-sha256 = "cc5edd9df397fb92dccecea4b6065d120a6d9d83c7094383a75f0474a8bdc784"
+sha256 = "a47d90b659de742366946c722e6dc26e9545b219252b143c896c57cc74444731"
 
 [[verification]]
 id = "rust-xml-focused-contract"
@@ -69,8 +69,8 @@ feature_parity = "partial"
 upstream_test_parity = "pending"
 performance_budget = "defined_not_measured"
 rollback = "verified"
-memory_safety_reduction = "failed"
-maintenance_complexity_reduction = "failed"
+memory_safety_reduction = "pending"
+maintenance_complexity_reduction = "pending"
 
 [parity]
 matrix = "parity.toml"
@@ -82,8 +82,8 @@ status = "defined_not_measured"
 
 [exposure]
 measurement = "exposure.toml"
-status = "failed"
+status = "defined_not_measured"
 
 [notes]
 verified_platform = "linux"
-feature_parity_scope = "The focused suite runs all 25 legacy production XmlParser tests plus 21 Rust-vs-libxml parser compatibility tests, including explicit namespace redeclaration parity. Broader services tests and desktop platforms remain pending."
+feature_parity_scope = "The direct Rust Mojo implementation passes the focused 46-test Linux suite: 25 legacy XmlParser contracts and 21 Rust/parser parity cases, including explicit namespace redeclaration. Valid Mojom string cases traverse the real Rust receiver; legacy invalid-byte inputs remain parser-layer regressions because Mojom string requires UTF-8. Broader services tests and desktop platforms remain pending."

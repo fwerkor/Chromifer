@@ -1,7 +1,7 @@
 revision=04f9a8144d9b1701aa0b329b6000cf3299bbaf22
 configuration=use_rust_data_decoder_xml_parser=false
 fallback_sources:
-//services/data_decoder/xml_parser_legacy.cc
+//services/data_decoder/xml_parser.cc
 fallback_libxml_dependencies:
 //third_party/libxml:libxml
 //third_party/libxml:libxml_utils
@@ -11,7 +11,7 @@ Note: Google Test filter = XmlParserTest.*:XmlParserRsTest.*
 [----------] Global test environment set-up.
 [----------] 21 tests from XmlParserRsTest
 [ RUN      ] XmlParserRsTest.Basic
-[       OK ] XmlParserRsTest.Basic (0 ms)
+[       OK ] XmlParserRsTest.Basic (1 ms)
 [ RUN      ] XmlParserRsTest.MultipleAttributes
 [       OK ] XmlParserRsTest.MultipleAttributes (0 ms)
 [ RUN      ] XmlParserRsTest.DuplicateAttributes
@@ -33,9 +33,9 @@ Note: Google Test filter = XmlParserTest.*:XmlParserRsTest.*
 [ RUN      ] XmlParserRsTest.CharacterEntities
 [       OK ] XmlParserRsTest.CharacterEntities (0 ms)
 [ RUN      ] XmlParserRsTest.MaxDepth
-[       OK ] XmlParserRsTest.MaxDepth (4 ms)
+[       OK ] XmlParserRsTest.MaxDepth (3 ms)
 [ RUN      ] XmlParserRsTest.NoRootElement
-[       OK ] XmlParserRsTest.NoRootElement (0 ms)
+[       OK ] XmlParserRsTest.NoRootElement (1 ms)
 [ RUN      ] XmlParserRsTest.WhitespaceAroundRootElement
 [       OK ] XmlParserRsTest.WhitespaceAroundRootElement (0 ms)
 [ RUN      ] XmlParserRsTest.MultipleRootElements
@@ -52,11 +52,11 @@ Note: Google Test filter = XmlParserTest.*:XmlParserRsTest.*
 [       OK ] XmlParserRsTest.ProcessingInstructionsIgnored (0 ms)
 [ RUN      ] XmlParserRsTest.CommentsIgnored
 [       OK ] XmlParserRsTest.CommentsIgnored (0 ms)
-[----------] 21 tests from XmlParserRsTest (10 ms total)
+[----------] 21 tests from XmlParserRsTest (18 ms total)
 
 [----------] 25 tests from XmlParserTest
 [ RUN      ] XmlParserTest.ParseBadXml
-[       OK ] XmlParserTest.ParseBadXml (0 ms)
+[       OK ] XmlParserTest.ParseBadXml (1 ms)
 [ RUN      ] XmlParserTest.IgnoreComments
 [       OK ] XmlParserTest.IgnoreComments (0 ms)
 [ RUN      ] XmlParserTest.IgnoreProcessingCommands
@@ -76,7 +76,7 @@ Note: Google Test filter = XmlParserTest.*:XmlParserRsTest.*
 [ RUN      ] XmlParserTest.ParseCDataElement
 [       OK ] XmlParserTest.ParseCDataElement (0 ms)
 [ RUN      ] XmlParserTest.ParseBadCDataElement
-[       OK ] XmlParserTest.ParseBadCDataElement (0 ms)
+[       OK ] XmlParserTest.ParseBadCDataElement (1 ms)
 [ RUN      ] XmlParserTest.ParseTextWithEntities
 [       OK ] XmlParserTest.ParseTextWithEntities (0 ms)
 [ RUN      ] XmlParserTest.ParseMultipleSimilarTextElement
@@ -94,7 +94,7 @@ Note: Google Test filter = XmlParserTest.*:XmlParserRsTest.*
 [ RUN      ] XmlParserTest.JsonInjection
 [       OK ] XmlParserTest.JsonInjection (0 ms)
 [ RUN      ] XmlParserTest.ParseAttributes
-[       OK ] XmlParserTest.ParseAttributes (0 ms)
+[       OK ] XmlParserTest.ParseAttributes (1 ms)
 [ RUN      ] XmlParserTest.ParseBadAttributes
 [       OK ] XmlParserTest.ParseBadAttributes (0 ms)
 [ RUN      ] XmlParserTest.MultipleNamespacesDefined
@@ -105,8 +105,8 @@ Note: Google Test filter = XmlParserTest.*:XmlParserRsTest.*
 [       OK ] XmlParserTest.WhitespaceBehavior (0 ms)
 [ RUN      ] XmlParserTest.ParseTypicalXml
 [       OK ] XmlParserTest.ParseTypicalXml (0 ms)
-[----------] 25 tests from XmlParserTest (4 ms total)
+[----------] 25 tests from XmlParserTest (13 ms total)
 
 [----------] Global test environment tear-down
-[==========] 46 tests from 2 test suites ran. (14 ms total)
+[==========] 46 tests from 2 test suites ran. (33 ms total)
 [  PASSED  ] 46 tests.
