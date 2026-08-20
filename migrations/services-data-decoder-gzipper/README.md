@@ -12,7 +12,8 @@ Current Linux checkpoint:
 
 - Rust Mojom generator regression tests: 11/11 passed.
 - `//services/data_decoder:gzipper_rust`: builds successfully.
-- focused `//services/data_decoder:gzipper_unittests`: 5/5 passed, including a 128 KiB BigBuffer round trip.
+- focused Rust `//services/data_decoder:gzipper_unittests`: 5/5 passed, including a 128 KiB BigBuffer round trip.
+- source-separated C++ rollback: the same 5/5 contract passes with `use_rust_data_decoder_gzipper=false`; the focused and production GN graphs exclude `//services/data_decoder:gzipper_rust`, while the production source list restores `gzipper.cc/.h` and the zlib dependency.
 - patch SHA-256: `bd81d1642295389f3764837d7c7ef2b7d4c832a61c757bfb3cfbf4d3894b4844`.
 
-This is deliberately a WIP record and therefore has no `pilot.toml` yet. The C++ rollback configuration, broader upstream regression suite, exposure measurement, desktop portability, and performance gate still need to be executed before this successor can become the M3 production pilot.
+This is deliberately a WIP record and therefore has no `pilot.toml` yet. A full cold build of the broad `//services/data_decoder:lib` dependency graph has not been claimed as rollback evidence; only its GN source/dependency selection and the focused executable were verified. Broader upstream regression, exposure measurement, desktop portability, and the performance gate still need to be executed before this successor can become the M3 production pilot.
