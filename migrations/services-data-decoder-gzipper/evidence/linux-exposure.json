@@ -1,0 +1,77 @@
+{
+  "results": {
+    "baseline_authored_memory_unsafe_loc": 153,
+    "candidate_authored_memory_unsafe_loc": 86,
+    "baseline_authored_production_loc": 153,
+    "candidate_authored_production_loc": 203,
+    "baseline_active_implementation_files": 3,
+    "candidate_active_implementation_files": 2,
+    "baseline_branch_points": 6,
+    "candidate_branch_points": 29,
+    "baseline_manual_raw_pointer_fields": 0,
+    "candidate_manual_raw_pointer_fields": 0,
+    "baseline_cross_language_forwarding_methods": 0,
+    "candidate_cross_language_forwarding_methods": 1,
+    "new_public_api_count": 0,
+    "new_mojom_method_count": 0,
+    "measurement_tool_version": "chromifer-exposure-v1",
+    "file_hashes_sha256": "85fd9ec7427012cbaaeaada51272bbcb2ed41fe4fa52e0df40e1de85c70abaea",
+    "raw_counts_sha256": "6b537af8386defce0e8f90bf5b0cd87d906c218eac8c449d22e80b07f7332874"
+  },
+  "files": [
+    {
+      "side": "baseline",
+      "path": "services/data_decoder/data_decoder_service.cc",
+      "language": "cpp",
+      "sha256": "5f5d6edc7c3f2fce9ac9c3cf66bea0e5af936b072538221fc4f5964739de3499",
+      "authored_production_loc": 72,
+      "authored_memory_unsafe_loc": 72,
+      "branch_points": 2,
+      "manual_raw_pointer_fields": 0
+    },
+    {
+      "side": "baseline",
+      "path": "services/data_decoder/gzipper.cc",
+      "language": "cpp",
+      "sha256": "909ba99c84d32e131afbbc4d67aa3126cac0d0ce9971871c3107a288913b4e02",
+      "authored_production_loc": 60,
+      "authored_memory_unsafe_loc": 60,
+      "branch_points": 4,
+      "manual_raw_pointer_fields": 0
+    },
+    {
+      "side": "baseline",
+      "path": "services/data_decoder/gzipper.h",
+      "language": "cpp",
+      "sha256": "e5da0224bb1f9aba61df7c673d5464c714cca6adb5746bcd6219409adf97f461",
+      "authored_production_loc": 21,
+      "authored_memory_unsafe_loc": 21,
+      "branch_points": 0,
+      "manual_raw_pointer_fields": 0
+    },
+    {
+      "side": "candidate",
+      "path": "services/data_decoder/data_decoder_service.cc",
+      "language": "cpp",
+      "sha256": "fd6436ab71e95c68b3e8edc14184184b7a7a50fb561cd25d54c0e1c41f3444bd",
+      "authored_production_loc": 81,
+      "authored_memory_unsafe_loc": 81,
+      "branch_points": 4,
+      "manual_raw_pointer_fields": 0
+    },
+    {
+      "side": "candidate",
+      "path": "services/data_decoder/rust/gzipper.rs",
+      "language": "rust",
+      "sha256": "07e4cb120153d4e46045d8b592b8fcccbad5c0a11ba377d9115665e5ecb031f1",
+      "authored_production_loc": 122,
+      "authored_memory_unsafe_loc": 5,
+      "branch_points": 25,
+      "manual_raw_pointer_fields": 0
+    }
+  ],
+  "contract_review": {
+    "new_public_api_count": 0,
+    "new_mojom_method_count": 0
+  }
+}

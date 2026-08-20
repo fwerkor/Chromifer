@@ -1,0 +1,92 @@
+schema_version = 1
+id = "services-data-decoder-gzipper"
+status = "in_progress"
+
+[upstream]
+repository = "https://chromium.googlesource.com/chromium/src.git"
+revision = "04f9a8144d9b1701aa0b329b6000cf3299bbaf22"
+target = "//services/data_decoder:lib"
+ownership = "file://services/data_decoder/OWNERS"
+
+[upstream.blobs]
+services_data_decoder_build = "9ec647da02e230db298f370614bed6c463deb50e"
+legacy_implementation = "6a082360b225b114033b19b41420d81b8fc1aab5"
+legacy_header = "9df768278033a46c11339a23905a1d381aaadd8f"
+service = "920b62490ca91f959aa6ee6414f9b890d19d3d38"
+mojom = "bfb537520563604beacc2a1d7ad8525e9964cd8e"
+owners = "50cbd62fb0e34a574cd95670b82b5a728bc532fb"
+big_buffer_mojom = "0a352846a297f88cf830579dbb8d2900f81a37ab"
+
+[boundary]
+kind = "mojo"
+interface = "data_decoder.mojom.Gzipper"
+mojom = "services/data_decoder/public/mojom/gzipper.mojom"
+legacy_sources = [
+  "services/data_decoder/gzipper.cc",
+  "services/data_decoder/gzipper.h",
+]
+rust_source = "services/data_decoder/rust/gzipper.rs"
+factory = "services/data_decoder/data_decoder_service.cc"
+methods = ["Deflate", "Inflate", "Compress", "Uncompress"]
+
+[rollback]
+status = "verified"
+gn_arg = "use_rust_data_decoder_gzipper"
+rust_value = true
+fallback_value = false
+default_expression = "enable_rust"
+shared_test_target = "//services/data_decoder:gzipper_unittests"
+
+[implementation]
+status = "passed"
+
+[implementation.patch]
+path = "chromium.patch"
+base_revision = "04f9a8144d9b1701aa0b329b6000cf3299bbaf22"
+sha256 = "1abd0676dce20a1250302c197e8e37d3a300d0800efc4712e1f85872ef86211f"
+
+[[verification]]
+id = "rust-gzipper-contract"
+status = "passed"
+configuration = "use_rust_data_decoder_gzipper=true"
+target = "//services/data_decoder:gzipper_unittests"
+passed_tests = 5
+failed_tests = 0
+
+[[verification]]
+id = "cpp-fallback-contract"
+status = "passed"
+configuration = "use_rust_data_decoder_gzipper=false"
+target = "//services/data_decoder:gzipper_unittests"
+passed_tests = 5
+failed_tests = 0
+rust_receiver_dependencies_present = false
+
+[[verification]]
+id = "broader-services-regression"
+status = "pending"
+target = "//services:services_unittests"
+
+[m3_acceptance]
+feature_parity = "partial"
+upstream_test_parity = "pending"
+performance_budget = "defined_not_measured"
+rollback = "verified"
+memory_safety_reduction = "passed"
+maintenance_complexity_reduction = "failed"
+
+[parity]
+matrix = "parity.toml"
+status = "partial"
+
+[performance]
+budget = "performance.toml"
+status = "defined_not_measured"
+
+[exposure]
+measurement = "exposure.toml"
+status = "failed"
+
+[notes]
+verified_platform = "linux"
+feature_parity_scope = "The focused shared Mojo contract exercises all four Gzipper methods on Linux, including output-size enforcement and a 128 KiB shared-memory BigBuffer round trip. macOS, Windows, and the broader services regression suite remain unverified."

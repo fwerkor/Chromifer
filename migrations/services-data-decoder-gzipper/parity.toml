@@ -1,0 +1,61 @@
+schema_version = 1
+id = "services-data-decoder-gzipper-parity"
+status = "partial"
+
+[interface]
+mojom = "services/data_decoder/public/mojom/gzipper.mojom"
+name = "data_decoder.mojom.Gzipper"
+methods = ["Deflate", "Inflate", "Compress", "Uncompress"]
+require_identical_mojom = true
+require_identical_factory_signature = true
+
+[[contract_cases]]
+id = "raw-deflate-roundtrip"
+status = "passed_linux"
+methods = ["Deflate", "Inflate"]
+evidence_sha256 = "5181f1a68015d53fcf51ab3bfb13d22c966ee24586d5de3dc818e8c249df8ada"
+
+[[contract_cases]]
+id = "inflate-size-limit"
+status = "passed_linux"
+method = "Inflate"
+evidence_sha256 = "5181f1a68015d53fcf51ab3bfb13d22c966ee24586d5de3dc818e8c249df8ada"
+
+[[contract_cases]]
+id = "inflate-trims-size"
+status = "passed_linux"
+method = "Inflate"
+evidence_sha256 = "5181f1a68015d53fcf51ab3bfb13d22c966ee24586d5de3dc818e8c249df8ada"
+
+[[contract_cases]]
+id = "gzip-roundtrip"
+status = "passed_linux"
+methods = ["Compress", "Uncompress"]
+evidence_sha256 = "5181f1a68015d53fcf51ab3bfb13d22c966ee24586d5de3dc818e8c249df8ada"
+
+[[contract_cases]]
+id = "large-bigbuffer-roundtrip"
+status = "passed_linux"
+methods = ["Compress", "Uncompress"]
+evidence_sha256 = "5181f1a68015d53fcf51ab3bfb13d22c966ee24586d5de3dc818e8c249df8ada"
+
+[[upstream_suites]]
+id = "services-unittests"
+target = "//services:services_unittests"
+status = "pending"
+
+[desktop_matrix]
+platforms = ["linux", "mac", "win"]
+require_rust_build = true
+require_shared_contract_test = true
+require_upstream_suite_when_target_supported = true
+linux = "partial"
+mac = "pending"
+win = "pending"
+
+[rollback_matrix]
+require_fallback_build = true
+require_shared_contract_test = true
+linux = "partial"
+mac = "pending"
+win = "pending"

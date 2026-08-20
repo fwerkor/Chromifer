@@ -1,0 +1,25 @@
+schema_version = 1
+
+# Count the whole active component-facing implementation on both sides. The
+# DataDecoderService binding file is included symmetrically because the
+# migration changes the production receiver handoff there.
+[baseline]
+files = [
+  "services/data_decoder/data_decoder_service.cc",
+  "services/data_decoder/gzipper.cc",
+  "services/data_decoder/gzipper.h",
+]
+cross_language_forwarding_methods = []
+
+[candidate]
+files = [
+  "services/data_decoder/data_decoder_service.cc",
+  "services/data_decoder/rust/gzipper.rs",
+]
+cross_language_forwarding_methods = [
+  "data_decoder::BindRustGzipper",
+]
+
+[contract_review]
+new_public_api_count = 0
+new_mojom_method_count = 0
