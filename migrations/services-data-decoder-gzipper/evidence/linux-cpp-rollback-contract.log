@@ -9,21 +9,13 @@ use_rust_data_decoder_gzipper
     Keep the C++ Gzipper as a source-separated rollback while the Rust Mojo
     implementation is validated on all supported desktop platforms.
 
-
-focused_graph_check:
-PASS: focused rollback graph excludes //services/data_decoder:gzipper_rust
-
-production_source_check:
+focused_graph:
+PASS: Rust target excluded
+production_sources:
 //services/data_decoder/data_decoder_service.cc
 //services/data_decoder/data_decoder_service.h
 //services/data_decoder/gzipper.cc
 //services/data_decoder/gzipper.h
-
-production_dependency_check:
-//third_party/zlib/google:compression_utils
-//third_party/zlib/google:compression_utils_portable
-PASS: production rollback graph selects zlib and excludes Rust gzipper
-
 contract:
 Note: Google Test filter = GzipperTest.*
 [==========] Running 5 tests from 1 test suite.
@@ -32,15 +24,15 @@ Note: Google Test filter = GzipperTest.*
 [ RUN      ] GzipperTest.DeflateAndInflate
 [       OK ] GzipperTest.DeflateAndInflate (1 ms)
 [ RUN      ] GzipperTest.InflateExceedsSize
-[       OK ] GzipperTest.InflateExceedsSize (0 ms)
+[       OK ] GzipperTest.InflateExceedsSize (1 ms)
 [ RUN      ] GzipperTest.InflateTrimsSize
-[       OK ] GzipperTest.InflateTrimsSize (1 ms)
+[       OK ] GzipperTest.InflateTrimsSize (0 ms)
 [ RUN      ] GzipperTest.CompressAndUncompress
 [       OK ] GzipperTest.CompressAndUncompress (1 ms)
 [ RUN      ] GzipperTest.LargeBigBufferRoundTrip
-[       OK ] GzipperTest.LargeBigBufferRoundTrip (17 ms)
-[----------] 5 tests from GzipperTest (22 ms total)
+[       OK ] GzipperTest.LargeBigBufferRoundTrip (15 ms)
+[----------] 5 tests from GzipperTest (21 ms total)
 
 [----------] Global test environment tear-down
-[==========] 5 tests from 1 test suite ran. (23 ms total)
+[==========] 5 tests from 1 test suite ran. (21 ms total)
 [  PASSED  ] 5 tests.

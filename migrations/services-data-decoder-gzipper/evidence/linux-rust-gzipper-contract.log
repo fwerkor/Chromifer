@@ -1,4 +1,5 @@
 revision=04f9a8144d9b1701aa0b329b6000cf3299bbaf22
+configuration=use_rust_data_decoder_gzipper=true
 command=./out/ChromiferCandidate_data_decoder/gzipper_unittests --gtest_filter=GzipperTest.* --single-process-tests
 Note: Google Test filter = GzipperTest.*
 [==========] Running 5 tests from 1 test suite.
@@ -9,13 +10,13 @@ Note: Google Test filter = GzipperTest.*
 [ RUN      ] GzipperTest.InflateExceedsSize
 [       OK ] GzipperTest.InflateExceedsSize (1 ms)
 [ RUN      ] GzipperTest.InflateTrimsSize
-[       OK ] GzipperTest.InflateTrimsSize (0 ms)
+[       OK ] GzipperTest.InflateTrimsSize (1 ms)
 [ RUN      ] GzipperTest.CompressAndUncompress
-[       OK ] GzipperTest.CompressAndUncompress (0 ms)
+[       OK ] GzipperTest.CompressAndUncompress (1 ms)
 [ RUN      ] GzipperTest.LargeBigBufferRoundTrip
 [       OK ] GzipperTest.LargeBigBufferRoundTrip (15 ms)
-[----------] 5 tests from GzipperTest (21 ms total)
+[----------] 5 tests from GzipperTest (22 ms total)
 
 [----------] Global test environment tear-down
-[==========] 5 tests from 1 test suite ran. (21 ms total)
+[==========] 5 tests from 1 test suite ran. (22 ms total)
 [  PASSED  ] 5 tests.

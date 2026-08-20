@@ -1,7 +1,0 @@
-revision=04f9a8144d9b1701aa0b329b6000cf3299bbaf22
-command=PYTHONPATH=... python3 mojo/public/tools/bindings/generators/mojom_rust_generator_unittest.py
-...........
-----------------------------------------------------------------------
-Ran 11 tests in 0.001s
-
-OK
