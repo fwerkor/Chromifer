@@ -1,0 +1,981 @@
+diff --git a/services/data_decoder/BUILD.gn b/services/data_decoder/BUILD.gn
+index 9ec647da02..9f857bac96 100644
+--- a/services/data_decoder/BUILD.gn
++++ b/services/data_decoder/BUILD.gn
+@@ -2,8 +2,44 @@
+ # Use of this source code is governed by a BSD-style license that can be
+ # found in the LICENSE file.
+ 
++import("//build/buildflag_header.gni")
+ import("//build/config/features.gni")
++import("//build/config/rust.gni")
+ import("//testing/libfuzzer/fuzzer_test.gni")
++import("//testing/test.gni")
++
++declare_args() {
++  # Keeps the libxml implementation available as a source-separated rollback
++  # while the existing Rust XML parser is validated for the production Mojo
++  # XmlParser interface.
++  use_rust_data_decoder_xml_parser = enable_rust
++}
++
++buildflag_header("xml_parser_buildflags") {
++  header = "xml_parser_buildflags.h"
++  flags =
++      [ "USE_RUST_DATA_DECODER_XML_PARSER=$use_rust_data_decoder_xml_parser" ]
++}
++
++source_set("xml_parser_impl") {
++  public = [ "xml_parser.h" ]
++  deps = [
++    ":xml_parser_buildflags",
++    "//base",
++    "//services/data_decoder/public/mojom:mojom_xml_parser",
++  ]
++
++  if (use_rust_data_decoder_xml_parser) {
++    sources = [ "xml_parser.cc" ]
++    deps += [ "//services/data_decoder/public/cpp:xml_dom" ]
++  } else {
++    sources = [ "xml_parser_legacy.cc" ]
++    deps += [
++      "//third_party/libxml:libxml_utils",
++      "//third_party/libxml:xml_reader",
++    ]
++  }
++}
+ 
+ source_set("lib") {
+   # This target should only be depended upon by components that host a
+@@ -25,13 +61,12 @@ source_set("lib") {
+     "gzipper.h",
+     "structured_headers_parser_impl.cc",
+     "structured_headers_parser_impl.h",
+-    "xml_parser.cc",
+-    "xml_parser.h",
+   ]
+ 
+   configs += [ "//build/config/compiler:wexit_time_destructors" ]
+ 
+   deps = [
++    ":xml_parser_impl",
+     "//base",
+     "//build:blink_buildflags",
+     "//components/cbor",
+@@ -41,8 +76,6 @@ source_set("lib") {
+     "//mojo/public/cpp/bindings",
+     "//net",
+     "//skia",
+-    "//third_party/libxml:libxml_utils",
+-    "//third_party/libxml:xml_reader",
+     "//third_party/zlib/google:compression_utils",
+     "//ui/gfx",
+     "//ui/gfx/geometry",
+@@ -108,6 +141,26 @@ source_set("tests") {
+   }
+ }
+ 
++# Focused compatibility target for migrating the production Mojo XmlParser to
++# the existing Rust XML parser without rebuilding the whole services_unittests
++# graph after every iteration.
++test("xml_migration_unittests") {
++  sources = [
++    "xml/xml_parser_rs_unittest.cc",
++    "xml_parser_unittest.cc",
++  ]
++  deps = [
++    ":xml_parser_impl",
++    "//base",
++    "//base/test:run_all_unittests",
++    "//base/test:test_support",
++    "//services/data_decoder/public/cpp:xml_dom",
++    "//services/data_decoder/public/mojom:mojom_xml_parser",
++    "//testing/gmock",
++    "//testing/gtest",
++  ]
++}
++
+ # This is a separate target because //third_party/libxml:libxml_utils
+ # wants to limit its visibility to a select number of target, but the
+ # "fuzzer_test" template expands on iOS to many targets that need to
+diff --git a/services/data_decoder/public/cpp/BUILD.gn b/services/data_decoder/public/cpp/BUILD.gn
+index 94835c0276..effee8d61f 100644
+--- a/services/data_decoder/public/cpp/BUILD.gn
++++ b/services/data_decoder/public/cpp/BUILD.gn
+@@ -97,7 +97,11 @@ source_set("xml_dom_core") {
+ }
+ 
+ source_set("xml_dom") {
+-  visibility = [ ":*" ]
++  visibility = [
++    ":*",
++    "//services/data_decoder:xml_migration_unittests",
++    "//services/data_decoder:xml_parser_impl",
++  ]
+ 
+   public_deps = [ ":xml_dom_core" ]
+   sources = [ "xml_dom_parser.cc" ]
+diff --git a/services/data_decoder/public/cpp/xml_dom_parser.cc b/services/data_decoder/public/cpp/xml_dom_parser.cc
+index 92a917ef6d..70a5c65c15 100644
+--- a/services/data_decoder/public/cpp/xml_dom_parser.cc
++++ b/services/data_decoder/public/cpp/xml_dom_parser.cc
+@@ -14,7 +14,9 @@ namespace data_decoder::xml {
+ base::expected<Document, std::string> Document::FromBytes(
+     base::span<const uint8_t> bytes) {
+   std::string err;
+-  auto root = ffi::decode_xml_bytes(base::SpanToRustSlice(bytes), err);
++  auto root =
++      ffi::decode_xml_bytes(base::SpanToRustSlice(bytes),
++                            /*preserve_significant_whitespace=*/false, err);
+   if (root) {
+     return Document(std::move(root));
+   }
+diff --git a/services/data_decoder/xml/cxx.rs b/services/data_decoder/xml/cxx.rs
+index 7c2ec65c11..4af6f94118 100644
+--- a/services/data_decoder/xml/cxx.rs
++++ b/services/data_decoder/xml/cxx.rs
+@@ -22,7 +22,11 @@ pub mod ffi {
+     extern "Rust" {
+         // TODO(dcheng): decide if we really need to handle both bytes and
+         // strings and/or where the conversion should happen.
+-        fn decode_xml_bytes(xml: &[u8], err: Pin<&mut CxxString>) -> UniquePtr<Node>;
++        fn decode_xml_bytes(
++            xml: &[u8],
++            preserve_significant_whitespace: bool,
++            err: Pin<&mut CxxString>,
++        ) -> UniquePtr<Node>;
+         fn decode_xml_str(xml: &str, mut err: Pin<&mut CxxString>) -> UniquePtr<Node>;
+     }
+ }
+diff --git a/services/data_decoder/xml/parser.rs b/services/data_decoder/xml/parser.rs
+index d848048fc6..1928ec5aa2 100644
+--- a/services/data_decoder/xml/parser.rs
++++ b/services/data_decoder/xml/parser.rs
+@@ -17,8 +17,8 @@ const MAX_DEPTH: usize = 200;
+ fn populate_node(
+     node: &mut UniquePtr<Node>,
+     attributes: Vec<OwnedAttribute>,
+-    namespace: &Namespace,
+-    parent_namespace: Option<&Namespace>,
++    namespace_declarations: &Namespace,
++    is_root: bool,
+ ) {
+     for attr in attributes {
+         let prefix = attr.name.prefix.as_deref().unwrap_or("");
+@@ -29,70 +29,80 @@ fn populate_node(
+             &attr.value,
+         );
+     }
+-    for (prefix, uri) in namespace {
++    for (prefix, uri) in namespace_declarations {
+         // Per https://www.w3.org/TR/xml-names/#ns-decl, "xml" is reserved and may be declared, but
+-        // must be bound to ttp://www.w3.org/XML/1998/namespace. xml-rs already checks
+-        // that, so no need to validate that here.
+-        // "xmlns" is also reserved but must not be declared; this is also enforced by
+-        // xml-rs.
++        // must be bound to http://www.w3.org/XML/1998/namespace. xml-rs already checks
++        // that, so no need to validate that here. "xmlns" is also reserved but must not
++        // be declared; this is also enforced by xml-rs.
+         if prefix == "xml" || prefix == "xmlns" {
+             continue;
+         }
+-        // For compatibility with the original C++ parser, which omits this on the root
+-        // element if not otherwise specified.
+-        if prefix.is_empty() && uri.is_empty() && parent_namespace.is_none() {
+-            continue;
+-        }
+-        // `namespace` includes declarations from the parent (and transitively, ancestor
+-        // nodes); avoid duplicating inherited declarations into all descendant
+-        // nodes.
+-        if parent_namespace.and_then(|ns| ns.get(prefix)) == Some(uri) {
++        // For compatibility with the original C++ parser, omit the implicit empty
++        // default namespace on the root element.
++        if prefix.is_empty() && uri.is_empty() && is_root {
+             continue;
+         }
+         crate::cxx::ffi::set_namespace(node.as_mut().unwrap(), prefix, uri);
+     }
+ }
+ 
+-pub fn decode_xml_bytes(xml: &[u8], err: Pin<&mut CxxString>) -> UniquePtr<Node> {
++pub fn decode_xml_bytes(
++    xml: &[u8],
++    preserve_significant_whitespace: bool,
++    err: Pin<&mut CxxString>,
++) -> UniquePtr<Node> {
+     let Ok(xml) = str::from_utf8(xml) else {
+         return UniquePtr::null();
+     };
+-    decode_xml_str(xml, err)
++    decode_xml_str_impl(xml, preserve_significant_whitespace, err)
+ }
+ 
+-pub fn decode_xml_str(xml: &str, mut err: Pin<&mut CxxString>) -> UniquePtr<Node> {
+-    let parser = EventReader::from_str(xml);
+-    let mut stack: Vec<(UniquePtr<Node>, Namespace)> = Vec::new();
++pub fn decode_xml_str(xml: &str, err: Pin<&mut CxxString>) -> UniquePtr<Node> {
++    decode_xml_str_impl(xml, false, err)
++}
++
++fn decode_xml_str_impl(
++    xml: &str,
++    preserve_significant_whitespace: bool,
++    mut err: Pin<&mut CxxString>,
++) -> UniquePtr<Node> {
++    let mut parser = EventReader::from_str(xml);
++    let mut stack: Vec<UniquePtr<Node>> = Vec::new();
+     let mut root: UniquePtr<Node> = UniquePtr::null();
+ 
+-    for e in parser {
+-        match e {
+-            Ok(XmlEvent::StartElement { name, attributes, namespace }) => {
++    loop {
++        match parser.next() {
++            Ok(XmlEvent::StartElement { name, attributes, .. }) => {
+                 if !root.is_null() || stack.len() >= MAX_DEPTH {
+                     return UniquePtr::null();
+                 }
+ 
+                 let prefix = name.prefix.as_deref().unwrap_or("");
+                 let mut node = crate::cxx::ffi::create_element(&name.local_name, prefix);
+-
+-                let parent_namespace = stack.last().map(|(_, ns)| ns);
+-                populate_node(&mut node, attributes, &namespace, parent_namespace);
+-
+-                stack.push((node, namespace));
++                populate_node(
++                    &mut node,
++                    attributes,
++                    parser.namespace_declarations(),
++                    stack.is_empty(),
++                );
++                stack.push(node);
+             }
+             Ok(XmlEvent::EndElement { .. }) => {
+-                let (child, _) = match stack.pop() {
++                let child = match stack.pop() {
+                     Some(x) => x,
+                     None => return UniquePtr::null(),
+                 };
+-                if let Some((parent, _)) = stack.last_mut() {
++                if let Some(parent) = stack.last_mut() {
+                     crate::cxx::ffi::add_child(parent.as_mut().unwrap(), child);
+                 } else {
+                     root = child;
+                 }
+             }
+             Ok(XmlEvent::Characters(data)) => {
+-                if let Some((parent, _)) = stack.last_mut() {
++                if data.trim().is_empty() && !preserve_significant_whitespace {
++                    continue;
++                }
++                if let Some(parent) = stack.last_mut() {
+                     let text_node = crate::cxx::ffi::create_text_node(&data);
+                     crate::cxx::ffi::add_child(parent.as_mut().unwrap(), text_node);
+                 } else if !data.trim().is_empty() {
+@@ -100,19 +110,26 @@ pub fn decode_xml_str(xml: &str, mut err: Pin<&mut CxxString>) -> UniquePtr<Node
+                 }
+             }
+             Ok(XmlEvent::CData(data)) => {
+-                if let Some((parent, _)) = stack.last_mut() {
++                if let Some(parent) = stack.last_mut() {
+                     let cdata_node = crate::cxx::ffi::create_cdata_node(&data);
+                     crate::cxx::ffi::add_child(parent.as_mut().unwrap(), cdata_node);
+                 } else {
+                     return UniquePtr::null();
+                 }
+             }
+-            Ok(XmlEvent::Whitespace(_))
+-            | Ok(XmlEvent::Comment(_))
++            Ok(XmlEvent::Whitespace(data)) => {
++                if preserve_significant_whitespace {
++                    if let Some(parent) = stack.last_mut() {
++                        let text_node = crate::cxx::ffi::create_text_node(&data);
++                        crate::cxx::ffi::add_child(parent.as_mut().unwrap(), text_node);
++                    }
++                }
++            }
++            Ok(XmlEvent::Comment(_))
+             | Ok(XmlEvent::ProcessingInstruction { .. })
+             | Ok(XmlEvent::StartDocument { .. })
+-            | Ok(XmlEvent::EndDocument)
+             | Ok(XmlEvent::Doctype { .. }) => {}
++            Ok(XmlEvent::EndDocument) => break,
+             Err(e) => {
+                 write!(&mut err, "{}", e).unwrap();
+                 return UniquePtr::null();
+diff --git a/services/data_decoder/xml/xml_parser_rs_unittest.cc b/services/data_decoder/xml/xml_parser_rs_unittest.cc
+index a5d7da19a2..196fba1435 100644
+--- a/services/data_decoder/xml/xml_parser_rs_unittest.cc
++++ b/services/data_decoder/xml/xml_parser_rs_unittest.cc
+@@ -206,14 +206,12 @@ TEST_F(XmlParserRsTest, BasicNamespaces) {
+ }
+ 
+ TEST_F(XmlParserRsTest, OverrideNamespaceInChild) {
+-  // TODO(dcheng): This test reveals a behavior difference from the legacy
+-  // libxml2-based parser, so for now,  do not use the ParseXml() helper.
+-  auto doc = Document::FromUtf8(
+-      "<root xmlns:a='https://example.com/1'>"
+-      "  <child xmlns:a='https://example.com/2'>"
+-      "    <nested-child xmlns:a='https://example.com/2' />"
+-      "  </child>"
+-      "</root>");
++  ASSERT_OK_AND_ASSIGN(
++      auto doc, ParseXml("<root xmlns:a='https://example.com/1'>"
++                         "  <child xmlns:a='https://example.com/2'>"
++                         "    <nested-child xmlns:a='https://example.com/2' />"
++                         "  </child>"
++                         "</root>"));
+   ASSERT_OK(doc);
+ 
+   const Node* root = doc->GetRoot();
+@@ -225,12 +223,12 @@ TEST_F(XmlParserRsTest, OverrideNamespaceInChild) {
+   EXPECT_THAT(children[0]->GetNamespaces(),
+               UnorderedElementsAre(Pair("a", "https://example.com/2")));
+ 
+-  // Even though `nested-child` explicitly declares the namespace, the
+-  // declaration is identical to the one inherited from its parent, so it will
+-  // be omitted.
++  // Explicit namespace redeclarations are preserved even when they match the
++  // binding inherited from the parent, matching the legacy libxml parser.
+   const auto& grandchildren = children[0]->GetChildren();
+   ASSERT_EQ(grandchildren.size(), 1u);
+-  EXPECT_THAT(grandchildren[0]->GetNamespaces(), IsEmpty());
++  EXPECT_THAT(grandchildren[0]->GetNamespaces(),
++              UnorderedElementsAre(Pair("a", "https://example.com/2")));
+ }
+ 
+ TEST_F(XmlParserRsTest, UndeclareDefaultNamespaceTest) {
+diff --git a/services/data_decoder/xml_parser.cc b/services/data_decoder/xml_parser.cc
+index 6aa37858e6..6aa315a6d4 100644
+--- a/services/data_decoder/xml_parser.cc
++++ b/services/data_decoder/xml_parser.cc
+@@ -1,221 +1,74 @@
+-// Copyright 2017 The Chromium Authors
++// Copyright 2026 The Chromium Authors
+ // Use of this source code is governed by a BSD-style license that can be
+ // found in the LICENSE file.
+ 
+ #include "services/data_decoder/xml_parser.h"
+ 
+-#include <map>
++#include <string_view>
+ #include <utility>
+ 
++#include "base/containers/span.h"
++#include "base/containers/span_rust.h"
+ #include "base/strings/strcat.h"
+-#include "base/strings/string_util.h"
+-#include "base/strings/stringprintf.h"
+-#include "base/values.h"
+-#include "third_party/libxml/chromium/libxml_utils.h"
+-#include "third_party/libxml/chromium/xml_reader.h"
++#include "services/data_decoder/public/cpp/xml_dom.h"
++#include "services/data_decoder/xml/cxx.rs.h"
+ 
+ namespace data_decoder {
+ 
+-using AttributeMap = std::map<std::string, std::string>;
+-using NamespaceMap = std::map<std::string, std::string>;
+-
+ namespace {
+ 
+-void ReportError(XmlParser::ParseCallback callback,
+-                 const std::string& generic_error,
+-                 const std::string& libxml_error) {
+-  std::string error;
+-  if (!libxml_error.empty()) {
+-    error = base::StrCat({generic_error, ": ", libxml_error});
+-    // libxml errors have trailing lines, spaces, and a carrot to try and
+-    // indicate where an error is. For instance, an error string may be:
+-    // Entity: line 1: parser error : Opening and ending tag mismatch: hello
+-    // line 1 and goodbye
+-    // <hello>bad tag</goodbye>
+-    //                         ^
+-    // This is helpful in a terminal, but not when gathering and returning the
+-    // error. Instead, just trim the trailing whitespace and '^'.
+-    base::TrimString(error, " \n^", &error);
+-  } else {
+-    error = generic_error;
+-  }
+-
+-  std::move(callback).Run(/*result=*/std::nullopt,
+-                          std::make_optional(std::move(error)));
+-}
+-
+-enum class TextNodeType { kText, kCData };
+-
+-// Returns false if the current node in |xml_reader| is not text or CData.
+-// Otherwise returns true and sets |text| to the text/CData of the current node
+-// and |node_type| to kText or kCData.
+-bool GetTextFromNode(XmlReader* xml_reader,
+-                     std::string* text,
+-                     TextNodeType* node_type) {
+-  if (xml_reader->GetTextIfTextElement(text)) {
+-    *node_type = TextNodeType::kText;
+-    return true;
+-  }
+-  if (xml_reader->GetTextIfCDataElement(text)) {
+-    *node_type = TextNodeType::kCData;
+-    return true;
+-  }
+-  return false;
+-}
+-
+-base::DictValue CreateTextNode(const std::string& text,
+-                               TextNodeType node_type) {
+-  base::DictValue element;
+-  element.Set(mojom::XmlParser::kTypeKey,
+-              node_type == TextNodeType::kText
+-                  ? mojom::XmlParser::kTextNodeType
+-                  : mojom::XmlParser::kCDataNodeType);
+-  element.Set(mojom::XmlParser::kTextKey, text);
+-  return element;
+-}
+-
+-// Creates and returns new element node with the tag name |name|.
+-base::DictValue CreateNewElement(const std::string& name) {
+-  base::DictValue element;
+-  element.Set(mojom::XmlParser::kTypeKey, mojom::XmlParser::kElementType);
+-  element.Set(mojom::XmlParser::kTagKey, name);
+-  return element;
+-}
+-
+-// Adds |child| as a child of |element|, creating the children list if
+-// necessary. Returns a ponter to |child|.
+-base::DictValue* AddChildToElement(base::DictValue& element,
+-                                   base::DictValue child) {
+-  DCHECK(!element.contains(mojom::XmlParser::kChildrenKey) ||
+-         element.FindList(mojom::XmlParser::kChildrenKey));
+-  base::ListValue* children =
+-      element.EnsureList(mojom::XmlParser::kChildrenKey);
+-  children->Append(std::move(child));
+-  return &children->back().GetDict();
+-}
+-
+-void PopulateNamespaces(base::DictValue& node_value, XmlReader* xml_reader) {
+-  NamespaceMap namespaces;
+-  if (!xml_reader->GetAllDeclaredNamespaces(&namespaces) || namespaces.empty())
+-    return;
+-
+-  base::DictValue namespace_dict;
+-  for (const auto& ns : namespaces) {
+-    namespace_dict.Set(ns.first, ns.second);
+-  }
+-  node_value.Set(mojom::XmlParser::kNamespacesKey, std::move(namespace_dict));
+-}
+-
+-void PopulateAttributes(base::DictValue& node_value, XmlReader* xml_reader) {
+-  AttributeMap attributes;
+-  if (!xml_reader->GetAllNodeAttributes(&attributes) || attributes.empty())
+-    return;
+-
+-  base::DictValue attribute_dict;
+-  for (const auto& attribute : attributes) {
+-    attribute_dict.Set(attribute.first, base::Value(attribute.second));
++std::string LegacyError(std::string_view input, const std::string& error) {
++  std::string normalized;
++  std::string_view message = error;
++  if (message.find("Unexpected end of stream: no root element found") !=
++      std::string_view::npos) {
++    message = input.empty() ? "Document is empty" : "Start tag expected";
++  } else if (message.find("Unexpected characters outside the root element") !=
++             std::string_view::npos) {
++    message = "Start tag expected";
++  } else if (message.find(
++                 "Unexpected end of stream: still inside the root element") !=
++             std::string_view::npos) {
++    message = "Premature end of data in tag";
++  } else if (const size_t marker = message.find("Unexpected closing tag: ");
++             marker != std::string_view::npos) {
++    const size_t mismatch = message.find(" != ", marker);
++    const size_t line_end = message.find(':');
++    if (mismatch != std::string_view::npos &&
++        line_end != std::string_view::npos) {
++      constexpr std::string_view kMarker = "Unexpected closing tag: ";
++      const std::string_view closing = message.substr(
++          marker + kMarker.size(), mismatch - marker - kMarker.size());
++      const std::string_view opening = message.substr(mismatch + 4);
++      normalized =
++          base::StrCat({"Opening and ending tag mismatch: ", opening, " line ",
++                        message.substr(0, line_end), " and ", closing});
++      message = normalized;
++    }
+   }
+-  node_value.Set(mojom::XmlParser::kAttributesKey, std::move(attribute_dict));
+-}
+-
+-// A function to capture XML errors. Otherwise, by default, they are printed to
+-// stderr. `context` is a pointer to a std::string stack-allocated in the
+-// Parse(); `message` and the subsequent arguments are passed by libxml.
+-void CaptureXmlErrors(void* context, const char* message, ...) {
+-  va_list args;
+-  va_start(args, message);
+-  std::string* error = static_cast<std::string*>(context);
+-  UNSAFE_TODO(base::StringAppendV(error, message, args));
+-  va_end(args);
++  return base::StrCat({"Invalid XML: failed to load: ", message});
+ }
+ 
+ }  // namespace
+ 
+ XmlParser::XmlParser() = default;
+-
+ XmlParser::~XmlParser() = default;
+ 
+ void XmlParser::Parse(const std::string& xml,
+                       WhitespaceBehavior whitespace_behavior,
+                       ParseCallback callback) {
+-  std::string errors;
+-  ScopedXmlErrorFunc error_func(&errors, CaptureXmlErrors);
+-
+-  XmlReader xml_reader;
+-  if (!xml_reader.Load(xml)) {
+-    ReportError(std::move(callback), "Invalid XML: failed to load", errors);
++  std::string error;
++  auto root = xml::ffi::decode_xml_bytes(
++      base::SpanToRustSlice(base::as_byte_span(xml)),
++      whitespace_behavior == WhitespaceBehavior::kPreserveSignificant, error);
++  if (!root) {
++    std::move(callback).Run(std::nullopt,
++                            std::make_optional(LegacyError(xml, error)));
+     return;
+   }
+ 
+-  base::Value root_element;
+-  std::vector<base::DictValue*> element_stack;
+-  while (xml_reader.Read()) {
+-    if (xml_reader.IsClosingElement()) {
+-      if (element_stack.empty()) {
+-        ReportError(std::move(callback), "Invalid XML: unbalanced elements",
+-                    errors);
+-        return;
+-      }
+-      element_stack.pop_back();
+-      continue;
+-    }
+-
+-    std::string text;
+-    TextNodeType text_node_type = TextNodeType::kText;
+-    base::DictValue* current_element =
+-        element_stack.empty() ? nullptr : element_stack.back();
+-    bool push_new_node_to_stack = false;
+-    base::DictValue new_element;
+-    if (GetTextFromNode(&xml_reader, &text, &text_node_type)) {
+-      if (!base::IsStringUTF8(text)) {
+-        ReportError(std::move(callback), "Invalid XML: invalid UTF8 text.",
+-                    errors);
+-        return;
+-      }
+-      new_element = CreateTextNode(text, text_node_type);
+-    } else if (xml_reader.IsElement()) {
+-      new_element = CreateNewElement(xml_reader.NodeFullName());
+-      PopulateNamespaces(new_element, &xml_reader);
+-      PopulateAttributes(new_element, &xml_reader);
+-      // Self-closing (empty) element have no close tag (or children); don't
+-      // push them on the element stack.
+-      push_new_node_to_stack = !xml_reader.IsEmptyElement();
+-    } else if (whitespace_behavior ==
+-                   WhitespaceBehavior::kPreserveSignificant &&
+-               xml_reader.GetTextIfSignificantWhitespaceElement(&text)) {
+-      new_element = CreateTextNode(text, TextNodeType::kText);
+-    } else {
+-      // Ignore all other node types (comments, processing instructions,
+-      // DTDs...).
+-      continue;
+-    }
+-
+-    base::DictValue* new_element_ptr;
+-    if (current_element) {
+-      new_element_ptr =
+-          AddChildToElement(*current_element, std::move(new_element));
+-    } else {
+-      // First element we are parsing, it becomes the root element.
+-      DCHECK(xml_reader.IsElement());
+-      DCHECK(root_element.is_none());
+-      root_element = base::Value(std::move(new_element));
+-      new_element_ptr = &root_element.GetDict();
+-    }
+-    if (push_new_node_to_stack)
+-      element_stack.push_back(new_element_ptr);
+-  }
+-
+-  if (!element_stack.empty()) {
+-    ReportError(std::move(callback), "Invalid XML: unbalanced elements",
+-                errors);
+-    return;
+-  }
+-  if (!root_element.is_dict() || root_element.GetDict().empty()) {
+-    ReportError(std::move(callback), "Invalid XML: bad content", errors);
+-    return;
+-  }
+-  std::move(callback).Run(std::make_optional(std::move(root_element)),
+-                          std::optional<std::string>());
++  std::move(callback).Run(std::make_optional(root->ToValueForTesting()),
++                          std::nullopt);
+ }
+ 
+ }  // namespace data_decoder
+diff --git a/services/data_decoder/xml_parser_legacy.cc b/services/data_decoder/xml_parser_legacy.cc
+new file mode 100644
+index 0000000000..6aa37858e6
+--- /dev/null
++++ b/services/data_decoder/xml_parser_legacy.cc
+@@ -0,0 +1,221 @@
++// Copyright 2017 The Chromium Authors
++// Use of this source code is governed by a BSD-style license that can be
++// found in the LICENSE file.
++
++#include "services/data_decoder/xml_parser.h"
++
++#include <map>
++#include <utility>
++
++#include "base/strings/strcat.h"
++#include "base/strings/string_util.h"
++#include "base/strings/stringprintf.h"
++#include "base/values.h"
++#include "third_party/libxml/chromium/libxml_utils.h"
++#include "third_party/libxml/chromium/xml_reader.h"
++
++namespace data_decoder {
++
++using AttributeMap = std::map<std::string, std::string>;
++using NamespaceMap = std::map<std::string, std::string>;
++
++namespace {
++
++void ReportError(XmlParser::ParseCallback callback,
++                 const std::string& generic_error,
++                 const std::string& libxml_error) {
++  std::string error;
++  if (!libxml_error.empty()) {
++    error = base::StrCat({generic_error, ": ", libxml_error});
++    // libxml errors have trailing lines, spaces, and a carrot to try and
++    // indicate where an error is. For instance, an error string may be:
++    // Entity: line 1: parser error : Opening and ending tag mismatch: hello
++    // line 1 and goodbye
++    // <hello>bad tag</goodbye>
++    //                         ^
++    // This is helpful in a terminal, but not when gathering and returning the
++    // error. Instead, just trim the trailing whitespace and '^'.
++    base::TrimString(error, " \n^", &error);
++  } else {
++    error = generic_error;
++  }
++
++  std::move(callback).Run(/*result=*/std::nullopt,
++                          std::make_optional(std::move(error)));
++}
++
++enum class TextNodeType { kText, kCData };
++
++// Returns false if the current node in |xml_reader| is not text or CData.
++// Otherwise returns true and sets |text| to the text/CData of the current node
++// and |node_type| to kText or kCData.
++bool GetTextFromNode(XmlReader* xml_reader,
++                     std::string* text,
++                     TextNodeType* node_type) {
++  if (xml_reader->GetTextIfTextElement(text)) {
++    *node_type = TextNodeType::kText;
++    return true;
++  }
++  if (xml_reader->GetTextIfCDataElement(text)) {
++    *node_type = TextNodeType::kCData;
++    return true;
++  }
++  return false;
++}
++
++base::DictValue CreateTextNode(const std::string& text,
++                               TextNodeType node_type) {
++  base::DictValue element;
++  element.Set(mojom::XmlParser::kTypeKey,
++              node_type == TextNodeType::kText
++                  ? mojom::XmlParser::kTextNodeType
++                  : mojom::XmlParser::kCDataNodeType);
++  element.Set(mojom::XmlParser::kTextKey, text);
++  return element;
++}
++
++// Creates and returns new element node with the tag name |name|.
++base::DictValue CreateNewElement(const std::string& name) {
++  base::DictValue element;
++  element.Set(mojom::XmlParser::kTypeKey, mojom::XmlParser::kElementType);
++  element.Set(mojom::XmlParser::kTagKey, name);
++  return element;
++}
++
++// Adds |child| as a child of |element|, creating the children list if
++// necessary. Returns a ponter to |child|.
++base::DictValue* AddChildToElement(base::DictValue& element,
++                                   base::DictValue child) {
++  DCHECK(!element.contains(mojom::XmlParser::kChildrenKey) ||
++         element.FindList(mojom::XmlParser::kChildrenKey));
++  base::ListValue* children =
++      element.EnsureList(mojom::XmlParser::kChildrenKey);
++  children->Append(std::move(child));
++  return &children->back().GetDict();
++}
++
++void PopulateNamespaces(base::DictValue& node_value, XmlReader* xml_reader) {
++  NamespaceMap namespaces;
++  if (!xml_reader->GetAllDeclaredNamespaces(&namespaces) || namespaces.empty())
++    return;
++
++  base::DictValue namespace_dict;
++  for (const auto& ns : namespaces) {
++    namespace_dict.Set(ns.first, ns.second);
++  }
++  node_value.Set(mojom::XmlParser::kNamespacesKey, std::move(namespace_dict));
++}
++
++void PopulateAttributes(base::DictValue& node_value, XmlReader* xml_reader) {
++  AttributeMap attributes;
++  if (!xml_reader->GetAllNodeAttributes(&attributes) || attributes.empty())
++    return;
++
++  base::DictValue attribute_dict;
++  for (const auto& attribute : attributes) {
++    attribute_dict.Set(attribute.first, base::Value(attribute.second));
++  }
++  node_value.Set(mojom::XmlParser::kAttributesKey, std::move(attribute_dict));
++}
++
++// A function to capture XML errors. Otherwise, by default, they are printed to
++// stderr. `context` is a pointer to a std::string stack-allocated in the
++// Parse(); `message` and the subsequent arguments are passed by libxml.
++void CaptureXmlErrors(void* context, const char* message, ...) {
++  va_list args;
++  va_start(args, message);
++  std::string* error = static_cast<std::string*>(context);
++  UNSAFE_TODO(base::StringAppendV(error, message, args));
++  va_end(args);
++}
++
++}  // namespace
++
++XmlParser::XmlParser() = default;
++
++XmlParser::~XmlParser() = default;
++
++void XmlParser::Parse(const std::string& xml,
++                      WhitespaceBehavior whitespace_behavior,
++                      ParseCallback callback) {
++  std::string errors;
++  ScopedXmlErrorFunc error_func(&errors, CaptureXmlErrors);
++
++  XmlReader xml_reader;
++  if (!xml_reader.Load(xml)) {
++    ReportError(std::move(callback), "Invalid XML: failed to load", errors);
++    return;
++  }
++
++  base::Value root_element;
++  std::vector<base::DictValue*> element_stack;
++  while (xml_reader.Read()) {
++    if (xml_reader.IsClosingElement()) {
++      if (element_stack.empty()) {
++        ReportError(std::move(callback), "Invalid XML: unbalanced elements",
++                    errors);
++        return;
++      }
++      element_stack.pop_back();
++      continue;
++    }
++
++    std::string text;
++    TextNodeType text_node_type = TextNodeType::kText;
++    base::DictValue* current_element =
++        element_stack.empty() ? nullptr : element_stack.back();
++    bool push_new_node_to_stack = false;
++    base::DictValue new_element;
++    if (GetTextFromNode(&xml_reader, &text, &text_node_type)) {
++      if (!base::IsStringUTF8(text)) {
++        ReportError(std::move(callback), "Invalid XML: invalid UTF8 text.",
++                    errors);
++        return;
++      }
++      new_element = CreateTextNode(text, text_node_type);
++    } else if (xml_reader.IsElement()) {
++      new_element = CreateNewElement(xml_reader.NodeFullName());
++      PopulateNamespaces(new_element, &xml_reader);
++      PopulateAttributes(new_element, &xml_reader);
++      // Self-closing (empty) element have no close tag (or children); don't
++      // push them on the element stack.
++      push_new_node_to_stack = !xml_reader.IsEmptyElement();
++    } else if (whitespace_behavior ==
++                   WhitespaceBehavior::kPreserveSignificant &&
++               xml_reader.GetTextIfSignificantWhitespaceElement(&text)) {
++      new_element = CreateTextNode(text, TextNodeType::kText);
++    } else {
++      // Ignore all other node types (comments, processing instructions,
++      // DTDs...).
++      continue;
++    }
++
++    base::DictValue* new_element_ptr;
++    if (current_element) {
++      new_element_ptr =
++          AddChildToElement(*current_element, std::move(new_element));
++    } else {
++      // First element we are parsing, it becomes the root element.
++      DCHECK(xml_reader.IsElement());
++      DCHECK(root_element.is_none());
++      root_element = base::Value(std::move(new_element));
++      new_element_ptr = &root_element.GetDict();
++    }
++    if (push_new_node_to_stack)
++      element_stack.push_back(new_element_ptr);
++  }
++
++  if (!element_stack.empty()) {
++    ReportError(std::move(callback), "Invalid XML: unbalanced elements",
++                errors);
++    return;
++  }
++  if (!root_element.is_dict() || root_element.GetDict().empty()) {
++    ReportError(std::move(callback), "Invalid XML: bad content", errors);
++    return;
++  }
++  std::move(callback).Run(std::make_optional(std::move(root_element)),
++                          std::optional<std::string>());
++}
++
++}  // namespace data_decoder
+diff --git a/third_party/libxml/BUILD.gn b/third_party/libxml/BUILD.gn
+index 890afc0e83..10df36598d 100644
+--- a/third_party/libxml/BUILD.gn
++++ b/third_party/libxml/BUILD.gn
+@@ -126,6 +126,7 @@ static_library("libxml_utils") {
+     "//base/test:test_support",
+     "//services/data_decoder:lib",
+     "//services/data_decoder:xml_parser_fuzzer_deps",
++    "//services/data_decoder:xml_parser_impl",
+   ]
+   sources = [
+     "chromium/libxml_utils.cc",
+diff --git a/third_party/rust/chromium_crates_io/patches/xml-v1/0005-Expose-element-local-namespace-declarations.patch b/third_party/rust/chromium_crates_io/patches/xml-v1/0005-Expose-element-local-namespace-declarations.patch
+new file mode 100644
+index 0000000000..19c61a445c
+--- /dev/null
++++ b/third_party/rust/chromium_crates_io/patches/xml-v1/0005-Expose-element-local-namespace-declarations.patch
+@@ -0,0 +1,65 @@
++From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
++From: Cao Yuhang <caoyuhang@fwerkor.com>
++Date: Thu, 20 Aug 2026 11:00:00 +0800
++Subject: [PATCH] Expose element-local namespace declarations
++
++Chromium's data_decoder compatibility layer needs to distinguish namespace
++mappings explicitly declared on an element from mappings inherited from its
++ancestors. Keep XmlEvent::StartElement's cumulative namespace unchanged and
++expose the current NamespaceStack layer through EventReader instead.
++---
++diff --git a/third_party/rust/chromium_crates_io/vendor/xml-v1/src/reader.rs b/third_party/rust/chromium_crates_io/vendor/xml-v1/src/reader.rs
++index 2c640657d4..c93cf9949a 100644
++--- a/third_party/rust/chromium_crates_io/vendor/xml-v1/src/reader.rs
+++++ b/third_party/rust/chromium_crates_io/vendor/xml-v1/src/reader.rs
++@@ -8,6 +8,7 @@ use std::iter::FusedIterator;
++ use std::result;
++ 
++ use crate::common::{Position, TextPosition};
+++use crate::namespace::Namespace;
++ 
++ pub use config::ParserConfig;
++ pub use error::{Error, ErrorKind, ImmutableEntitiesError};
++@@ -63,6 +64,16 @@ impl<R: Read> EventReader<R> {
++         self.parser.next(&mut self.source)
++     }
++ 
+++    /// Returns namespace declarations made on the current element.
+++    ///
+++    /// This is meaningful immediately after a `StartElement` event. Unlike
+++    /// the namespace attached to that event, which is cumulative, this only
+++    /// contains declarations written on that element.
+++    #[inline]
+++    pub fn namespace_declarations(&self) -> &Namespace {
+++        self.parser.namespace_declarations()
+++    }
+++
++     /// Skips all XML events until the next end tag at the current level.
++     ///
++     /// Convenience function that is useful for the case where you have
++diff --git a/third_party/rust/chromium_crates_io/vendor/xml-v1/src/reader/parser.rs b/third_party/rust/chromium_crates_io/vendor/xml-v1/src/reader/parser.rs
++index 593ff1fdbf..9c4992c799 100644
++--- a/third_party/rust/chromium_crates_io/vendor/xml-v1/src/reader/parser.rs
+++++ b/third_party/rust/chromium_crates_io/vendor/xml-v1/src/reader/parser.rs
++@@ -4,7 +4,7 @@ use crate::common::{is_xml10_char, is_xml11_char, is_xml11_char_not_restricted,
++ use crate::common::{Position, TextPosition, XmlVersion};
++ use crate::attribute::OwnedAttribute;
++ use crate::name::OwnedName;
++-use crate::namespace::NamespaceStack;
+++use crate::namespace::{Namespace, NamespaceStack};
++ use crate::reader::config::ParserConfig;
++ use crate::reader::error::{Error, ImmutableEntitiesError, SyntaxError};
++ use crate::reader::events::XmlEvent;
++@@ -373,6 +373,10 @@ struct MarkupData {
++ }
++ 
++ impl PullParser {
+++    pub(crate) fn namespace_declarations(&self) -> &Namespace {
+++        self.nst.peek()
+++    }
+++
++     /// Returns next event read from the given buffer.
++     ///
++     /// This method should be always called with the same buffer. If you call it
++-- 
++2.55.0
+diff --git a/third_party/rust/chromium_crates_io/vendor/xml-v1/src/reader.rs b/third_party/rust/chromium_crates_io/vendor/xml-v1/src/reader.rs
+index 2c640657d4..c93cf9949a 100644
+--- a/third_party/rust/chromium_crates_io/vendor/xml-v1/src/reader.rs
++++ b/third_party/rust/chromium_crates_io/vendor/xml-v1/src/reader.rs
+@@ -8,6 +8,7 @@ use std::iter::FusedIterator;
+ use std::result;
+ 
+ use crate::common::{Position, TextPosition};
++use crate::namespace::Namespace;
+ 
+ pub use config::ParserConfig;
+ pub use error::{Error, ErrorKind, ImmutableEntitiesError};
+@@ -63,6 +64,16 @@ impl<R: Read> EventReader<R> {
+         self.parser.next(&mut self.source)
+     }
+ 
++    /// Returns namespace declarations made on the current element.
++    ///
++    /// This is meaningful immediately after a `StartElement` event. Unlike
++    /// the namespace attached to that event, which is cumulative, this only
++    /// contains declarations written on that element.
++    #[inline]
++    pub fn namespace_declarations(&self) -> &Namespace {
++        self.parser.namespace_declarations()
++    }
++
+     /// Skips all XML events until the next end tag at the current level.
+     ///
+     /// Convenience function that is useful for the case where you have
+diff --git a/third_party/rust/chromium_crates_io/vendor/xml-v1/src/reader/parser.rs b/third_party/rust/chromium_crates_io/vendor/xml-v1/src/reader/parser.rs
+index 593ff1fdbf..9c4992c799 100644
+--- a/third_party/rust/chromium_crates_io/vendor/xml-v1/src/reader/parser.rs
++++ b/third_party/rust/chromium_crates_io/vendor/xml-v1/src/reader/parser.rs
+@@ -4,7 +4,7 @@ use crate::common::{is_xml10_char, is_xml11_char, is_xml11_char_not_restricted,
+ use crate::common::{Position, TextPosition, XmlVersion};
+ use crate::attribute::OwnedAttribute;
+ use crate::name::OwnedName;
+-use crate::namespace::NamespaceStack;
++use crate::namespace::{Namespace, NamespaceStack};
+ use crate::reader::config::ParserConfig;
+ use crate::reader::error::{Error, ImmutableEntitiesError, SyntaxError};
+ use crate::reader::events::XmlEvent;
+@@ -373,6 +373,10 @@ struct MarkupData {
+ }
+ 
+ impl PullParser {
++    pub(crate) fn namespace_declarations(&self) -> &Namespace {
++        self.nst.peek()
++    }
++
+     /// Returns next event read from the given buffer.
+     ///
+     /// This method should be always called with the same buffer. If you call it

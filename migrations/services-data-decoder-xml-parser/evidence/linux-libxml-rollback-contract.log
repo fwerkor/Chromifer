@@ -1,0 +1,112 @@
+revision=04f9a8144d9b1701aa0b329b6000cf3299bbaf22
+configuration=use_rust_data_decoder_xml_parser=false
+fallback_sources:
+//services/data_decoder/xml_parser_legacy.cc
+fallback_libxml_dependencies:
+//third_party/libxml:libxml
+//third_party/libxml:libxml_utils
+//third_party/libxml:xml_reader
+Note: Google Test filter = XmlParserTest.*:XmlParserRsTest.*
+[==========] Running 46 tests from 2 test suites.
+[----------] Global test environment set-up.
+[----------] 21 tests from XmlParserRsTest
+[ RUN      ] XmlParserRsTest.Basic
+[       OK ] XmlParserRsTest.Basic (0 ms)
+[ RUN      ] XmlParserRsTest.MultipleAttributes
+[       OK ] XmlParserRsTest.MultipleAttributes (0 ms)
+[ RUN      ] XmlParserRsTest.DuplicateAttributes
+[       OK ] XmlParserRsTest.DuplicateAttributes (0 ms)
+[ RUN      ] XmlParserRsTest.MixedSiblingTypes
+[       OK ] XmlParserRsTest.MixedSiblingTypes (0 ms)
+[ RUN      ] XmlParserRsTest.OmitUnspecifiedDefaultNamespaceOnRoot
+[       OK ] XmlParserRsTest.OmitUnspecifiedDefaultNamespaceOnRoot (0 ms)
+[ RUN      ] XmlParserRsTest.BasicNamespaces
+[       OK ] XmlParserRsTest.BasicNamespaces (0 ms)
+[ RUN      ] XmlParserRsTest.OverrideNamespaceInChild
+[       OK ] XmlParserRsTest.OverrideNamespaceInChild (0 ms)
+[ RUN      ] XmlParserRsTest.UndeclareDefaultNamespaceTest
+[       OK ] XmlParserRsTest.UndeclareDefaultNamespaceTest (0 ms)
+[ RUN      ] XmlParserRsTest.CdataNode
+[       OK ] XmlParserRsTest.CdataNode (0 ms)
+[ RUN      ] XmlParserRsTest.NestedSiblings
+[       OK ] XmlParserRsTest.NestedSiblings (0 ms)
+[ RUN      ] XmlParserRsTest.CharacterEntities
+[       OK ] XmlParserRsTest.CharacterEntities (0 ms)
+[ RUN      ] XmlParserRsTest.MaxDepth
+[       OK ] XmlParserRsTest.MaxDepth (4 ms)
+[ RUN      ] XmlParserRsTest.NoRootElement
+[       OK ] XmlParserRsTest.NoRootElement (0 ms)
+[ RUN      ] XmlParserRsTest.WhitespaceAroundRootElement
+[       OK ] XmlParserRsTest.WhitespaceAroundRootElement (0 ms)
+[ RUN      ] XmlParserRsTest.MultipleRootElements
+[       OK ] XmlParserRsTest.MultipleRootElements (0 ms)
+[ RUN      ] XmlParserRsTest.TextAroundRootElement
+[       OK ] XmlParserRsTest.TextAroundRootElement (0 ms)
+[ RUN      ] XmlParserRsTest.CdataAroundRoot
+[       OK ] XmlParserRsTest.CdataAroundRoot (0 ms)
+[ RUN      ] XmlParserRsTest.MismatchedTags
+[       OK ] XmlParserRsTest.MismatchedTags (0 ms)
+[ RUN      ] XmlParserRsTest.DoctypeIgnored
+[       OK ] XmlParserRsTest.DoctypeIgnored (0 ms)
+[ RUN      ] XmlParserRsTest.ProcessingInstructionsIgnored
+[       OK ] XmlParserRsTest.ProcessingInstructionsIgnored (0 ms)
+[ RUN      ] XmlParserRsTest.CommentsIgnored
+[       OK ] XmlParserRsTest.CommentsIgnored (0 ms)
+[----------] 21 tests from XmlParserRsTest (10 ms total)
+
+[----------] 25 tests from XmlParserTest
+[ RUN      ] XmlParserTest.ParseBadXml
+[       OK ] XmlParserTest.ParseBadXml (0 ms)
+[ RUN      ] XmlParserTest.IgnoreComments
+[       OK ] XmlParserTest.IgnoreComments (0 ms)
+[ RUN      ] XmlParserTest.IgnoreProcessingCommands
+[       OK ] XmlParserTest.IgnoreProcessingCommands (0 ms)
+[ RUN      ] XmlParserTest.IgnoreDocumentTypes
+[       OK ] XmlParserTest.IgnoreDocumentTypes (0 ms)
+[ RUN      ] XmlParserTest.ParseSelfClosingTag
+[       OK ] XmlParserTest.ParseSelfClosingTag (0 ms)
+[ RUN      ] XmlParserTest.ParseEmptyTag
+[       OK ] XmlParserTest.ParseEmptyTag (0 ms)
+[ RUN      ] XmlParserTest.ParseBadTag
+[       OK ] XmlParserTest.ParseBadTag (0 ms)
+[ RUN      ] XmlParserTest.ParseTextElement
+[       OK ] XmlParserTest.ParseTextElement (0 ms)
+[ RUN      ] XmlParserTest.ParseBadTextElement
+[       OK ] XmlParserTest.ParseBadTextElement (0 ms)
+[ RUN      ] XmlParserTest.ParseCDataElement
+[       OK ] XmlParserTest.ParseCDataElement (0 ms)
+[ RUN      ] XmlParserTest.ParseBadCDataElement
+[       OK ] XmlParserTest.ParseBadCDataElement (0 ms)
+[ RUN      ] XmlParserTest.ParseTextWithEntities
+[       OK ] XmlParserTest.ParseTextWithEntities (0 ms)
+[ RUN      ] XmlParserTest.ParseMultipleSimilarTextElement
+[       OK ] XmlParserTest.ParseMultipleSimilarTextElement (0 ms)
+[ RUN      ] XmlParserTest.ParseMixMatchTextNonTextElement
+[       OK ] XmlParserTest.ParseMixMatchTextNonTextElement (0 ms)
+[ RUN      ] XmlParserTest.ParseElementsInText
+[       OK ] XmlParserTest.ParseElementsInText (0 ms)
+[ RUN      ] XmlParserTest.ParseNestedXml
+[       OK ] XmlParserTest.ParseNestedXml (0 ms)
+[ RUN      ] XmlParserTest.ParseMultipleSimilarElements
+[       OK ] XmlParserTest.ParseMultipleSimilarElements (0 ms)
+[ RUN      ] XmlParserTest.LargeNumber
+[       OK ] XmlParserTest.LargeNumber (0 ms)
+[ RUN      ] XmlParserTest.JsonInjection
+[       OK ] XmlParserTest.JsonInjection (0 ms)
+[ RUN      ] XmlParserTest.ParseAttributes
+[       OK ] XmlParserTest.ParseAttributes (0 ms)
+[ RUN      ] XmlParserTest.ParseBadAttributes
+[       OK ] XmlParserTest.ParseBadAttributes (0 ms)
+[ RUN      ] XmlParserTest.MultipleNamespacesDefined
+[       OK ] XmlParserTest.MultipleNamespacesDefined (0 ms)
+[ RUN      ] XmlParserTest.NamespacesUsed
+[       OK ] XmlParserTest.NamespacesUsed (0 ms)
+[ RUN      ] XmlParserTest.WhitespaceBehavior
+[       OK ] XmlParserTest.WhitespaceBehavior (0 ms)
+[ RUN      ] XmlParserTest.ParseTypicalXml
+[       OK ] XmlParserTest.ParseTypicalXml (0 ms)
+[----------] 25 tests from XmlParserTest (4 ms total)
+
+[----------] Global test environment tear-down
+[==========] 46 tests from 2 test suites ran. (14 ms total)
+[  PASSED  ] 46 tests.
