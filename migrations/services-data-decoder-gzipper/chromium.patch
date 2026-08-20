@@ -1,0 +1,923 @@
+diff --git a/mojo/public/mojom/base/BUILD.gn b/mojo/public/mojom/base/BUILD.gn
+index 725f22b966..0bb2f2c8e7 100644
+--- a/mojo/public/mojom/base/BUILD.gn
++++ b/mojo/public/mojom/base/BUILD.gn
+@@ -7,6 +7,7 @@ import("//third_party/protobuf/proto_library.gni")
+ 
+ mojom_component("base") {
+   generate_java = true
++  generate_rust = true
+   sources = [
+     "absl_status.mojom",
+     "application_state.mojom",
+diff --git a/mojo/public/rust/mojom_value_parser/parsing_attribute.rs b/mojo/public/rust/mojom_value_parser/parsing_attribute.rs
+index b64b55ed6b..3281c8d335 100644
+--- a/mojo/public/rust/mojom_value_parser/parsing_attribute.rs
++++ b/mojo/public/rust/mojom_value_parser/parsing_attribute.rs
+@@ -92,6 +92,14 @@ impl MojomAttributes {
+     }
+ }
+ 
++fn is_option_type(ty: &syn::Type) -> bool {
++    let syn::Type::Path(type_path) = ty else {
++        return false;
++    };
++    type_path.qself.is_none()
++        && type_path.path.segments.last().is_some_and(|segment| segment.ident == "Option")
++}
++
+ fn derive_mojomparse_struct(
+     name: syn::Ident,
+     struct_fields: syn::punctuated::Punctuated<syn::Field, syn::Token![,]>,
+@@ -116,7 +124,8 @@ fn derive_mojomparse_struct(
+             let ty = &field.ty;
+             let name = field.ident.as_ref().unwrap().to_string();
+             if let Some(parse_as) = MojomAttributes::parse(&field.attrs).parse_as {
+-                let parse_as_ty = syn::Ident::new(&parse_as, proc_macro2::Span::call_site());
++                let parse_as_ty: syn::Type = syn::parse_str(&parse_as)
++                    .unwrap_or_else(|_| panic!("invalid Rust type in mojom(parse_as): {parse_as}"));
+                 quote! { (#name.to_string(), <#parse_as_ty as MojomParse<Context>>::mojom_type()) }
+             } else {
+                 quote! { (#name.to_string(), <#ty as MojomParse<Context>>::mojom_type()) }
+@@ -143,12 +152,22 @@ fn derive_mojomparse_struct(
+             let name = &field.ident;
+             let name_str = field.ident.as_ref().unwrap().to_string();
+             if let Some(parse_as) = MojomAttributes::parse(&field.attrs).parse_as {
+-                let parse_as_ty = syn::Ident::new(&parse_as, proc_macro2::Span::call_site());
+-                quote! {
+-                    (#name_str.to_string(), {
+-                        let original: #parse_as_ty = #value_ident.#name.into();
+-                        original.into_mojom_value(#context_ident)
+-                    })
++                let parse_as_ty: syn::Type = syn::parse_str(&parse_as)
++                    .unwrap_or_else(|_| panic!("invalid Rust type in mojom(parse_as): {parse_as}"));
++                if is_option_type(&field.ty) && is_option_type(&parse_as_ty) {
++                    quote! {
++                        (#name_str.to_string(), {
++                            let original: #parse_as_ty = #value_ident.#name.map(Into::into);
++                            original.into_mojom_value(#context_ident)
++                        })
++                    }
++                } else {
++                    quote! {
++                        (#name_str.to_string(), {
++                            let original: #parse_as_ty = #value_ident.#name.into();
++                            original.into_mojom_value(#context_ident)
++                        })
++                    }
+                 }
+             } else {
+                 quote! { (#name_str.to_string(), #value_ident.#name.into_mojom_value(#context_ident)) }
+@@ -163,11 +182,21 @@ fn derive_mojomparse_struct(
+         .map(|field| {
+             let name = &field.ident;
+             if let Some(parse_as) = MojomAttributes::parse(&field.attrs).parse_as {
+-                let parse_as_ty = syn::Ident::new(&parse_as, proc_macro2::Span::call_site());
+-                quote! {
+-                    #name: {
+-                        let original = <#parse_as_ty>::try_from_mojom_value(#name, #context_ident)?;
+-                        original.try_into()?
++                let parse_as_ty: syn::Type = syn::parse_str(&parse_as)
++                    .unwrap_or_else(|_| panic!("invalid Rust type in mojom(parse_as): {parse_as}"));
++                if is_option_type(&field.ty) && is_option_type(&parse_as_ty) {
++                    quote! {
++                        #name: {
++                            let original = <#parse_as_ty>::try_from_mojom_value(#name, #context_ident)?;
++                            original.map(TryInto::try_into).transpose()?
++                        }
++                    }
++                } else {
++                    quote! {
++                        #name: {
++                            let original = <#parse_as_ty>::try_from_mojom_value(#name, #context_ident)?;
++                            original.try_into()?
++                        }
+                     }
+                 }
+             } else {
+diff --git a/mojo/public/rust/system/buffer.rs b/mojo/public/rust/system/buffer.rs
+index 680c1ee64d..e4143902e4 100644
+--- a/mojo/public/rust/system/buffer.rs
++++ b/mojo/public/rust/system/buffer.rs
+@@ -40,6 +40,22 @@ impl SharedBuffer {
+         mojo_ffi::buffer::MojoCreateSharedBuffer(num_bytes).map(|h| h.into())
+     }
+ 
++    /// Creates a new shared buffer initialized from owned process memory.
++    ///
++    /// The buffer is not exposed or duplicated until after initialization, so
++    /// callers do not need to reason about cross-process aliasing while the
++    /// bytes are copied into it.
++    pub fn create_with_bytes(bytes: &[u8]) -> MojoResult<SharedBuffer> {
++        let buffer = Self::create(bytes.len() as u64)?;
++        let mut mapped = buffer.map(0, bytes.len())?;
++        // SAFETY: `buffer` was created in this method and has not been
++        // duplicated or exposed, so `mapped` is the only possible access to
++        // its storage for the duration of this copy.
++        unsafe { mapped.as_mut_slice().copy_from_slice(bytes) };
++        drop(mapped);
++        Ok(buffer)
++    }
++
+     /// Create a new handle pointing to the same shared buffer as `self`.
+     /// The new handle will have full read/write permissions.
+     ///
+@@ -109,6 +125,20 @@ pub struct MappedBuffer {
+ }
+ 
+ impl MappedBuffer {
++    /// Copies the current bytes out of externally shared memory without
++    /// creating a Rust reference to storage that another process may mutate
++    /// concurrently.
++    pub fn copy_to_vec(&self) -> Vec<u8> {
++        let mut bytes = Vec::with_capacity(self.len);
++        for offset in 0..self.len {
++            // SAFETY: `self.ptr` is valid for `self.len` bytes while this mapping
++            // lives. Volatile byte reads tolerate storage changing outside the Rust
++            // memory model and do not create aliased references to that storage.
++            bytes.push(unsafe { self.ptr.as_ptr().add(offset).read_volatile() });
++        }
++        bytes
++    }
++
+     /// Returns a read-only slice covering the mapped memory for access.
+     ///
+     /// # Safety
+diff --git a/mojo/public/rust/system/test/core_api_unittests.rs b/mojo/public/rust/system/test/core_api_unittests.rs
+index 6ff5ced148..c469975614 100644
+--- a/mojo/public/rust/system/test/core_api_unittests.rs
++++ b/mojo/public/rust/system/test/core_api_unittests.rs
+@@ -267,5 +267,9 @@ fn test_shared_buffer() {
+         expect_eq!(mapped_dup_slice[1023], 43);
+     }
+ 
++    let copied = mapped_dup.copy_to_vec();
++    expect_eq!(copied[0], 42);
++    expect_eq!(copied[1023], 43);
++
+     // MappedBuffer and SharedBuffer will safely unmap and close via Drop.
+ }
+diff --git a/mojo/public/tools/bindings/generators/mojom_rust_generator.py b/mojo/public/tools/bindings/generators/mojom_rust_generator.py
+index 416d1909c7..a3b0a1220a 100644
+--- a/mojo/public/tools/bindings/generators/mojom_rust_generator.py
++++ b/mojo/public/tools/bindings/generators/mojom_rust_generator.py
+@@ -102,14 +102,17 @@ def _GetQualifiedName(ty: mojom.Kind, current_module: mojom.Module,
+ def _MojomTypeToRustType(ty: mojom.Kind, current_module: mojom.Module,
+                          source_to_target_map: dict, typemap: dict) -> str:
+   '''Return the name of the input type in rust syntax'''
+-  if hasattr(ty, 'qualified_name') and ty.qualified_name in typemap:
+-    return typemap[ty.qualified_name]['typename']
+-
++  # Nullable is a wrapper around the underlying Mojom kind. Preserve that
++  # wrapper before applying a typemap to the unnullable kind; otherwise a
++  # typemapped T? incorrectly becomes T instead of Option<T>.
+   if mojom.IsNullableKind(ty):
+     inner_ty = _MojomTypeToRustType(ty.MakeUnnullableKind(), current_module,
+                                     source_to_target_map, typemap)
+     return f"Option<{inner_ty}>"
+ 
++  if hasattr(ty, 'qualified_name') and ty.qualified_name in typemap:
++    return typemap[ty.qualified_name]['typename']
++
+   if mojom.IsStructKind(ty) or mojom.IsEnumKind(ty) or mojom.IsUnionKind(ty):
+     return _GetQualifiedName(ty, current_module, source_to_target_map)
+ 
+@@ -168,6 +171,49 @@ def _GetParseAsType(ty: mojom.Kind, current_module: mojom.Module,
+   return None
+ 
+ 
++def _CollectTypemapNamesForKind(ty: mojom.Kind, typemap: dict,
++                                names: set) -> None:
++  '''Collect typemapped Mojom types referenced by a field/parameter kind.'''
++  if mojom.IsNullableKind(ty):
++    ty = ty.MakeUnnullableKind()
++
++  if hasattr(ty, 'qualified_name') and ty.qualified_name in typemap:
++    names.add(ty.qualified_name)
++    return
++
++  if mojom.IsArrayKind(ty):
++    _CollectTypemapNamesForKind(ty.kind, typemap, names)
++  elif mojom.IsMapKind(ty):
++    _CollectTypemapNamesForKind(ty.key_kind, typemap, names)
++    _CollectTypemapNamesForKind(ty.value_kind, typemap, names)
++
++
++def _GetUsedTypemapNames(module: mojom.Module, typemap: dict) -> set:
++  '''Return typemapped types declared by or referenced from this module.'''
++  names = set()
++
++  for kind in module.structs + module.enums + module.unions:
++    if hasattr(kind, 'qualified_name') and kind.qualified_name in typemap:
++      names.add(kind.qualified_name)
++
++  for struct in module.structs:
++    for field in struct.fields:
++      _CollectTypemapNamesForKind(field.kind, typemap, names)
++
++  for union in module.unions:
++    for field in union.fields:
++      _CollectTypemapNamesForKind(field.kind, typemap, names)
++
++  for interface in module.interfaces:
++    for method in interface.methods:
++      for parameter in method.parameters:
++        _CollectTypemapNamesForKind(parameter.kind, typemap, names)
++      for parameter in method.response_parameters or []:
++        _CollectTypemapNamesForKind(parameter.kind, typemap, names)
++
++  return names
++
++
+ def _ShouldDeriveClone(ty: mojom.Kind) -> bool:
+   '''We derive clone as a convenience to the user, but we can't do so if the
+      type contains any handles, since those can't be copied.'''
+@@ -312,21 +358,17 @@ class Generator(generator.Generator):
+     gen_file_dir = os.path.abspath(
+         os.path.join(os.getcwd(), "gen", os.path.dirname(self.module.path)))
+ 
+-    for kind in self.module.structs + self.module.enums + self.module.unions:
+-      if hasattr(kind,
+-                 'qualified_name') and kind.qualified_name in self.typemap:
+-        traits_file = self.typemap[kind.qualified_name].get('traits_file')
+-        if traits_file and traits_file not in seen_files:
+-          traits_file_abs = os.path.abspath(
+-              os.path.join(source_root_abs, traits_file))
+-          rel_path = os.path.relpath(traits_file_abs, gen_file_dir)
+-          typemaps_to_include.append({
+-              'path':
+-              rel_path,
+-              'name':
+-              os.path.splitext(os.path.basename(traits_file))[0]
+-          })
+-          seen_files.add(traits_file)
++    for typemap_name in sorted(_GetUsedTypemapNames(self.module, self.typemap)):
++      traits_file = self.typemap[typemap_name].get('traits_file')
++      if traits_file and traits_file not in seen_files:
++        traits_file_abs = os.path.abspath(
++            os.path.join(source_root_abs, traits_file))
++        rel_path = os.path.relpath(traits_file_abs, gen_file_dir)
++        typemaps_to_include.append({
++            'path': rel_path,
++            'name': os.path.splitext(os.path.basename(traits_file))[0]
++        })
++        seen_files.add(traits_file)
+ 
+     return {
+         "module": self.module,
+diff --git a/mojo/public/tools/bindings/generators/mojom_rust_generator_unittest.py b/mojo/public/tools/bindings/generators/mojom_rust_generator_unittest.py
+index 8e75955694..fb17348ec0 100644
+--- a/mojo/public/tools/bindings/generators/mojom_rust_generator_unittest.py
++++ b/mojo/public/tools/bindings/generators/mojom_rust_generator_unittest.py
+@@ -3,8 +3,10 @@
+ # found in the LICENSE file.
+ 
+ import unittest
++from unittest import mock
+ import sys
+ import os
++from types import SimpleNamespace
+ 
+ 
+ # Mocking the mojom objects for testing _GetQualifiedName
+@@ -24,6 +26,7 @@ class MockKind:
+     self.mojom_name = name
+     self.module = module
+     self.parent_kind = parent_kind
++    self.is_nullable = False
+ 
+   @property
+   def qualified_name(self):
+@@ -36,6 +39,41 @@ class MockKind:
+ from generators import mojom_rust_generator
+ 
+ 
++class TestMojomTypeToRustType(unittest.TestCase):
++
++  def test_nullable_typemap_preserves_option(self):
++    module = MockModule('a.mojom')
++    inner = MockKind('Mapped', module)
++
++    class NullableKind:
++
++      qualified_name = inner.qualified_name
++
++      def MakeUnnullableKind(self):
++        return inner
++
++    nullable = NullableKind()
++    typemap = {inner.qualified_name: {'typename': 'CustomMapped'}}
++    with mock.patch.object(
++        mojom_rust_generator.mojom,
++        'IsNullableKind',
++        side_effect=lambda ty: ty is nullable):
++      self.assertEqual(
++          mojom_rust_generator._MojomTypeToRustType(nullable, module, {},
++                                                    typemap),
++          'Option<CustomMapped>')
++
++  def test_imported_typemap_reference_is_discovered(self):
++    imported = MockKind('BigBuffer', MockModule('b.mojom'))
++    struct = SimpleNamespace(fields=[SimpleNamespace(kind=imported)])
++    module = SimpleNamespace(structs=[struct], enums=[], unions=[], interfaces=[])
++    typemap = {imported.qualified_name: {'typename': 'RustBigBuffer'}}
++
++    self.assertEqual(
++        mojom_rust_generator._GetUsedTypemapNames(module, typemap),
++        {imported.qualified_name})
++
++
+ class TestGetQualifiedName(unittest.TestCase):
+ 
+   def setUp(self):
+diff --git a/services/data_decoder/BUILD.gn b/services/data_decoder/BUILD.gn
+index 9ec647da02..250960c737 100644
+--- a/services/data_decoder/BUILD.gn
++++ b/services/data_decoder/BUILD.gn
+@@ -2,8 +2,23 @@
+ # Use of this source code is governed by a BSD-style license that can be
+ # found in the LICENSE file.
+ 
++import("//build/buildflag_header.gni")
+ import("//build/config/features.gni")
++import("//build/config/rust.gni")
++import("//build/rust/rust_static_library.gni")
+ import("//testing/libfuzzer/fuzzer_test.gni")
++import("//testing/test.gni")
++
++declare_args() {
++  # Keep the C++ Gzipper as a source-separated rollback while the Rust Mojo
++  # implementation is validated on all supported desktop platforms.
++  use_rust_data_decoder_gzipper = enable_rust
++}
++
++buildflag_header("gzipper_buildflags") {
++  header = "gzipper_buildflags.h"
++  flags = [ "USE_RUST_DATA_DECODER_GZIPPER=$use_rust_data_decoder_gzipper" ]
++}
+ 
+ source_set("lib") {
+   # This target should only be depended upon by components that host a
+@@ -21,8 +36,6 @@ source_set("lib") {
+     "cbor_parser_impl.h",
+     "data_decoder_service.cc",
+     "data_decoder_service.h",
+-    "gzipper.cc",
+-    "gzipper.h",
+     "structured_headers_parser_impl.cc",
+     "structured_headers_parser_impl.h",
+     "xml_parser.cc",
+@@ -32,6 +45,7 @@ source_set("lib") {
+   configs += [ "//build/config/compiler:wexit_time_destructors" ]
+ 
+   deps = [
++    ":gzipper_buildflags",
+     "//base",
+     "//build:blink_buildflags",
+     "//components/cbor",
+@@ -43,13 +57,22 @@ source_set("lib") {
+     "//skia",
+     "//third_party/libxml:libxml_utils",
+     "//third_party/libxml:xml_reader",
+-    "//third_party/zlib/google:compression_utils",
+     "//ui/gfx",
+     "//ui/gfx/geometry",
+   ]
+ 
+   public_deps = [ "//services/data_decoder/public/mojom" ]
+ 
++  if (use_rust_data_decoder_gzipper) {
++    deps += [ ":gzipper_rust" ]
++  } else {
++    sources += [
++      "gzipper.cc",
++      "gzipper.h",
++    ]
++    deps += [ "//third_party/zlib/google:compression_utils" ]
++  }
++
+   if (use_blink) {
+     sources += [
+       "image_decoder_impl.cc",
+@@ -60,6 +83,44 @@ source_set("lib") {
+   }
+ }
+ 
++if (use_rust_data_decoder_gzipper) {
++  rust_static_library("gzipper_rust") {
++    allow_unsafe = true
++    crate_root = "rust/gzipper.rs"
++    sources = [ "rust/gzipper.rs" ]
++    cxx_bindings = [ "rust/gzipper.rs" ]
++    deps = [
++      "//mojo/public/rust/bindings",
++      "//mojo/public/rust/system",
++      "//services/data_decoder/public/mojom:mojom_gzipper_rust",
++      "//third_party/rust/flate2/v1:lib",
++    ]
++  }
++}
++
++# Focused shared Mojo contract used by both the Rust implementation and the
++# source-separated C++ rollback configuration.
++test("gzipper_unittests") {
++  sources = [ "gzipper_unittest.cc" ]
++  deps = [
++    ":gzipper_buildflags",
++    "//base/test:run_all_unittests",
++    "//base/test:test_support",
++    "//mojo/core/embedder",
++    "//mojo/public/cpp/bindings",
++    "//services/data_decoder/public/mojom:mojom_gzipper",
++    "//testing/gmock",
++    "//testing/gtest",
++  ]
++
++  if (use_rust_data_decoder_gzipper) {
++    deps += [ ":gzipper_rust" ]
++  } else {
++    sources += [ "gzipper.cc" ]
++    deps += [ "//third_party/zlib/google:compression_utils" ]
++  }
++}
++
+ source_set("tests") {
+   testonly = true
+ 
+diff --git a/services/data_decoder/data_decoder_service.cc b/services/data_decoder/data_decoder_service.cc
+index 920b62490c..4294de255b 100644
+--- a/services/data_decoder/data_decoder_service.cc
++++ b/services/data_decoder/data_decoder_service.cc
+@@ -15,11 +15,17 @@
+ #include "mojo/public/cpp/bindings/generic_pending_receiver.h"
+ #include "mojo/public/cpp/bindings/self_owned_receiver.h"
+ #include "services/data_decoder/cbor_parser_impl.h"
+-#include "services/data_decoder/gzipper.h"
++#include "services/data_decoder/gzipper_buildflags.h"
+ #include "services/data_decoder/public/mojom/image_decoder.mojom.h"
+ #include "services/data_decoder/structured_headers_parser_impl.h"
+ #include "services/data_decoder/xml_parser.h"
+ 
++#if BUILDFLAG(USE_RUST_DATA_DECODER_GZIPPER)
++#include "services/data_decoder/rust/gzipper.rs.h"
++#else
++#include "services/data_decoder/gzipper.h"
++#endif
++
+ #if BUILDFLAG(USE_BLINK)
+ #include "services/data_decoder/image_decoder_impl.h"
+ #endif
+@@ -72,7 +78,11 @@ void DataDecoderService::BindWebBundleParserFactory(
+ 
+ void DataDecoderService::BindGzipper(
+     mojo::PendingReceiver<mojom::Gzipper> receiver) {
++#if BUILDFLAG(USE_RUST_DATA_DECODER_GZIPPER)
++  BindRustGzipper(receiver.PassPipe().release().value());
++#else
+   mojo::MakeSelfOwnedReceiver(std::make_unique<Gzipper>(), std::move(receiver));
++#endif
+ }
+ 
+ void DataDecoderService::BindCborParser(
+diff --git a/services/data_decoder/gzipper_unittest.cc b/services/data_decoder/gzipper_unittest.cc
+index 71a7f9828c..4145b42f13 100644
+--- a/services/data_decoder/gzipper_unittest.cc
++++ b/services/data_decoder/gzipper_unittest.cc
+@@ -2,89 +2,124 @@
+ // Use of this source code is governed by a BSD-style license that can be
+ // found in the LICENSE file.
+ 
+-#include "services/data_decoder/gzipper.h"
+-
++#include <memory>
+ #include <optional>
++#include <vector>
+ 
+-#include "base/functional/callback.h"
++#include "base/test/task_environment.h"
++#include "base/test/test_future.h"
++#include "mojo/core/embedder/embedder.h"
++#include "mojo/public/cpp/bindings/remote.h"
++#include "mojo/public/cpp/bindings/self_owned_receiver.h"
++#include "services/data_decoder/gzipper_buildflags.h"
++#include "services/data_decoder/public/mojom/gzipper.mojom.h"
+ #include "testing/gmock/include/gmock/gmock.h"
+ #include "testing/gtest/include/gtest/gtest.h"
+ 
++#if BUILDFLAG(USE_RUST_DATA_DECODER_GZIPPER)
++#include "services/data_decoder/rust/gzipper.rs.h"
++#else
++#include "services/data_decoder/gzipper.h"
++#endif
++
+ namespace data_decoder {
+ 
+-namespace {
++class GzipperTest : public testing::Test {
++ protected:
++  static void SetUpTestSuite() { mojo::core::Init(); }
+ 
+-void CopyResultCallback(std::optional<mojo_base::BigBuffer>& output_result,
+-                        std::optional<mojo_base::BigBuffer> result) {
+-  output_result = std::move(result);
+-}
++  GzipperTest() {
++    auto receiver = gzipper_.BindNewPipeAndPassReceiver();
++#if BUILDFLAG(USE_RUST_DATA_DECODER_GZIPPER)
++    BindRustGzipper(receiver.PassPipe().release().value());
++#else
++    mojo::MakeSelfOwnedReceiver(std::make_unique<Gzipper>(),
++                                std::move(receiver));
++#endif
++  }
++
++  std::optional<mojo_base::BigBuffer> Deflate(mojo_base::BigBuffer input) {
++    base::test::TestFuture<std::optional<mojo_base::BigBuffer>> future;
++    gzipper_->Deflate(std::move(input), future.GetCallback());
++    return future.Take();
++  }
++
++  std::optional<mojo_base::BigBuffer> Inflate(mojo_base::BigBuffer input,
++                                              uint64_t max_size) {
++    base::test::TestFuture<std::optional<mojo_base::BigBuffer>> future;
++    gzipper_->Inflate(std::move(input), max_size, future.GetCallback());
++    return future.Take();
++  }
++
++  std::optional<mojo_base::BigBuffer> Compress(mojo_base::BigBuffer input) {
++    base::test::TestFuture<std::optional<mojo_base::BigBuffer>> future;
++    gzipper_->Compress(std::move(input), future.GetCallback());
++    return future.Take();
++  }
+ 
+-using GzipperTest = testing::Test;
++  std::optional<mojo_base::BigBuffer> Uncompress(mojo_base::BigBuffer input) {
++    base::test::TestFuture<std::optional<mojo_base::BigBuffer>> future;
++    gzipper_->Uncompress(std::move(input), future.GetCallback());
++    return future.Take();
++  }
+ 
+-}  // namespace
++ private:
++  base::test::SingleThreadTaskEnvironment task_environment_;
++  mojo::Remote<mojom::Gzipper> gzipper_;
++};
+ 
+ TEST_F(GzipperTest, DeflateAndInflate) {
+-  Gzipper gzipper;
+   std::vector<uint8_t> input = {0x01, 0x01, 0x01, 0x02, 0x02, 0x02};
+-  std::optional<mojo_base::BigBuffer> compressed;
+-  gzipper.Deflate({input},
+-                  base::BindOnce(&CopyResultCallback, std::ref(compressed)));
++  auto compressed = Deflate({input});
+   ASSERT_TRUE(compressed.has_value());
+   EXPECT_THAT(base::span(*compressed),
+               testing::Not(testing::ElementsAreArray(base::span(input))));
+ 
+-  std::optional<mojo_base::BigBuffer> uncompressed;
+-  gzipper.Inflate(std::move(*compressed), input.size(),
+-                  base::BindOnce(&CopyResultCallback, std::ref(uncompressed)));
++  auto uncompressed = Inflate(std::move(*compressed), input.size());
+   ASSERT_TRUE(uncompressed.has_value());
+   EXPECT_THAT(base::span(*uncompressed),
+               testing::ElementsAreArray(base::span(input)));
+ }
+ 
+-// Test not allocating enough space to inflate data.
+ TEST_F(GzipperTest, InflateExceedsSize) {
+-  Gzipper gzipper;
+   std::vector<uint8_t> input = {0x01, 0x01, 0x01, 0x02, 0x02, 0x02};
+-  std::optional<mojo_base::BigBuffer> compressed;
+-  gzipper.Deflate({input},
+-                  base::BindOnce(&CopyResultCallback, std::ref(compressed)));
++  auto compressed = Deflate({input});
+   ASSERT_TRUE(compressed.has_value());
+-  std::optional<mojo_base::BigBuffer> uncompressed;
+-  gzipper.Inflate(std::move(*compressed), input.size() - 1,
+-                  base::BindOnce(&CopyResultCallback, std::ref(uncompressed)));
+-  EXPECT_FALSE(uncompressed.has_value());
++  EXPECT_FALSE(Inflate(std::move(*compressed), input.size() - 1).has_value());
+ }
+ 
+-// Test allocating more than the space needed to inflate data.
+ TEST_F(GzipperTest, InflateTrimsSize) {
+-  Gzipper gzipper;
+   std::vector<uint8_t> input = {0x01, 0x01, 0x01, 0x02, 0x02, 0x02};
+-  std::optional<mojo_base::BigBuffer> compressed;
+-  gzipper.Deflate({input},
+-                  base::BindOnce(&CopyResultCallback, std::ref(compressed)));
++  auto compressed = Deflate({input});
+   ASSERT_TRUE(compressed.has_value());
+-  std::optional<mojo_base::BigBuffer> uncompressed;
+-  gzipper.Inflate(std::move(*compressed), input.size() + 1,
+-                  base::BindOnce(&CopyResultCallback, std::ref(uncompressed)));
++  auto uncompressed = Inflate(std::move(*compressed), input.size() + 1);
+   ASSERT_TRUE(uncompressed.has_value());
+   EXPECT_THAT(base::span(*uncompressed),
+               testing::ElementsAreArray(base::span(input)));
+ }
+ 
+ TEST_F(GzipperTest, CompressAndUncompress) {
+-  Gzipper gzipper;
+   std::vector<uint8_t> input = {0x01, 0x01, 0x01, 0x02, 0x02, 0x02};
+-  std::optional<mojo_base::BigBuffer> compressed;
+-  gzipper.Compress({input},
+-                   base::BindOnce(&CopyResultCallback, std::ref(compressed)));
++  auto compressed = Compress({input});
+   ASSERT_TRUE(compressed.has_value());
+   EXPECT_THAT(base::span(*compressed),
+               testing::Not(testing::ElementsAreArray(base::span(input))));
+ 
+-  std::optional<mojo_base::BigBuffer> uncompressed;
+-  gzipper.Uncompress(
+-      std::move(*compressed),
+-      base::BindOnce(&CopyResultCallback, std::ref(uncompressed)));
++  auto uncompressed = Uncompress(std::move(*compressed));
++  ASSERT_TRUE(uncompressed.has_value());
++  EXPECT_THAT(base::span(*uncompressed),
++              testing::ElementsAreArray(base::span(input)));
++}
++
++TEST_F(GzipperTest, LargeBigBufferRoundTrip) {
++  std::vector<uint8_t> input(128 * 1024);
++  for (size_t i = 0; i < input.size(); ++i) {
++    input[i] = static_cast<uint8_t>((i * 131u + 17u) & 0xffu);
++  }
++
++  auto compressed = Compress({input});
++  ASSERT_TRUE(compressed.has_value());
++  auto uncompressed = Uncompress(std::move(*compressed));
+   ASSERT_TRUE(uncompressed.has_value());
+   EXPECT_THAT(base::span(*uncompressed),
+               testing::ElementsAreArray(base::span(input)));
+diff --git a/services/data_decoder/public/mojom/BUILD.gn b/services/data_decoder/public/mojom/BUILD.gn
+index 9df1a8d610..0fc994a966 100644
+--- a/services/data_decoder/public/mojom/BUILD.gn
++++ b/services/data_decoder/public/mojom/BUILD.gn
+@@ -8,12 +8,12 @@ mojom("mojom") {
+   sources = [
+     "cbor_parser.mojom",
+     "data_decoder_service.mojom",
+-    "gzipper.mojom",
+     "image_decoder.mojom",
+     "structured_headers_parser.mojom",
+   ]
+ 
+   public_deps = [
++    ":mojom_gzipper",
+     ":mojom_xml_parser",
+     "//components/facilitated_payments/core/mojom:pix_code_validator_mojom",
+     "//components/web_package/mojom",
+@@ -26,6 +26,24 @@ mojom("mojom") {
+   ]
+ }
+ 
++mojom("mojom_gzipper") {
++  sources = [ "gzipper.mojom" ]
++  generate_rust = true
++  rust_typemaps = [
++    {
++      types = [
++        {
++          mojom = "mojo_base.mojom.BigBuffer"
++          rust = "RustBigBuffer"
++        },
++      ]
++      traits_file = "gzipper_rust_traits.rs"
++    },
++  ]
++
++  public_deps = [ "//mojo/public/mojom/base" ]
++}
++
+ mojom("mojom_xml_parser") {
+   sources = [ "xml_parser.mojom" ]
+ 
+diff --git a/services/data_decoder/public/mojom/gzipper_rust_traits.rs b/services/data_decoder/public/mojom/gzipper_rust_traits.rs
+new file mode 100644
+index 0000000000..3152b57972
+--- /dev/null
++++ b/services/data_decoder/public/mojom/gzipper_rust_traits.rs
+@@ -0,0 +1,66 @@
++// Copyright 2026 The Chromium Authors
++// Use of this source code is governed by a BSD-style license that can be
++// found in the LICENSE file.
++
++use super::base_rust::big_buffer::{BigBuffer as MojomBigBuffer, BigBufferSharedMemoryRegion};
++use super::system::buffer::SharedBuffer;
++use anyhow::{anyhow, Result};
++
++const MAX_INLINE_BYTES: usize = 64 * 1024;
++
++#[derive(Debug, PartialEq)]
++pub struct RustBigBuffer(Vec<u8>);
++
++impl RustBigBuffer {
++    pub fn into_vec(self) -> Vec<u8> {
++        self.0
++    }
++}
++
++impl From<Vec<u8>> for RustBigBuffer {
++    fn from(bytes: Vec<u8>) -> Self {
++        Self(bytes)
++    }
++}
++
++impl From<RustBigBuffer> for MojomBigBuffer {
++    fn from(buffer: RustBigBuffer) -> Self {
++        let bytes = buffer.0;
++        if bytes.len() <= MAX_INLINE_BYTES || bytes.len() > u32::MAX as usize {
++            return MojomBigBuffer::bytes(bytes);
++        }
++
++        let Ok(shared) = SharedBuffer::create_with_bytes(&bytes) else {
++            return MojomBigBuffer::bytes(bytes);
++        };
++        MojomBigBuffer::shared_memory(BigBufferSharedMemoryRegion {
++            buffer_handle: shared.into(),
++            size: bytes.len() as u32,
++        })
++    }
++}
++
++impl TryFrom<MojomBigBuffer> for RustBigBuffer {
++    type Error = anyhow::Error;
++
++    fn try_from(buffer: MojomBigBuffer) -> Result<Self> {
++        match buffer {
++            MojomBigBuffer::bytes(bytes) => Ok(Self(bytes)),
++            MojomBigBuffer::invalid_buffer(_) => Err(anyhow!("invalid BigBuffer")),
++            MojomBigBuffer::shared_memory(region) => {
++                let size = region.size as usize;
++                if size == 0 {
++                    return Err(anyhow!("zero-sized BigBuffer shared memory"));
++                }
++                let shared = SharedBuffer::from(region.buffer_handle);
++                if shared.size() < size as u64 {
++                    return Err(anyhow!("BigBuffer shared memory is smaller than declared"));
++                }
++                let mapped = shared
++                    .map(0, size)
++                    .map_err(|error| anyhow!("failed to map BigBuffer: {error:?}"))?;
++                Ok(Self(mapped.copy_to_vec()))
++            }
++        }
++    }
++}
+diff --git a/services/data_decoder/rust/gzipper.rs b/services/data_decoder/rust/gzipper.rs
+new file mode 100644
+index 0000000000..92727c0579
+--- /dev/null
++++ b/services/data_decoder/rust/gzipper.rs
+@@ -0,0 +1,110 @@
++// Copyright 2026 The Chromium Authors
++// Use of this source code is governed by a BSD-style license that can be
++// found in the LICENSE file.
++
++//! Rust implementation of the data decoder Gzipper Mojo service.
++
++chromium::import! {
++    "//mojo/public/rust/bindings";
++    "//mojo/public/rust/system";
++    "//services/data_decoder/public/mojom:mojom_gzipper_rust";
++}
++
++use flate2::read::{DeflateDecoder, GzDecoder};
++use flate2::write::{DeflateEncoder, GzEncoder};
++use flate2::Compression;
++use mojom_gzipper_rust::gzipper::Gzipper as GzipperMojom;
++use std::io::{Read, Write};
++
++type BigBuffer = mojom_gzipper_rust::gzipper::RustBigBuffer;
++
++#[cxx::bridge(namespace = "data_decoder")]
++mod ffi {
++    extern "Rust" {
++        fn BindRustGzipper(raw_handle: usize);
++    }
++}
++
++struct Gzipper;
++
++fn encode_deflate(data: Vec<u8>) -> Option<Vec<u8>> {
++    let mut encoder = DeflateEncoder::new(Vec::new(), Compression::default());
++    encoder.write_all(&data).ok()?;
++    encoder.finish().ok()
++}
++
++fn encode_gzip(data: Vec<u8>) -> Option<Vec<u8>> {
++    let mut encoder = GzEncoder::new(Vec::new(), Compression::default());
++    encoder.write_all(&data).ok()?;
++    encoder.finish().ok()
++}
++
++fn decode_with_limit(decoder: impl Read, max_size: u64) -> Option<Vec<u8>> {
++    let mut output = Vec::new();
++    decoder.take(max_size.saturating_add(1)).read_to_end(&mut output).ok()?;
++    if output.len() as u64 > max_size {
++        return None;
++    }
++    Some(output)
++}
++
++fn decode_gzip(mut decoder: impl Read) -> Option<Vec<u8>> {
++    let mut output = Vec::new();
++    decoder.read_to_end(&mut output).ok()?;
++    Some(output)
++}
++
++impl GzipperMojom for Gzipper {
++    fn Deflate(
++        &mut self,
++        data: BigBuffer,
++        response_callback: impl Send + 'static + FnOnce(Option<BigBuffer>),
++    ) {
++        response_callback(encode_deflate(data.into_vec()).map(Into::into));
++    }
++
++    fn Inflate(
++        &mut self,
++        data: BigBuffer,
++        max_uncompressed_size: u64,
++        response_callback: impl Send + 'static + FnOnce(Option<BigBuffer>),
++    ) {
++        let compressed = data.into_vec();
++        response_callback(
++            decode_with_limit(DeflateDecoder::new(compressed.as_slice()), max_uncompressed_size)
++                .map(Into::into),
++        );
++    }
++
++    fn Compress(
++        &mut self,
++        data: BigBuffer,
++        response_callback: impl Send + 'static + FnOnce(Option<BigBuffer>),
++    ) {
++        response_callback(encode_gzip(data.into_vec()).map(Into::into));
++    }
++
++    fn Uncompress(
++        &mut self,
++        compressed_data: BigBuffer,
++        response_callback: impl Send + 'static + FnOnce(Option<BigBuffer>),
++    ) {
++        let compressed = compressed_data.into_vec();
++        response_callback(decode_gzip(GzDecoder::new(compressed.as_slice())).map(Into::into));
++    }
++}
++
++bindings::register_mojom_state_object_impls!(impl GzipperMojom for Gzipper);
++
++#[allow(non_snake_case)]
++fn BindRustGzipper(raw_handle: usize) {
++    use bindings::receiver::PendingReceiver;
++    use system::message_pipe::MessageEndpoint;
++    use system::mojo_types::UntypedHandle;
++
++    // SAFETY: C++ releases a live PendingReceiver handle immediately before
++    // this call, transferring unique ownership of that raw handle to Rust.
++    let untyped = unsafe { UntypedHandle::wrap_raw_value(raw_handle) };
++    let endpoint: MessageEndpoint = untyped.into();
++    let _ = PendingReceiver::<dyn GzipperMojom>::new(endpoint).bind_self_owned(Gzipper);
++}
+diff --git a/third_party/rust/chromium_crates_io/Cargo.lock b/third_party/rust/chromium_crates_io/Cargo.lock
+index 18cd7bd755..cdb43742f4 100644
+--- a/third_party/rust/chromium_crates_io/Cargo.lock
++++ b/third_party/rust/chromium_crates_io/Cargo.lock
+@@ -241,6 +241,7 @@ dependencies = [
+  "cxx",
+  "cxxbridge-cmd",
+  "fend-core",
++ "flate2",
+  "font-types",
+  "harfrust",
+  "hex",
+diff --git a/third_party/rust/chromium_crates_io/Cargo.toml b/third_party/rust/chromium_crates_io/Cargo.toml
+index 2be8b9c75c..52f8b7addf 100644
+--- a/third_party/rust/chromium_crates_io/Cargo.toml
++++ b/third_party/rust/chromium_crates_io/Cargo.toml
+@@ -24,6 +24,7 @@ bytes = "1"
+ chrono = "0.4.43"
+ cxx = "1"
+ fend-core = "1"
++flate2 = "1.1.9"
+ font-types = "0.12.1"
+ hex = "0.4"
+ hmac-sha256 = "1.1.12"
+diff --git a/third_party/rust/flate2/v1/BUILD.gn b/third_party/rust/flate2/v1/BUILD.gn
+index c4822638bf..6803935e7c 100644
+--- a/third_party/rust/flate2/v1/BUILD.gn
++++ b/third_party/rust/flate2/v1/BUILD.gn
+@@ -60,11 +60,6 @@ cargo_crate("lib") {
+     "rust_backend",
+   ]
+ 
+-  # Only for usage from third-party crates. Add the crate to
+-  # //third_party/rust/chromium_crates_io/Cargo.toml to use
+-  # it from first-party code.
+-  visibility = [ "//third_party/rust/*" ]
+-
+   #####################################################################
+   # Tweaking which GN `config`s apply to this target.
+ 
