@@ -1,0 +1,46 @@
+schema_version = 1
+id = "services-data-decoder-xml-parser-parity"
+status = "partial"
+
+[interface]
+mojom = "services/data_decoder/public/mojom/xml_parser.mojom"
+name = "data_decoder.mojom.XmlParser"
+methods = ["Parse"]
+require_identical_mojom = true
+require_identical_factory_signature = true
+
+[[contract_cases]]
+id = "legacy-production-contract"
+status = "passed_linux"
+evidence_sha256 = "42a48c8273bdfeb1bb294a6700e3d68cb4752ccf5e1df4cb5b05ef9ba03be1ce"
+
+[[contract_cases]]
+id = "rust-libxml-parser-parity"
+status = "passed_linux"
+evidence_sha256 = "42a48c8273bdfeb1bb294a6700e3d68cb4752ccf5e1df4cb5b05ef9ba03be1ce"
+
+[[contract_cases]]
+id = "explicit-namespace-redeclaration"
+status = "passed_linux"
+evidence_sha256 = "42a48c8273bdfeb1bb294a6700e3d68cb4752ccf5e1df4cb5b05ef9ba03be1ce"
+
+[[upstream_suites]]
+id = "services-unittests"
+target = "//services:services_unittests"
+status = "pending"
+
+[desktop_matrix]
+platforms = ["linux", "mac", "win"]
+require_rust_build = true
+require_shared_contract_test = true
+require_upstream_suite_when_target_supported = true
+linux = "partial"
+mac = "pending"
+win = "pending"
+
+[rollback_matrix]
+require_fallback_build = true
+require_shared_contract_test = true
+linux = "partial"
+mac = "pending"
+win = "pending"

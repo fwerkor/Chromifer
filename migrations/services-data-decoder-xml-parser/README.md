@@ -22,4 +22,6 @@ Current Linux checkpoint:
 - rollback source is `xml_parser_legacy.cc` and the rollback graph restores `libxml`, `libxml_utils`, and `xml_reader`.
 - exact Chromium patch SHA-256: `cc5edd9df397fb92dccecea4b6065d120a6d9d83c7094383a75f0474a8bdc784`.
 
-This remains a WIP checkpoint. Exposure/maintenance measurement, broader upstream regression, desktop portability, performance, and a full production build still need to be completed before it can satisfy M3.
+A first strict exposure measurement of this C++ DOM adapter design failed both M3 exposure gates. Counting every Chromium-authored file newly active on the production path, memory-unsafe LOC grows from 187 to 460 and authored production LOC from 187 to 597; active implementation files grow from 2 to 8. The parity result remains valid, but this adapter architecture is therefore not an acceptable final M3 migration.
+
+The next design step is to keep the same proven Rust XML parsing behavior while moving the production `data_decoder.mojom.XmlParser` receiver and result construction into Rust directly. That removes the production dependency on the C++ DOM/CXX builder path instead of narrowing the measurement scope. Broader upstream regression, desktop portability, and performance remain pending.

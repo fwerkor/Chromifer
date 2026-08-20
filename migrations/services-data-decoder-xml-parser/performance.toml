@@ -1,0 +1,34 @@
+schema_version = 1
+id = "services-data-decoder-xml-parser-performance"
+status = "defined_not_measured"
+
+[comparison]
+upstream_revision = "04f9a8144d9b1701aa0b329b6000cf3299bbaf22"
+baseline_configuration = "use_rust_data_decoder_xml_parser=false"
+candidate_configuration = "use_rust_data_decoder_xml_parser=true"
+build_mode = "release"
+require_identical_non_migration_gn_args = true
+require_same_machine = true
+require_alternating_sample_order = true
+
+[workload]
+warmup_messages = 100
+messages_per_sample = 1000
+samples = 15
+in_process_mojo = true
+cases = ["small_xml", "attributes_namespaces", "mixed_text_cdata", "large_xml"]
+
+[latency_budget]
+median_regression_percent_max = 5.0
+p95_regression_percent_max = 10.0
+
+[memory_budget]
+steady_state_rss_regression_bytes_max = 1048576
+
+[validity]
+minimum_completed_samples = 15
+reject_if_cpu_migration_or_frequency_policy_differs = true
+reject_if_background_load_invalidates_pairing = true
+record_raw_samples = true
+record_binary_hashes = true
+record_gn_args_hashes = true

@@ -1,0 +1,127 @@
+{
+  "results": {
+    "baseline_authored_memory_unsafe_loc": 187,
+    "candidate_authored_memory_unsafe_loc": 460,
+    "baseline_authored_production_loc": 187,
+    "candidate_authored_production_loc": 597,
+    "baseline_active_implementation_files": 2,
+    "candidate_active_implementation_files": 8,
+    "baseline_branch_points": 21,
+    "candidate_branch_points": 50,
+    "baseline_manual_raw_pointer_fields": 1,
+    "candidate_manual_raw_pointer_fields": 1,
+    "baseline_cross_language_forwarding_methods": 0,
+    "candidate_cross_language_forwarding_methods": 7,
+    "new_public_api_count": 0,
+    "new_mojom_method_count": 0,
+    "measurement_tool_version": "chromifer-exposure-v1",
+    "file_hashes_sha256": "f924015b910c6c1adb9de1319b5294ddd81f0974723cd96673340be73ac668e2",
+    "raw_counts_sha256": "02b4bb7b22c07a7a64112345b7437275fa476c6f0b2d873c7a11864086e58ad9"
+  },
+  "files": [
+    {
+      "side": "baseline",
+      "path": "services/data_decoder/xml_parser.cc",
+      "language": "cpp",
+      "sha256": "9d888526d2f7e8dc3609db44168f3c5ee76132b2fc03f68db694aaf0e7f358c0",
+      "authored_production_loc": 168,
+      "authored_memory_unsafe_loc": 168,
+      "branch_points": 21,
+      "manual_raw_pointer_fields": 1
+    },
+    {
+      "side": "baseline",
+      "path": "services/data_decoder/xml_parser.h",
+      "language": "cpp",
+      "sha256": "1a8744bce30b57cc5f1cfd19db0c02ad773be12f57875e8b97bfb1fa8cad4082",
+      "authored_production_loc": 19,
+      "authored_memory_unsafe_loc": 19,
+      "branch_points": 0,
+      "manual_raw_pointer_fields": 0
+    },
+    {
+      "side": "candidate",
+      "path": "services/data_decoder/public/cpp/xml_dom.cc",
+      "language": "cpp",
+      "sha256": "2122f810a9153ff10124bbc72d92e29ec8225b9c8eebf5b9bc9ede06f2b21c94",
+      "authored_production_loc": 199,
+      "authored_memory_unsafe_loc": 199,
+      "branch_points": 20,
+      "manual_raw_pointer_fields": 0
+    },
+    {
+      "side": "candidate",
+      "path": "services/data_decoder/public/cpp/xml_dom.h",
+      "language": "cpp",
+      "sha256": "ae58c95501c2a1a96a85ff444b654375ceffced8122316ec397999aec9168e5f",
+      "authored_production_loc": 115,
+      "authored_memory_unsafe_loc": 115,
+      "branch_points": 0,
+      "manual_raw_pointer_fields": 1
+    },
+    {
+      "side": "candidate",
+      "path": "services/data_decoder/xml/cxx.rs",
+      "language": "rust",
+      "sha256": "1c6a6c7996acbb64fe863f85ee7cc720ec583890b9c9f4501c1d5b0f2e9d027f",
+      "authored_production_loc": 24,
+      "authored_memory_unsafe_loc": 12,
+      "branch_points": 0,
+      "manual_raw_pointer_fields": 0
+    },
+    {
+      "side": "candidate",
+      "path": "services/data_decoder/xml/dom_builder.cc",
+      "language": "cpp",
+      "sha256": "fdca676d8d66cd053c99eed7a7c14e3c69110e1bd80c38ab6ebfab25a24f681c",
+      "authored_production_loc": 37,
+      "authored_memory_unsafe_loc": 37,
+      "branch_points": 0,
+      "manual_raw_pointer_fields": 0
+    },
+    {
+      "side": "candidate",
+      "path": "services/data_decoder/xml/dom_builder.h",
+      "language": "cpp",
+      "sha256": "969acc87746001c86ef0d98eeb2a15de80e02e56b6a2727d0d3b7dc73cc37882",
+      "authored_production_loc": 18,
+      "authored_memory_unsafe_loc": 18,
+      "branch_points": 0,
+      "manual_raw_pointer_fields": 0
+    },
+    {
+      "side": "candidate",
+      "path": "services/data_decoder/xml/parser.rs",
+      "language": "rust",
+      "sha256": "ac5c5049a904baff6c626ba557ff20aba1fbced5e2c9a223ea256ad944bc1389",
+      "authored_production_loc": 125,
+      "authored_memory_unsafe_loc": 0,
+      "branch_points": 23,
+      "manual_raw_pointer_fields": 0
+    },
+    {
+      "side": "candidate",
+      "path": "services/data_decoder/xml_parser.cc",
+      "language": "cpp",
+      "sha256": "29ab5919d70765bb422ffb58199e6fa80bad4c53f3d43bec47ad3795a27367dd",
+      "authored_production_loc": 60,
+      "authored_memory_unsafe_loc": 60,
+      "branch_points": 7,
+      "manual_raw_pointer_fields": 0
+    },
+    {
+      "side": "candidate",
+      "path": "services/data_decoder/xml_parser.h",
+      "language": "cpp",
+      "sha256": "1a8744bce30b57cc5f1cfd19db0c02ad773be12f57875e8b97bfb1fa8cad4082",
+      "authored_production_loc": 19,
+      "authored_memory_unsafe_loc": 19,
+      "branch_points": 0,
+      "manual_raw_pointer_fields": 0
+    }
+  ],
+  "contract_review": {
+    "new_public_api_count": 0,
+    "new_mojom_method_count": 0
+  }
+}

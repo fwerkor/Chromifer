@@ -1,0 +1,89 @@
+schema_version = 1
+id = "services-data-decoder-xml-parser"
+status = "in_progress"
+
+[upstream]
+repository = "https://chromium.googlesource.com/chromium/src.git"
+revision = "04f9a8144d9b1701aa0b329b6000cf3299bbaf22"
+target = "//services/data_decoder:lib"
+ownership = "file://services/data_decoder/OWNERS"
+
+[upstream.blobs]
+build = "9ec647da02e230db298f370614bed6c463deb50e"
+legacy_implementation = "6aa37858e63bb12e484094bb33fbb78fc37a4e7e"
+legacy_header = "20b565448a8849bd824e1e4147fd3f436cf47523"
+rust_parser = "d848048fc6795240496f035ae097ab27122426a8"
+rust_cxx = "7c2ec65c11ee7e56f096ba14bdb3c8cb3a8b90f8"
+mojom = "08b86f0c3a41476336f8cc54130fed9fcd4f011a"
+owners = "50cbd62fb0e34a574cd95670b82b5a728bc532fb"
+
+[boundary]
+kind = "mojo"
+interface = "data_decoder.mojom.XmlParser"
+mojom = "services/data_decoder/public/mojom/xml_parser.mojom"
+legacy_sources = ["services/data_decoder/xml_parser.cc", "services/data_decoder/xml_parser.h"]
+rust_source = "services/data_decoder/xml/parser.rs"
+factory = "services/data_decoder/data_decoder_service.cc"
+methods = ["Parse"]
+
+[rollback]
+status = "verified"
+gn_arg = "use_rust_data_decoder_xml_parser"
+rust_value = true
+fallback_value = false
+default_expression = "enable_rust"
+shared_test_target = "//services/data_decoder:xml_migration_unittests"
+
+[implementation]
+status = "passed"
+
+[implementation.patch]
+path = "chromium.patch"
+base_revision = "04f9a8144d9b1701aa0b329b6000cf3299bbaf22"
+sha256 = "cc5edd9df397fb92dccecea4b6065d120a6d9d83c7094383a75f0474a8bdc784"
+
+[[verification]]
+id = "rust-xml-focused-contract"
+status = "passed"
+configuration = "use_rust_data_decoder_xml_parser=true"
+target = "//services/data_decoder:xml_migration_unittests"
+passed_tests = 46
+failed_tests = 0
+
+[[verification]]
+id = "libxml-fallback-focused-contract"
+status = "passed"
+configuration = "use_rust_data_decoder_xml_parser=false"
+target = "//services/data_decoder:xml_migration_unittests"
+passed_tests = 46
+failed_tests = 0
+rust_receiver_dependencies_present = false
+
+[[verification]]
+id = "broader-services-regression"
+status = "pending"
+target = "//services:services_unittests"
+
+[m3_acceptance]
+feature_parity = "partial"
+upstream_test_parity = "pending"
+performance_budget = "defined_not_measured"
+rollback = "verified"
+memory_safety_reduction = "failed"
+maintenance_complexity_reduction = "failed"
+
+[parity]
+matrix = "parity.toml"
+status = "partial"
+
+[performance]
+budget = "performance.toml"
+status = "defined_not_measured"
+
+[exposure]
+measurement = "exposure.toml"
+status = "failed"
+
+[notes]
+verified_platform = "linux"
+feature_parity_scope = "The focused suite runs all 25 legacy production XmlParser tests plus 21 Rust-vs-libxml parser compatibility tests, including explicit namespace redeclaration parity. Broader services tests and desktop platforms remain pending."

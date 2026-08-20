@@ -1,0 +1,37 @@
+schema_version = 1
+
+# Count the complete Chromium-authored implementation that becomes active for
+# the production XmlParser path. Shared Rust/C++ XML DOM/parser glue is counted
+# on the candidate side even though it predates this migration, because the
+# production Mojo path newly depends on it.
+[baseline]
+files = [
+  "services/data_decoder/xml_parser.cc",
+  "services/data_decoder/xml_parser.h",
+]
+cross_language_forwarding_methods = []
+
+[candidate]
+files = [
+  "services/data_decoder/xml_parser.cc",
+  "services/data_decoder/xml_parser.h",
+  "services/data_decoder/xml/parser.rs",
+  "services/data_decoder/xml/cxx.rs",
+  "services/data_decoder/xml/dom_builder.cc",
+  "services/data_decoder/xml/dom_builder.h",
+  "services/data_decoder/public/cpp/xml_dom.cc",
+  "services/data_decoder/public/cpp/xml_dom.h",
+]
+cross_language_forwarding_methods = [
+  "data_decoder::xml::ffi::decode_xml_bytes",
+  "data_decoder::xml::ffi::create_element",
+  "data_decoder::xml::ffi::set_attribute",
+  "data_decoder::xml::ffi::set_namespace",
+  "data_decoder::xml::ffi::add_child",
+  "data_decoder::xml::ffi::create_text_node",
+  "data_decoder::xml::ffi::create_cdata_node",
+]
+
+[contract_review]
+new_public_api_count = 0
+new_mojom_method_count = 0
