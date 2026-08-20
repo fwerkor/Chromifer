@@ -419,10 +419,10 @@ index 230386c159..ff6d4774c7 100644
  // which is a string in the mojom validation text format, as defined in
  // //mojo/public/cpp/bindings/tests/validation_test_input_parser.h
 diff --git a/services/data_decoder/BUILD.gn b/services/data_decoder/BUILD.gn
-index 9ec647da02..14217a8377 100644
+index 9ec647da02..08dadf2f56 100644
 --- a/services/data_decoder/BUILD.gn
 +++ b/services/data_decoder/BUILD.gn
-@@ -2,8 +2,60 @@
+@@ -2,8 +2,62 @@
  # Use of this source code is governed by a BSD-style license that can be
  # found in the LICENSE file.
  
@@ -456,8 +456,10 @@ index 9ec647da02..14217a8377 100644
 +  if (use_rust_data_decoder_xml_parser) {
 +    public_deps = [ ":xml_parser_rust" ]
 +  } else {
-+    public = [ "xml_parser.h" ]
-+    sources = [ "xml_parser.cc" ]
++    sources = [
++      "xml_parser.cc",
++      "xml_parser.h",
++    ]
 +    deps += [
 +      "//third_party/libxml:libxml_utils",
 +      "//third_party/libxml:xml_reader",
@@ -483,7 +485,7 @@ index 9ec647da02..14217a8377 100644
  
  source_set("lib") {
    # This target should only be depended upon by components that host a
-@@ -25,13 +77,12 @@ source_set("lib") {
+@@ -25,13 +79,12 @@ source_set("lib") {
      "gzipper.h",
      "structured_headers_parser_impl.cc",
      "structured_headers_parser_impl.h",
@@ -498,7 +500,7 @@ index 9ec647da02..14217a8377 100644
      "//base",
      "//build:blink_buildflags",
      "//components/cbor",
-@@ -41,8 +92,6 @@ source_set("lib") {
+@@ -41,8 +94,6 @@ source_set("lib") {
      "//mojo/public/cpp/bindings",
      "//net",
      "//skia",
@@ -507,7 +509,7 @@ index 9ec647da02..14217a8377 100644
      "//third_party/zlib/google:compression_utils",
      "//ui/gfx",
      "//ui/gfx/geometry",
-@@ -108,6 +157,26 @@ source_set("tests") {
+@@ -108,6 +159,26 @@ source_set("tests") {
    }
  }
  
@@ -534,7 +536,7 @@ index 9ec647da02..14217a8377 100644
  # This is a separate target because //third_party/libxml:libxml_utils
  # wants to limit its visibility to a select number of target, but the
  # "fuzzer_test" template expands on iOS to many targets that need to
-@@ -115,9 +184,13 @@ source_set("tests") {
+@@ -115,9 +186,13 @@ source_set("tests") {
  # binaries.
  source_set("xml_parser_fuzzer_deps") {
    visibility = [ ":*" ]
@@ -550,33 +552,41 @@ index 9ec647da02..14217a8377 100644
      "//third_party/libxml:xml_reader",
    ]
 diff --git a/services/data_decoder/data_decoder_service.cc b/services/data_decoder/data_decoder_service.cc
-index 920b62490c..800b19fd3a 100644
+index 920b62490c..1aa5a3e86d 100644
 --- a/services/data_decoder/data_decoder_service.cc
 +++ b/services/data_decoder/data_decoder_service.cc
-@@ -18,7 +18,13 @@
+@@ -4,6 +4,7 @@
+ 
+ #include "services/data_decoder/data_decoder_service.h"
+ 
++#include <cstddef>
+ #include <memory>
+ 
+ #include "base/functional/bind.h"
+@@ -18,7 +19,6 @@
  #include "services/data_decoder/gzipper.h"
  #include "services/data_decoder/public/mojom/image_decoder.mojom.h"
  #include "services/data_decoder/structured_headers_parser_impl.h"
-+#include "services/data_decoder/xml_parser_buildflags.h"
-+
-+#if BUILDFLAG(USE_RUST_DATA_DECODER_XML_PARSER)
-+#include "services/data_decoder/xml/xml_parser_mojo.rs.h"
-+#else
- #include "services/data_decoder/xml_parser.h"
-+#endif
+-#include "services/data_decoder/xml_parser.h"
  
  #if BUILDFLAG(USE_BLINK)
  #include "services/data_decoder/image_decoder_impl.h"
-@@ -58,8 +64,12 @@ void DataDecoderService::BindStructuredHeadersParser(
+@@ -26,6 +26,8 @@
+ 
+ namespace data_decoder {
+ 
++void BindXmlParser(std::size_t raw_handle) noexcept;
++
+ DataDecoderService::DataDecoderService() = default;
+ 
+ DataDecoderService::DataDecoderService(
+@@ -58,8 +60,7 @@ void DataDecoderService::BindStructuredHeadersParser(
  
  void DataDecoderService::BindXmlParser(
      mojo::PendingReceiver<mojom::XmlParser> receiver) {
-+#if BUILDFLAG(USE_RUST_DATA_DECODER_XML_PARSER)
-+  BindRustXmlParser(receiver.PassPipe().release().value());
-+#else
-   mojo::MakeSelfOwnedReceiver(std::make_unique<XmlParser>(),
-                               std::move(receiver));
-+#endif
+-  mojo::MakeSelfOwnedReceiver(std::make_unique<XmlParser>(),
+-                              std::move(receiver));
++  data_decoder::BindXmlParser(receiver.PassPipe().release().value());
  }
  
  void DataDecoderService::BindWebBundleParserFactory(
@@ -727,10 +737,10 @@ index d848048fc6..ec1dacf2fe 100644
                  write!(&mut err, "{}", e).unwrap();
 diff --git a/services/data_decoder/xml/xml_parser_mojo.rs b/services/data_decoder/xml/xml_parser_mojo.rs
 new file mode 100644
-index 0000000000..09e7503719
+index 0000000000..50ba5ee92b
 --- /dev/null
 +++ b/services/data_decoder/xml/xml_parser_mojo.rs
-@@ -0,0 +1,204 @@
+@@ -0,0 +1,196 @@
 +// Copyright 2026 The Chromium Authors
 +// Use of this source code is governed by a BSD-style license that can be
 +// found in the LICENSE file.
@@ -771,7 +781,7 @@ index 0000000000..09e7503719
 +#[cxx::bridge(namespace = "data_decoder")]
 +mod ffi {
 +    extern "Rust" {
-+        fn BindRustXmlParser(raw_handle: usize);
++        fn BindXmlParser(raw_handle: usize);
 +    }
 +}
 +
@@ -877,13 +887,12 @@ index 0000000000..09e7503719
 +                    root = Some(child);
 +                }
 +            }
-+            Ok(XmlEvent::Characters(data)) => {
-+                if !data.trim().is_empty() || preserve_whitespace {
-+                    if let Some(parent) = stack.last_mut() {
-+                        add_child(parent, text_node(TEXT_NODE, data));
-+                    } else if !data.trim().is_empty() {
++            Ok(XmlEvent::Characters(data)) | Ok(XmlEvent::Whitespace(data)) => {
++                if preserve_whitespace || !data.trim().is_empty() {
++                    let Some(parent) = stack.last_mut() else {
 +                        return Err("Invalid XML".to_owned());
-+                    }
++                    };
++                    add_child(parent, text_node(TEXT_NODE, data));
 +                }
 +            }
 +            Ok(XmlEvent::CData(data)) => {
@@ -891,13 +900,6 @@ index 0000000000..09e7503719
 +                    return Err("Invalid XML".to_owned());
 +                };
 +                add_child(parent, text_node(CDATA_NODE, data));
-+            }
-+            Ok(XmlEvent::Whitespace(data)) => {
-+                if preserve_whitespace {
-+                    if let Some(parent) = stack.last_mut() {
-+                        add_child(parent, text_node(TEXT_NODE, data));
-+                    }
-+                }
 +            }
 +            Ok(XmlEvent::EndDocument) => break,
 +            Ok(XmlEvent::Comment(_))
@@ -918,17 +920,17 @@ index 0000000000..09e7503719
 +        whitespace_behavior: WhitespaceBehavior,
 +        response_callback: impl Send + 'static + FnOnce(Option<Value>, Option<String>),
 +    ) {
-+        match parse(&xml, whitespace_behavior == WhitespaceBehavior::kPreserveSignificant) {
-+            Ok(value) => response_callback(Some(value), None),
-+            Err(error) => response_callback(None, Some(error)),
-+        }
++        let result = parse(&xml, whitespace_behavior == WhitespaceBehavior::kPreserveSignificant);
++        let (value, error) =
++            result.map_or_else(|error| (None, Some(error)), |value| (Some(value), None));
++        response_callback(value, error);
 +    }
 +}
 +
 +bindings::register_mojom_state_object_impls!(impl XmlParserMojom for XmlParser);
 +
 +#[allow(non_snake_case)]
-+fn BindRustXmlParser(raw_handle: usize) {
++fn BindXmlParser(raw_handle: usize) {
 +    // SAFETY: C++ releases a live PendingReceiver handle immediately before
 +    // this call, transferring unique ownership of that raw handle to Rust.
 +    let untyped = unsafe { UntypedHandle::wrap_raw_value(raw_handle) };
@@ -936,10 +938,17 @@ index 0000000000..09e7503719
 +    let _ = PendingReceiver::<dyn XmlParserMojom>::new(endpoint).bind_self_owned(XmlParser);
 +}
 diff --git a/services/data_decoder/xml/xml_parser_rs_unittest.cc b/services/data_decoder/xml/xml_parser_rs_unittest.cc
-index a5d7da19a2..0e269c804c 100644
+index a5d7da19a2..a5ea41288d 100644
 --- a/services/data_decoder/xml/xml_parser_rs_unittest.cc
 +++ b/services/data_decoder/xml/xml_parser_rs_unittest.cc
-@@ -9,11 +9,22 @@
+@@ -2,18 +2,20 @@
+ // Use of this source code is governed by a BSD-style license that can be
+ // found in the LICENSE file.
+ 
+-#include <memory>
+ #include <optional>
+ #include <string>
+ #include <string_view>
  #include <vector>
  
  #include "base/strings/to_string.h"
@@ -949,21 +958,14 @@ index a5d7da19a2..0e269c804c 100644
 +#include "base/test/test_future.h"
  #include "base/types/expected.h"
 +#include "mojo/public/cpp/bindings/remote.h"
-+#include "mojo/public/cpp/bindings/self_owned_receiver.h"
  #include "services/data_decoder/public/cpp/xml_dom.h"
+-#include "services/data_decoder/xml_parser.h"
 +#include "services/data_decoder/public/mojom/xml_parser.mojom.h"
 +#include "services/data_decoder/xml_migration_test_support.h"
-+#include "services/data_decoder/xml_parser_buildflags.h"
-+
-+#if BUILDFLAG(USE_RUST_DATA_DECODER_XML_PARSER)
-+#include "services/data_decoder/xml/xml_parser_mojo.rs.h"
-+#else
- #include "services/data_decoder/xml_parser.h"
-+#endif
  #include "testing/gmock/include/gmock/gmock.h"
  #include "testing/gtest/include/gtest/gtest.h"
  
-@@ -41,16 +52,16 @@ class XmlParserRsTest : public testing::Test {
+@@ -41,16 +43,16 @@ class XmlParserRsTest : public testing::Test {
        std::string_view xml) {
      base::expected<Document, std::string> rust_result = ParseWithRust(xml);
      base::expected<base::Value, std::string> libxml2_result =
@@ -983,7 +985,7 @@ index a5d7da19a2..0e269c804c 100644
            rust_result.error());
      }
  
-@@ -72,30 +83,28 @@ class XmlParserRsTest : public testing::Test {
+@@ -72,30 +74,23 @@ class XmlParserRsTest : public testing::Test {
      return Document::FromUtf8(xml);
    }
  
@@ -1014,12 +1016,7 @@ index a5d7da19a2..0e269c804c 100644
 +    base::test::SingleThreadTaskEnvironment task_environment;
 +    mojo::Remote<mojom::XmlParser> parser;
 +    auto receiver = parser.BindNewPipeAndPassReceiver();
-+#if BUILDFLAG(USE_RUST_DATA_DECODER_XML_PARSER)
-+    BindRustXmlParser(receiver.PassPipe().release().value());
-+#else
-+    mojo::MakeSelfOwnedReceiver(std::make_unique<XmlParser>(),
-+                                std::move(receiver));
-+#endif
++    BindXmlParser(receiver.PassPipe().release().value());
 +
 +    base::test::TestFuture<std::optional<base::Value>,
 +                           std::optional<std::string>>
@@ -1034,7 +1031,7 @@ index a5d7da19a2..0e269c804c 100644
      if (value) {
        return *std::move(value);
      }
-@@ -206,14 +215,12 @@ TEST_F(XmlParserRsTest, BasicNamespaces) {
+@@ -206,14 +201,12 @@ TEST_F(XmlParserRsTest, BasicNamespaces) {
  }
  
  TEST_F(XmlParserRsTest, OverrideNamespaceInChild) {
@@ -1055,7 +1052,7 @@ index a5d7da19a2..0e269c804c 100644
    ASSERT_OK(doc);
  
    const Node* root = doc->GetRoot();
-@@ -225,12 +232,12 @@ TEST_F(XmlParserRsTest, OverrideNamespaceInChild) {
+@@ -225,12 +218,12 @@ TEST_F(XmlParserRsTest, OverrideNamespaceInChild) {
    EXPECT_THAT(children[0]->GetNamespaces(),
                UnorderedElementsAre(Pair("a", "https://example.com/2")));
  
@@ -1074,10 +1071,10 @@ index a5d7da19a2..0e269c804c 100644
  TEST_F(XmlParserRsTest, UndeclareDefaultNamespaceTest) {
 diff --git a/services/data_decoder/xml_migration_test_support.h b/services/data_decoder/xml_migration_test_support.h
 new file mode 100644
-index 0000000000..e21faa53f4
+index 0000000000..4aad3a332c
 --- /dev/null
 +++ b/services/data_decoder/xml_migration_test_support.h
-@@ -0,0 +1,22 @@
+@@ -0,0 +1,30 @@
 +// Copyright 2026 The Chromium Authors
 +// Use of this source code is governed by a BSD-style license that can be
 +// found in the LICENSE file.
@@ -1085,9 +1082,15 @@ index 0000000000..e21faa53f4
 +#ifndef SERVICES_DATA_DECODER_XML_MIGRATION_TEST_SUPPORT_H_
 +#define SERVICES_DATA_DECODER_XML_MIGRATION_TEST_SUPPORT_H_
 +
++#include <cstddef>
++
 +#include "mojo/core/embedder/embedder.h"
 +
-+namespace data_decoder::test {
++namespace data_decoder {
++
++void BindXmlParser(std::size_t raw_handle) noexcept;
++
++namespace test {
 +
 +inline void EnsureMojoInitializedForXmlMigrationTests() {
 +  static const bool initialized = [] {
@@ -1097,21 +1100,91 @@ index 0000000000..e21faa53f4
 +  (void)initialized;
 +}
 +
-+}  // namespace data_decoder::test
++}  // namespace test
++
++}  // namespace data_decoder
 +
 +#endif  // SERVICES_DATA_DECODER_XML_MIGRATION_TEST_SUPPORT_H_
+diff --git a/services/data_decoder/xml_parser.cc b/services/data_decoder/xml_parser.cc
+index 6aa37858e6..afd8d4f088 100644
+--- a/services/data_decoder/xml_parser.cc
++++ b/services/data_decoder/xml_parser.cc
+@@ -4,6 +4,7 @@
+ 
+ #include "services/data_decoder/xml_parser.h"
+ 
++#include <cstddef>
+ #include <map>
+ #include <utility>
+ 
+@@ -11,6 +12,7 @@
+ #include "base/strings/string_util.h"
+ #include "base/strings/stringprintf.h"
+ #include "base/values.h"
++#include "mojo/public/cpp/bindings/self_owned_receiver.h"
+ #include "third_party/libxml/chromium/libxml_utils.h"
+ #include "third_party/libxml/chromium/xml_reader.h"
+ 
+@@ -96,8 +98,10 @@ base::DictValue* AddChildToElement(base::DictValue& element,
+ 
+ void PopulateNamespaces(base::DictValue& node_value, XmlReader* xml_reader) {
+   NamespaceMap namespaces;
+-  if (!xml_reader->GetAllDeclaredNamespaces(&namespaces) || namespaces.empty())
++  if (!xml_reader->GetAllDeclaredNamespaces(&namespaces) ||
++      namespaces.empty()) {
+     return;
++  }
+ 
+   base::DictValue namespace_dict;
+   for (const auto& ns : namespaces) {
+@@ -108,8 +112,9 @@ void PopulateNamespaces(base::DictValue& node_value, XmlReader* xml_reader) {
+ 
+ void PopulateAttributes(base::DictValue& node_value, XmlReader* xml_reader) {
+   AttributeMap attributes;
+-  if (!xml_reader->GetAllNodeAttributes(&attributes) || attributes.empty())
++  if (!xml_reader->GetAllNodeAttributes(&attributes) || attributes.empty()) {
+     return;
++  }
+ 
+   base::DictValue attribute_dict;
+   for (const auto& attribute : attributes) {
+@@ -131,6 +136,13 @@ void CaptureXmlErrors(void* context, const char* message, ...) {
+ 
+ }  // namespace
+ 
++void BindXmlParser(std::size_t raw_handle) noexcept {
++  mojo::MakeSelfOwnedReceiver(
++      std::make_unique<XmlParser>(),
++      mojo::PendingReceiver<mojom::XmlParser>(mojo::ScopedMessagePipeHandle(
++          mojo::MessagePipeHandle(static_cast<MojoHandle>(raw_handle)))));
++}
++
+ XmlParser::XmlParser() = default;
+ 
+ XmlParser::~XmlParser() = default;
+@@ -201,8 +213,9 @@ void XmlParser::Parse(const std::string& xml,
+       root_element = base::Value(std::move(new_element));
+       new_element_ptr = &root_element.GetDict();
+     }
+-    if (push_new_node_to_stack)
++    if (push_new_node_to_stack) {
+       element_stack.push_back(new_element_ptr);
++    }
+   }
+ 
+   if (!element_stack.empty()) {
 diff --git a/services/data_decoder/xml_parser_unittest.cc b/services/data_decoder/xml_parser_unittest.cc
-index d42a295c4b..7e2890bcfd 100644
+index d42a295c4b..6bda7d83d4 100644
 --- a/services/data_decoder/xml_parser_unittest.cc
 +++ b/services/data_decoder/xml_parser_unittest.cc
-@@ -2,12 +2,25 @@
+@@ -2,12 +2,16 @@
  // Use of this source code is governed by a BSD-style license that can be
  // found in the LICENSE file.
  
 -#include "services/data_decoder/xml_parser.h"
 -
- #include <memory>
- 
+-#include <memory>
+-
 -#include "base/functional/bind.h"
 +#include "base/containers/span.h"
 +#include "base/strings/string_util.h"
@@ -1119,21 +1192,14 @@ index d42a295c4b..7e2890bcfd 100644
 +#include "base/test/test_future.h"
  #include "base/test/values_test_util.h"
 +#include "mojo/public/cpp/bindings/remote.h"
-+#include "mojo/public/cpp/bindings/self_owned_receiver.h"
 +#include "services/data_decoder/public/cpp/xml_dom.h"
 +#include "services/data_decoder/public/mojom/xml_parser.mojom.h"
 +#include "services/data_decoder/xml_migration_test_support.h"
 +#include "services/data_decoder/xml_parser_buildflags.h"
-+
-+#if BUILDFLAG(USE_RUST_DATA_DECODER_XML_PARSER)
-+#include "services/data_decoder/xml/xml_parser_mojo.rs.h"
-+#else
-+#include "services/data_decoder/xml_parser.h"
-+#endif
  #include "testing/gmock/include/gmock/gmock.h"
  #include "testing/gtest/include/gtest/gtest.h"
  
-@@ -15,16 +28,6 @@ namespace data_decoder {
+@@ -15,16 +19,6 @@ namespace data_decoder {
  
  namespace {
  
@@ -1150,7 +1216,7 @@ index d42a295c4b..7e2890bcfd 100644
  // Parses the passed in |xml| and compares the result to |json|.
  // If |json| is empty, the parsing is expected to fail.
  void TestParseXml(const std::string& xml,
-@@ -32,29 +35,47 @@ void TestParseXml(const std::string& xml,
+@@ -32,29 +26,42 @@ void TestParseXml(const std::string& xml,
                    const std::string& expected_error = "",
                    mojom::XmlParser::WhitespaceBehavior whitespace_behavior =
                        mojom::XmlParser::WhitespaceBehavior::kIgnore) {
@@ -1178,12 +1244,7 @@ index d42a295c4b..7e2890bcfd 100644
 +  base::test::SingleThreadTaskEnvironment task_environment;
 +  mojo::Remote<mojom::XmlParser> parser;
 +  auto receiver = parser.BindNewPipeAndPassReceiver();
-+#if BUILDFLAG(USE_RUST_DATA_DECODER_XML_PARSER)
-+  BindRustXmlParser(receiver.PassPipe().release().value());
-+#else
-+  mojo::MakeSelfOwnedReceiver(std::make_unique<XmlParser>(),
-+                              std::move(receiver));
-+#endif
++  BindXmlParser(receiver.PassPipe().release().value());
 +
 +  base::test::TestFuture<std::optional<base::Value>, std::optional<std::string>>
 +      future;

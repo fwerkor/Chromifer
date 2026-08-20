@@ -18,7 +18,7 @@ files = [
   "services/data_decoder/xml/xml_parser_mojo.rs",
 ]
 cross_language_forwarding_methods = [
-  "data_decoder::BindRustXmlParser",
+  "data_decoder::BindXmlParser",
 ]
 
 [contract_review]

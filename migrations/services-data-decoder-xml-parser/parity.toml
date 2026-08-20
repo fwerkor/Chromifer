@@ -12,17 +12,17 @@ require_identical_factory_signature = true
 [[contract_cases]]
 id = "legacy-production-contract"
 status = "passed_linux"
-evidence_sha256 = "72de79434dba64aac6a4c06b6d03c6f29e02d95470e7a1a7052d3b34ab7fc9bd"
+evidence_sha256 = "9dc57cb392c4fe47833512c99db4324a6f35e0c68615ae6e4978e08832809986"
 
 [[contract_cases]]
 id = "rust-libxml-parser-parity"
 status = "passed_linux"
-evidence_sha256 = "72de79434dba64aac6a4c06b6d03c6f29e02d95470e7a1a7052d3b34ab7fc9bd"
+evidence_sha256 = "9dc57cb392c4fe47833512c99db4324a6f35e0c68615ae6e4978e08832809986"
 
 [[contract_cases]]
 id = "explicit-namespace-redeclaration"
 status = "passed_linux"
-evidence_sha256 = "72de79434dba64aac6a4c06b6d03c6f29e02d95470e7a1a7052d3b34ab7fc9bd"
+evidence_sha256 = "9dc57cb392c4fe47833512c99db4324a6f35e0c68615ae6e4978e08832809986"
 
 [[upstream_suites]]
 id = "services-unittests"

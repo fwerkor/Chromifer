@@ -2,16 +2,19 @@ revision=04f9a8144d9b1701aa0b329b6000cf3299bbaf22
 configuration=use_rust_data_decoder_xml_parser=false
 fallback_sources:
 //services/data_decoder/xml_parser.cc
-fallback_libxml_dependencies:
+//services/data_decoder/xml_parser.h
+fallback_dependencies:
 //third_party/libxml:libxml
 //third_party/libxml:libxml_utils
 //third_party/libxml:xml_reader
+PASS: fallback excludes Rust receiver and restores libxml
+focused_contract:
 Note: Google Test filter = XmlParserTest.*:XmlParserRsTest.*
 [==========] Running 46 tests from 2 test suites.
 [----------] Global test environment set-up.
 [----------] 21 tests from XmlParserRsTest
 [ RUN      ] XmlParserRsTest.Basic
-[       OK ] XmlParserRsTest.Basic (1 ms)
+[       OK ] XmlParserRsTest.Basic (2 ms)
 [ RUN      ] XmlParserRsTest.MultipleAttributes
 [       OK ] XmlParserRsTest.MultipleAttributes (0 ms)
 [ RUN      ] XmlParserRsTest.DuplicateAttributes
@@ -33,7 +36,7 @@ Note: Google Test filter = XmlParserTest.*:XmlParserRsTest.*
 [ RUN      ] XmlParserRsTest.CharacterEntities
 [       OK ] XmlParserRsTest.CharacterEntities (0 ms)
 [ RUN      ] XmlParserRsTest.MaxDepth
-[       OK ] XmlParserRsTest.MaxDepth (3 ms)
+[       OK ] XmlParserRsTest.MaxDepth (4 ms)
 [ RUN      ] XmlParserRsTest.NoRootElement
 [       OK ] XmlParserRsTest.NoRootElement (1 ms)
 [ RUN      ] XmlParserRsTest.WhitespaceAroundRootElement
@@ -52,7 +55,7 @@ Note: Google Test filter = XmlParserTest.*:XmlParserRsTest.*
 [       OK ] XmlParserRsTest.ProcessingInstructionsIgnored (0 ms)
 [ RUN      ] XmlParserRsTest.CommentsIgnored
 [       OK ] XmlParserRsTest.CommentsIgnored (0 ms)
-[----------] 21 tests from XmlParserRsTest (18 ms total)
+[----------] 21 tests from XmlParserRsTest (19 ms total)
 
 [----------] 25 tests from XmlParserTest
 [ RUN      ] XmlParserTest.ParseBadXml
@@ -76,7 +79,7 @@ Note: Google Test filter = XmlParserTest.*:XmlParserRsTest.*
 [ RUN      ] XmlParserTest.ParseCDataElement
 [       OK ] XmlParserTest.ParseCDataElement (0 ms)
 [ RUN      ] XmlParserTest.ParseBadCDataElement
-[       OK ] XmlParserTest.ParseBadCDataElement (1 ms)
+[       OK ] XmlParserTest.ParseBadCDataElement (0 ms)
 [ RUN      ] XmlParserTest.ParseTextWithEntities
 [       OK ] XmlParserTest.ParseTextWithEntities (0 ms)
 [ RUN      ] XmlParserTest.ParseMultipleSimilarTextElement
@@ -105,8 +108,8 @@ Note: Google Test filter = XmlParserTest.*:XmlParserRsTest.*
 [       OK ] XmlParserTest.WhitespaceBehavior (0 ms)
 [ RUN      ] XmlParserTest.ParseTypicalXml
 [       OK ] XmlParserTest.ParseTypicalXml (0 ms)
-[----------] 25 tests from XmlParserTest (13 ms total)
+[----------] 25 tests from XmlParserTest (14 ms total)
 
 [----------] Global test environment tear-down
-[==========] 46 tests from 2 test suites ran. (33 ms total)
+[==========] 46 tests from 2 test suites ran. (34 ms total)
 [  PASSED  ] 46 tests.

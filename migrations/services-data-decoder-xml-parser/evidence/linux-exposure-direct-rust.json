@@ -1,0 +1,77 @@
+{
+  "results": {
+    "baseline_authored_memory_unsafe_loc": 259,
+    "candidate_authored_memory_unsafe_loc": 73,
+    "baseline_authored_production_loc": 259,
+    "candidate_authored_production_loc": 244,
+    "baseline_active_implementation_files": 3,
+    "candidate_active_implementation_files": 2,
+    "baseline_branch_points": 23,
+    "candidate_branch_points": 20,
+    "baseline_manual_raw_pointer_fields": 1,
+    "candidate_manual_raw_pointer_fields": 0,
+    "baseline_cross_language_forwarding_methods": 0,
+    "candidate_cross_language_forwarding_methods": 1,
+    "new_public_api_count": 0,
+    "new_mojom_method_count": 0,
+    "measurement_tool_version": "chromifer-exposure-v1",
+    "file_hashes_sha256": "dc5263143a467547d0aeef3e9931347d4e5fe911c14f03cbd71c8c8d569cd1be",
+    "raw_counts_sha256": "dbdf696545da4c78e029ecb2b890521879850c57f62fc25c8168aa8ab804b87b"
+  },
+  "files": [
+    {
+      "side": "baseline",
+      "path": "services/data_decoder/data_decoder_service.cc",
+      "language": "cpp",
+      "sha256": "5f5d6edc7c3f2fce9ac9c3cf66bea0e5af936b072538221fc4f5964739de3499",
+      "authored_production_loc": 72,
+      "authored_memory_unsafe_loc": 72,
+      "branch_points": 2,
+      "manual_raw_pointer_fields": 0
+    },
+    {
+      "side": "baseline",
+      "path": "services/data_decoder/xml_parser.cc",
+      "language": "cpp",
+      "sha256": "9d888526d2f7e8dc3609db44168f3c5ee76132b2fc03f68db694aaf0e7f358c0",
+      "authored_production_loc": 168,
+      "authored_memory_unsafe_loc": 168,
+      "branch_points": 21,
+      "manual_raw_pointer_fields": 1
+    },
+    {
+      "side": "baseline",
+      "path": "services/data_decoder/xml_parser.h",
+      "language": "cpp",
+      "sha256": "1a8744bce30b57cc5f1cfd19db0c02ad773be12f57875e8b97bfb1fa8cad4082",
+      "authored_production_loc": 19,
+      "authored_memory_unsafe_loc": 19,
+      "branch_points": 0,
+      "manual_raw_pointer_fields": 0
+    },
+    {
+      "side": "candidate",
+      "path": "services/data_decoder/data_decoder_service.cc",
+      "language": "cpp",
+      "sha256": "473cc19ea20a22498a37557b7128e83c874283647e41218409897575ed073b3f",
+      "authored_production_loc": 72,
+      "authored_memory_unsafe_loc": 72,
+      "branch_points": 2,
+      "manual_raw_pointer_fields": 0
+    },
+    {
+      "side": "candidate",
+      "path": "services/data_decoder/xml/xml_parser_mojo.rs",
+      "language": "rust",
+      "sha256": "d42118c61e1cccff1d1d46b49062e8ee6536f25e72766a9b7362b78de8b62d6f",
+      "authored_production_loc": 172,
+      "authored_memory_unsafe_loc": 1,
+      "branch_points": 18,
+      "manual_raw_pointer_fields": 0
+    }
+  ],
+  "contract_review": {
+    "new_public_api_count": 0,
+    "new_mojom_method_count": 0
+  }
+}

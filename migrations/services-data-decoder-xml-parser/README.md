@@ -10,8 +10,10 @@ Explicit namespace redeclarations required a small Chromium patch to the already
 
 The direct Rust response also exposed a generic Rust Mojo limitation: recursive Mojom types such as `mojo_base.mojom.Value` previously caused infinite recursion while constructing `MojomWireType`. The patch adds lazy recursive wire-type references to `mojom_value_parser`; the real XmlParser suite now exercises nested dictionary/list `Value` responses end-to-end across Rust→C++ Mojo. A standalone recursive `MojomParse` regression has also been added to the Rust parser tests.
 
-The exact current Chromium patch SHA-256 is `a47d90b659de742366946c722e6dc26e9545b219252b143c896c57cc74444731`.
+The exact current Chromium patch SHA-256 is `8ceed0f84793172b147273697bcb0dac93224a6a7b1c47d922a0c2a4f0076ef3`.
 
-A previous parity-green design routed the production Mojo implementation through Chromium's existing Rust XML parser and C++ DOM/CXX builder. Its strict exposure measurement failed badly (memory-unsafe LOC 187→460, production LOC 187→597, files 2→8), and that evidence remains in `evidence/linux-exposure-cxx-dom-adapter.json`. That architecture is superseded; the current exposure definition measures the actual direct-Rust production graph and will be recomputed without weakening the M3 gate.
+A previous parity-green design routed the production Mojo implementation through Chromium's existing Rust XML parser and C++ DOM/CXX builder. Its strict exposure measurement failed badly (memory-unsafe LOC 187→460, production LOC 187→597, files 2→8), and that evidence remains in `evidence/linux-exposure-cxx-dom-adapter.json`.
 
-Broader upstream regression, desktop portability, performance, and the new direct-Rust exposure measurement remain pending before M3 acceptance.
+The direct-Rust design now passes the unchanged strict exposure gate. Against the pinned production baseline, authored memory-unsafe LOC drops 259→73, authored production LOC 259→244, active implementation files 3→2, branch points 23→20, and manual raw-pointer fields 1→0. The production `DataDecoderService` object also compiles with the shared `BindXmlParser` handoff; candidate GN dependencies exclude libxml and C++ XML DOM, while the rollback restores libxml and excludes the Rust receiver.
+
+Broader upstream regression, desktop portability, and performance remain pending before full M3 acceptance.
