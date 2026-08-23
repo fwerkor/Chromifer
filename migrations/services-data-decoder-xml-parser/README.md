@@ -16,4 +16,6 @@ A previous parity-green design routed the production Mojo implementation through
 
 The direct-Rust design now passes the unchanged strict exposure gate. Against the pinned production baseline, authored memory-unsafe LOC drops 259→73, authored production LOC 259→244, active implementation files 3→2, branch points 23→20, and manual raw-pointer fields 1→0. The production `DataDecoderService` object also compiles with the shared `BindXmlParser` handoff; candidate GN dependencies exclude libxml and C++ XML DOM, while the rollback restores libxml and excludes the Rust receiver.
 
-Broader upstream regression, desktop portability, and performance remain pending before full M3 acceptance.
+The first formal release-mode performance run is reproducibly **over budget** while staying within the 1 MiB RSS budget. Across 15 paired samples of 1,000 in-process Mojo calls, candidate median latency regressions are +80.33% (`small_xml`), +78.26% (`attributes_namespaces`), +100.00% (`mixed_text_cdata`), and +220.83% (`large_xml`). The 5% median / 10% p95 thresholds remain unchanged; `run_performance.py` and `evidence/linux-performance.json` record the exact harness, hashes, raw samples, and CPU validity checks.
+
+Broader upstream regression and desktop portability remain pending, and performance optimization is now the active M3 blocker.
