@@ -387,7 +387,7 @@ sha256 = "bd5efa1c66aba182ff74892572da70127eb254ddcb5db436dcc49b22d8b9870d"
 
 [[gates.inputs]]
 path = "chromifer-unsafe.json"
-sha256 = "dbb51b9213ef3a66efeaaeeff7f8e2b2c9ce2a9744164252a5254aafc67e6b8c"
+sha256 = "87424dd69d1b9ff8ffbe1e18c68179f03e4f30f5ae38ed4886ede1d7fa513829"
 
 [[gates.inputs]]
 path = "crates/chromifer-attestation/Cargo.toml"
@@ -427,7 +427,7 @@ sha256 = "b7ba10498c6fdd0b4115bd965d03226ece3b22ce6fc8e9212023437fd3fa01a3"
 
 [[gates.inputs]]
 path = "crates/chromifer-cli/src/main.rs"
-sha256 = "726d4fa1a62f8126720a71ecfffb7e26b728571ecc014a6c1188fbec5f682460"
+sha256 = "98b8118dc67f54197df1cda138e3260ff7d8b4682ecaa5eab9c42e6ca03ccf70"
 
 [[gates.inputs]]
 path = "crates/chromifer-components/Cargo.toml"
@@ -495,11 +495,11 @@ sha256 = "fc8866c5d4582cabf9ab666a61e00ee46842e75f83f65164992191db67c34ca7"
 
 [[gates.inputs]]
 path = "crates/chromifer-migration/src/lib.rs"
-sha256 = "610f2510bec232288f587fa09f260b37717b0e010717ec84e3f19519aa169b4a"
+sha256 = "309d68d9fd79df4f9729345df80e0df01aeb7427140b8d8d3bb7ec37c90298fa"
 
 [[gates.inputs]]
 path = "crates/chromifer-migration/tests/repository.rs"
-sha256 = "844fa0b7d30f68158d9e397aca1c15cad1994a12c11bce62156093bb3d6463d7"
+sha256 = "ea8b378b9eb54996e625986b7b44a025419154ddebb426fd3e8270ef4fec5444"
 
 [[gates.inputs]]
 path = "crates/chromifer-mojo/Cargo.toml"
