@@ -35,29 +35,29 @@ record_gn_args_hashes = true
 
 [results]
 completed_samples = 15
-steady_state_rss_regression_bytes = 770048
+steady_state_rss_regression_bytes = 897024
 baseline_binary_sha256 = "bd1ff4e0596dde418ae045a6ac190a377fca144bdbb5e0ca8c4325729364d8b3"
-candidate_binary_sha256 = "c4aecce4d5ce003c9c50752ad24a6707ab44250c7ec7f4f8e6512fc9588e2fea"
-baseline_gn_args_sha256 = "260a12a91814b0745161f8b621ec7026fe63a9b3f16e22f458114d20b9e582ef"
+candidate_binary_sha256 = "78fc30c02772737f65d33b00845bcf4f7f94a0d8f6ae4fa7ed8d508732b50210"
+baseline_gn_args_sha256 = "2c822e38ad81d6e3c84669448956a991cb45001ba60007552d3534d22b8860c0"
 candidate_gn_args_sha256 = "840be624249ed1515d6f92205dc6a0aa21af7834c5f5277be57f4f41f478e764"
-raw_samples_sha256 = "ff37c44a7b0f7df69204aa195bf083c72530ffc7ac68134704bf32c7d5047aa2"
+raw_samples_sha256 = "e60e5afd53e99699e8f9d1ca7efa762609c927d4032ef76f6047e91e0de6be73"
 
 [[results.cases]]
 id = "small_xml"
-median_regression_percent = 80.327869
-p95_regression_percent = 49.450549
+median_regression_percent = 5.084746
+p95_regression_percent = 87.356322
 
 [[results.cases]]
 id = "attributes_namespaces"
-median_regression_percent = 78.260870
-p95_regression_percent = 57.723577
+median_regression_percent = -7.954545
+p95_regression_percent = -10.569106
 
 [[results.cases]]
 id = "mixed_text_cdata"
-median_regression_percent = 100.000000
-p95_regression_percent = 206.542056
+median_regression_percent = 2.631579
+p95_regression_percent = 3.773585
 
 [[results.cases]]
 id = "large_xml"
-median_regression_percent = 220.831055
-p95_regression_percent = 223.979885
+median_regression_percent = 7.639019
+p95_regression_percent = 9.468467

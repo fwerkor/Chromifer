@@ -40,7 +40,7 @@ status = "passed"
 [implementation.patch]
 path = "chromium.patch"
 base_revision = "04f9a8144d9b1701aa0b329b6000cf3299bbaf22"
-sha256 = "8ceed0f84793172b147273697bcb0dac93224a6a7b1c47d922a0c2a4f0076ef3"
+sha256 = "e88aff571907d6437692b4e36134cd07987726b5c14d0ebd07e56ef2491173ad"
 
 [[verification]]
 id = "rust-xml-focused-contract"

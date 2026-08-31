@@ -18,6 +18,7 @@ CASES = ("small_xml", "attributes_namespaces", "mixed_text_cdata", "large_xml")
 SAMPLES = 15
 MAX_PRE_BUSY = 0.20
 MIN_CHILD_CPU_RATIO = 0.85
+MAX_RUN_ATTEMPTS = 5
 
 
 def sha256(path: Path) -> str:
@@ -26,9 +27,10 @@ def sha256(path: Path) -> str:
 
 def normalized_args_sha256(path: Path) -> str:
     lines = [
-        line.strip()
+        stripped
         for line in path.read_text().splitlines()
-        if not line.strip().startswith("use_rust_data_decoder_xml_parser =")
+        if (stripped := line.strip())
+        and not stripped.startswith("use_rust_data_decoder_xml_parser =")
     ]
     return hashlib.sha256(("\n".join(lines) + "\n").encode()).hexdigest()
 
@@ -102,39 +104,47 @@ def percentile(values: list[int], fraction: float) -> float:
 
 
 def run_one(binary: Path, case: str, cpu: int, siblings: list[int]) -> dict:
-    for _ in range(20):
-        pre_busy = sample_busy(siblings)
-        if max(pre_busy.values()) <= MAX_PRE_BUSY:
-            break
-    else:
-        raise RuntimeError(f"physical core stayed busy before {binary.name}/{case}: {pre_busy}")
+    rejected_attempts = 0
+    last_cpu_ratio = 0.0
+    for run_attempt in range(MAX_RUN_ATTEMPTS):
+        for _ in range(20):
+            pre_busy = sample_busy(siblings)
+            if max(pre_busy.values()) <= MAX_PRE_BUSY:
+                break
+        else:
+            raise RuntimeError(f"physical core stayed busy before {binary.name}/{case}: {pre_busy}")
 
-    before = resource.getrusage(resource.RUSAGE_CHILDREN)
-    start = time.monotonic()
-    completed = subprocess.run(
-        ["taskset", "-c", str(cpu), str(binary), f"--case={case}"],
-        check=True,
-        capture_output=True,
-        text=True,
-    )
-    wall_s = time.monotonic() - start
-    after = resource.getrusage(resource.RUSAGE_CHILDREN)
-    child_cpu_s = (after.ru_utime + after.ru_stime) - (before.ru_utime + before.ru_stime)
-    cpu_ratio = child_cpu_s / wall_s if wall_s else 1.0
-    if cpu_ratio < MIN_CHILD_CPU_RATIO:
-        raise RuntimeError(
-            f"background contention invalidated {binary.name}/{case}: "
-            f"child_cpu_ratio={cpu_ratio:.3f}"
+        before = resource.getrusage(resource.RUSAGE_CHILDREN)
+        start = time.monotonic()
+        completed = subprocess.run(
+            ["taskset", "-c", str(cpu), str(binary), f"--case={case}"],
+            check=True,
+            capture_output=True,
+            text=True,
         )
+        wall_s = time.monotonic() - start
+        after = resource.getrusage(resource.RUSAGE_CHILDREN)
+        child_cpu_s = (after.ru_utime + after.ru_stime) - (before.ru_utime + before.ru_stime)
+        cpu_ratio = child_cpu_s / wall_s if wall_s else 1.0
+        last_cpu_ratio = cpu_ratio
+        if cpu_ratio < MIN_CHILD_CPU_RATIO:
+            rejected_attempts += 1
+            continue
 
-    payload = json.loads(completed.stdout)
-    if payload["messages"] != 1000 or payload["warmup_messages"] != 100:
-        raise RuntimeError(f"unexpected workload counters: {payload}")
-    payload["wall_s"] = wall_s
-    payload["child_cpu_s"] = child_cpu_s
-    payload["child_cpu_ratio"] = cpu_ratio
-    payload["pre_busy"] = {str(k): v for k, v in pre_busy.items()}
-    return payload
+        payload = json.loads(completed.stdout)
+        if payload["messages"] != 1000 or payload["warmup_messages"] != 100:
+            raise RuntimeError(f"unexpected workload counters: {payload}")
+        payload["wall_s"] = wall_s
+        payload["child_cpu_s"] = child_cpu_s
+        payload["child_cpu_ratio"] = cpu_ratio
+        payload["pre_busy"] = {str(k): v for k, v in pre_busy.items()}
+        payload["rejected_attempts"] = rejected_attempts
+        return payload
+
+    raise RuntimeError(
+        f"background contention repeatedly invalidated {binary.name}/{case}: "
+        f"attempts={MAX_RUN_ATTEMPTS}, last_child_cpu_ratio={last_cpu_ratio:.3f}"
+    )
 
 
 def regression_percent(candidate: float, baseline: float) -> float:
@@ -233,6 +243,7 @@ def main() -> int:
         "validity": {
             "max_pre_busy": MAX_PRE_BUSY,
             "min_child_cpu_ratio": MIN_CHILD_CPU_RATIO,
+            "max_run_attempts": MAX_RUN_ATTEMPTS,
             "alternating_sample_order": True,
             "same_machine": True,
             "non_migration_gn_args_sha256": candidate_args_hash,
