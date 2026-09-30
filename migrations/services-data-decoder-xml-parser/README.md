@@ -1,4 +1,4 @@
-# data_decoder XmlParser Rust successor (WIP)
+# data_decoder XmlParser Rust successor (retired pilot)
 
 This directory tracks the current M3 successor for Chromium's production `data_decoder.mojom.XmlParser` at upstream revision `04f9a8144d9b1701aa0b329b6000cf3299bbaf22`.
 
@@ -10,12 +10,12 @@ Explicit namespace redeclarations required a small Chromium patch to the already
 
 The direct Rust response also exposed a generic Rust Mojo limitation: recursive Mojom types such as `mojo_base.mojom.Value` previously caused infinite recursion while constructing `MojomWireType`. The patch adds lazy recursive wire-type references to `mojom_value_parser`; the real XmlParser suite now exercises nested dictionary/list `Value` responses end-to-end across Rust→C++ Mojo. A standalone recursive `MojomParse` regression has also been added to the Rust parser tests.
 
-The exact current Chromium patch SHA-256 is `e88aff571907d6437692b4e36134cd07987726b5c14d0ebd07e56ef2491173ad`.
+The exact final Chromium patch SHA-256 is `4e4bbaa93e3c779bf6faacfd980f790f3b7cb1738e026d03694a083e6f50f7ba`.
 
 A previous parity-green design routed the production Mojo implementation through Chromium's existing Rust XML parser and C++ DOM/CXX builder. Its strict exposure measurement failed badly (memory-unsafe LOC 187→460, production LOC 187→597, files 2→8), and that evidence remains in `evidence/linux-exposure-cxx-dom-adapter.json`.
 
-The direct-Rust design now passes the unchanged strict exposure gate. Against the pinned production baseline, authored memory-unsafe LOC drops 259→73, authored production LOC 259→244, active implementation files 3→2, branch points 23→20, and manual raw-pointer fields 1→0. The production `DataDecoderService` object also compiles with the shared `BindXmlParser` handoff; candidate GN dependencies exclude libxml and C++ XML DOM, while the rollback restores libxml and excludes the Rust receiver.
+The final optimized direct-Rust design still reduces authored memory-unsafe LOC from 259 to 73, active implementation files from 3 to 2, and manual raw-pointer fields from 1 to 0. However, after the serializer and parser optimizations needed for the performance gate, authored production LOC is 309 versus the 259-line baseline and structural branch points are 37 versus 23. Under the original strict maintenance policy this final implementation therefore fails maintenance-complexity acceptance; the gate is not weakened to accommodate the optimization.
 
-The latest formal release-mode performance run remains **over budget**, but the direct-Rust path is now close to the unchanged gate on three of four workloads. Across 15 paired samples of 1,000 in-process Mojo calls, candidate median latency regressions are +5.08% (`small_xml`), -7.95% (`attributes_namespaces`), +2.63% (`mixed_text_cdata`), and +7.64% (`large_xml`). P95 regressions are +87.36%, -10.57%, +3.77%, and +9.47%, respectively; the `small_xml` p95 contains a scheduler-tail excursion, but the gate independently fails on the `small_xml` and `large_xml` medians. The maximum median RSS regression is 897,024 bytes, within the unchanged 1 MiB budget. The optimized candidate uses quick-xml `Reader`, skips unnecessary attribute normalization, and avoids unnecessary XML 1.0 EOL normalization while preserving the focused 46-test contract. `run_performance.py` and `evidence/linux-performance.json` record the exact binaries, GN args, raw samples, CPU policy, contention checks, and rejected-run retry policy.
+The final release-mode performance run passes the unchanged gate across all four workloads. Across 15 paired samples of 1,000 in-process Mojo calls, candidate median regressions are -5.88% (small_xml), -19.61% (attributes_namespaces), -9.09% (mixed_text_cdata), and -4.28% (large_xml); p95 regressions are -4.04%, -9.19%, -5.56%, and -6.52%, respectively. The maximum median RSS regression is 749,568 bytes, within the 1 MiB budget. The measured candidate binary is SHA-256 25f54dc22d8813dfa4cb6b5538ecaba69f4c65204d197953e450458661978749.
 
-Broader upstream regression and desktop portability remain pending, and performance optimization is now the active M3 blocker.
+Broader upstream regression and macOS/Windows parity remain pending. Because the final optimized implementation also fails the original maintenance-complexity gate, this pilot is retired rather than marked M3-complete.

@@ -1,6 +1,6 @@
 schema_version = 1
 id = "services-metrics-ukm-recorder"
-status = "in_progress"
+status = "retired"
 
 [upstream]
 repository = "https://chromium.googlesource.com/chromium/src.git"
@@ -94,3 +94,4 @@ status = "failed"
 [notes]
 verified_platform = "linux"
 feature_parity_scope = "The shared Mojo contract exercises both UkmRecorderInterface methods plus Rust-owned factory creation, ordering, multi-metric forwarding, and multiple child receivers on Linux; a Rust-native test directly verifies component state destruction on receiver disconnect. Full supported-desktop parity is not yet claimed."
+closeout_reason = "UKM recorder is closed as an unsuccessful M3 candidate: upstream Linux regression and memory-safety reduction pass, but the measured Rust boundary substantially exceeds the latency budget and the strict maintenance-complexity gate fails."

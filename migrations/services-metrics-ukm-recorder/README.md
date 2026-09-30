@@ -1,6 +1,8 @@
-# UKM recorder Rust pilot
+# UKM recorder Rust pilot (retired)
 
 This directory tracks Chromifer's first M3 production-component pilot against Chromium revision `008cdad85f0721c89b42ef4dcaabcee615482609`.
+
+This pilot is retired. The Linux contract, rollback, upstream UKM regression suite, and memory-safety reduction remain valid evidence, but the measured Rust boundary failed the latency budget and the original maintenance-complexity gate. Retirement closes the experiment without claiming a production Rust ownership transition.
 
 ## Scope
 

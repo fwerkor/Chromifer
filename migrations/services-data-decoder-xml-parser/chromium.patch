@@ -1,5 +1,5 @@
 diff --git a/mojo/public/mojom/base/BUILD.gn b/mojo/public/mojom/base/BUILD.gn
-index 725f22b966c20f2a2cf4e17f00715e6478d4ba9d..0bb2f2c8e722d03368107d3adc204d97fca5eb11 100644
+index 725f22b966..0bb2f2c8e7 100644
 --- a/mojo/public/mojom/base/BUILD.gn
 +++ b/mojo/public/mojom/base/BUILD.gn
 @@ -7,6 +7,7 @@ import("//third_party/protobuf/proto_library.gni")
@@ -10,8 +10,188 @@ index 725f22b966c20f2a2cf4e17f00715e6478d4ba9d..0bb2f2c8e722d03368107d3adc204d97
    sources = [
      "absl_status.mojom",
      "application_state.mojom",
+diff --git a/mojo/public/rust/bindings/message.rs b/mojo/public/rust/bindings/message.rs
+index 1b9bb179a5..cebac474c4 100644
+--- a/mojo/public/rust/bindings/message.rs
++++ b/mojo/public/rust/bindings/message.rs
+@@ -73,9 +73,18 @@ impl MojomMessage {
+     /// Serialize this message into its binary equivalent, and return the
+     /// attached handles
+     pub fn into_data(self) -> (Vec<u8>, Vec<UntypedHandle>) {
+-        let mut serialized = self.header.serialize();
+-        serialized.extend(self.payload);
+-        (serialized, self.handles)
++        let Self { header, mut payload, handles, .. } = self;
++        let serialized_header = header.serialize();
++        let header_len = serialized_header.len();
++        let payload_len = payload.len();
++
++        // Reuse the already-allocated Mojom payload buffer instead of allocating
++        // another payload-sized Vec solely to prepend the small message header.
++        payload.reserve(header_len);
++        payload.resize(payload_len + header_len, 0);
++        payload.copy_within(0..payload_len, header_len);
++        payload[..header_len].copy_from_slice(&serialized_header);
++        (payload, handles)
+     }
+ }
+ 
+diff --git a/mojo/public/rust/bindings/multiplex_router/endpoint_registry.rs b/mojo/public/rust/bindings/multiplex_router/endpoint_registry.rs
+index 2f6c8754eb..47f26a0d8c 100644
+--- a/mojo/public/rust/bindings/multiplex_router/endpoint_registry.rs
++++ b/mojo/public/rust/bindings/multiplex_router/endpoint_registry.rs
+@@ -69,6 +69,9 @@ pub(crate) type DisconnectHandler = Box<dyn FnOnce() + Send + 'static>;
+ pub(crate) struct EndpointInfo {
+     /// The function to run when a new message arrives at this endpoint.
+     pub(crate) incoming_message_handler: MessageHandler,
++    /// If true, messages may be dispatched immediately when they arrive on
++    /// this endpoint's sequence instead of posting a redundant task.
++    pub(crate) dispatch_inline_if_current: bool,
+     /// The task runner on which to schedule the message and disconnect
+     /// handlers.
+     pub(crate) runner: SequencedTaskRunnerHandle,
+diff --git a/mojo/public/rust/bindings/multiplex_router/router.rs b/mojo/public/rust/bindings/multiplex_router/router.rs
+index 218bca9faa..9646c84c7a 100644
+--- a/mojo/public/rust/bindings/multiplex_router/router.rs
++++ b/mojo/public/rust/bindings/multiplex_router/router.rs
+@@ -343,6 +343,40 @@ impl MultiplexRouter {
+     /// order, we can't just process all messages that have a runner; we need to
+     /// stop whenever we hit one that we can't handle yet.
+     fn schedule_all_possible_tasks(&self) {
++        // MessagePipeWatcher already invokes us on its configured sequence. If
++        // the destination endpoint is bound to that same sequence, avoid an
++        // otherwise redundant PostTask hop. The shared-state lock must be
++        // released before invoking the handler because sending a response may
++        // re-enter this router.
++        loop {
++            let inline_message = {
++                let mut shared_state = self.shared_state.lock().unwrap();
++                let Some(Task::Message(front_message)) = shared_state.unscheduled_tasks.front()
++                else {
++                    break;
++                };
++                let interface_id = front_message.header.interface_id;
++                let Some(Some(endpoint_info)) =
++                    shared_state.registry.endpoint_map.get(&interface_id)
++                else {
++                    break;
++                };
++                if !endpoint_info.dispatch_inline_if_current
++                    || !endpoint_info.runner.runs_tasks_in_current_sequence()
++                {
++                    break;
++                }
++                let handler = endpoint_info.incoming_message_handler.clone();
++                let task = shared_state.unscheduled_tasks.pop_front().unwrap();
++                let Task::Message(message) = task else {
++                    unreachable!();
++                };
++                let response_sender = super::ResponseSender { interface_id, router: self.clone() };
++                (handler, message, response_sender)
++            };
++            (inline_message.0)(inline_message.1, inline_message.2);
++        }
++
+         let mut shared_state_guard = self.shared_state.lock().unwrap();
+         let shared_state = &mut *shared_state_guard;
+         let registry = &mut shared_state.registry;
+diff --git a/mojo/public/rust/bindings/receiver.rs b/mojo/public/rust/bindings/receiver.rs
+index 81f7e1daf8..ee4e4beb3b 100644
+--- a/mojo/public/rust/bindings/receiver.rs
++++ b/mojo/public/rust/bindings/receiver.rs
+@@ -141,6 +141,19 @@ where
+         runner: Option<SequencedTaskRunnerHandle>,
+         disconnect_handler: Option<Box<dyn FnOnce() + Send + 'static>>,
+     ) -> Receiver<StateTy>
++    where
++        StateTy: MojomInterface<DynTy = T> + Send + 'static,
++    {
++        self.bind_with_options_internal(state, runner, disconnect_handler, false)
++    }
++
++    fn bind_with_options_internal<StateTy>(
++        self,
++        state: StateTy,
++        runner: Option<SequencedTaskRunnerHandle>,
++        disconnect_handler: Option<Box<dyn FnOnce() + Send + 'static>>,
++        dispatch_inline_if_current: bool,
++    ) -> Receiver<StateTy>
+     where
+         StateTy: MojomInterface<DynTy = T> + Send + 'static,
+     {
+@@ -152,7 +165,7 @@ where
+             let sets_high_bit = false; // Receivers set the high bit to 0
+             Box::new(MultiplexRouterHandle::new(self.endpoint, sets_high_bit, endpoint_info))
+         };
+-        Receiver::new(make_handle, state, runner, disconnect_handler)
++        Receiver::new(make_handle, state, runner, disconnect_handler, dispatch_inline_if_current)
+     }
+ 
+     /// Create a new Receiver which owns itself; it will continue to live until
+@@ -165,6 +178,24 @@ where
+             self.bind_with_options(state, None, disconnect_handler)
+         })
+     }
++
++    /// Bind a self-owned receiver which may dispatch a message inline when the
++    /// message-pipe watcher is already running on the receiver's sequence.
++    ///
++    /// This is an internal performance opt-in. Normal receivers retain the
++    /// asynchronous task boundary provided by the standard self-owned binding.
++    #[doc(hidden)]
++    pub fn bind_self_owned_inline_if_current<StateTy>(
++        self,
++        state: StateTy,
++    ) -> SelfOwnedReceiverWeak<StateTy>
++    where
++        StateTy: MojomInterface<DynTy = T> + Sized + Send + 'static,
++    {
++        Receiver::bind_self_owned_internal(move |disconnect_handler| {
++            self.bind_with_options_internal(state, None, disconnect_handler, true)
++        })
++    }
+ }
+ 
+ impl<T> PendingAssociatedReceiver<T>
+@@ -196,7 +227,7 @@ where
+                 .expect("Must be called in a context with a default SequencedTaskRunner")
+         });
+         let make_handle = |endpoint_info| self.register_bound(endpoint_info);
+-        AssociatedReceiver::new(make_handle, state, runner, disconnect_handler)
++        AssociatedReceiver::new(make_handle, state, runner, disconnect_handler, false)
+     }
+ 
+     /// Create a new AssociatedReceiver which owns itself; it will continue to
+@@ -270,6 +301,7 @@ where
+         state: StateTy,
+         runner: SequencedTaskRunnerHandle,
+         disconnect_handler: Option<Box<dyn FnOnce() + Send + 'static>>,
++        dispatch_inline_if_current: bool,
+     ) -> Self {
+         let state = Arc::new(Mutex::new(state));
+         let state_weak = Arc::downgrade(&state);
+@@ -280,6 +312,7 @@ where
+ 
+         let router = make_handle(EndpointInfo {
+             incoming_message_handler: Arc::new(message_handler),
++            dispatch_inline_if_current,
+             disconnect_handler,
+             runner,
+         });
+diff --git a/mojo/public/rust/bindings/remote.rs b/mojo/public/rust/bindings/remote.rs
+index 0d17e84a01..ed5db646e1 100644
+--- a/mojo/public/rust/bindings/remote.rs
++++ b/mojo/public/rust/bindings/remote.rs
+@@ -212,6 +212,7 @@ where
+         };
+         let router = make_handle(crate::multiplex_router::EndpointInfo {
+             incoming_message_handler: Arc::new(message_handler),
++            dispatch_inline_if_current: false,
+             disconnect_handler,
+             runner,
+         });
 diff --git a/mojo/public/rust/mojom_value_parser/BUILD.gn b/mojo/public/rust/mojom_value_parser/BUILD.gn
-index 441e36040e3921742e83c858fac134487959729a..3d0a2531337b3a99f621f8d17a2f90ac970a1868 100644
+index 441e36040e..3d0a253133 100644
 --- a/mojo/public/rust/mojom_value_parser/BUILD.gn
 +++ b/mojo/public/rust/mojom_value_parser/BUILD.gn
 @@ -22,6 +22,7 @@ rust_static_library("mojom_value_parser_core") {
@@ -31,7 +211,7 @@ index 441e36040e3921742e83c858fac134487959729a..3d0a2531337b3a99f621f8d17a2f90ac
  
    visibility = [ "../*" ]
 diff --git a/mojo/public/rust/mojom_value_parser/api.rs b/mojo/public/rust/mojom_value_parser/api.rs
-index 4378cdbe4991d5508ce9de9cdb93c5b0c33e1954..065c862374b0de74ac93d66a2ce9990c36e4be9e 100644
+index 4378cdbe49..065c862374 100644
 --- a/mojo/public/rust/mojom_value_parser/api.rs
 +++ b/mojo/public/rust/mojom_value_parser/api.rs
 @@ -7,6 +7,7 @@
@@ -56,7 +236,7 @@ index 4378cdbe4991d5508ce9de9cdb93c5b0c33e1954..065c862374b0de74ac93d66a2ce9990c
      crate::deparse_values::deparse_top_level_value(mojom_value, T::wire_type())
          // The Err return value is mostly useful for internal debugging
 diff --git a/mojo/public/rust/mojom_value_parser/ast.rs b/mojo/public/rust/mojom_value_parser/ast.rs
-index 6886dc455c362a8a3cc5ed20a5f30b0165443d2f..b32283bd3e55c789a173ef0a0854c42ca8151424 100644
+index 6886dc455c..ac4e73e55c 100644
 --- a/mojo/public/rust/mojom_value_parser/ast.rs
 +++ b/mojo/public/rust/mojom_value_parser/ast.rs
 @@ -14,7 +14,7 @@ chromium::import! {
@@ -111,10 +291,58 @@ index 6886dc455c362a8a3cc5ed20a5f30b0165443d2f..b32283bd3e55c789a173ef0a0854c42c
  }
  
  /// This is the contents of an associated remote/receiver on the wire.
-@@ -156,6 +176,40 @@ pub enum MojomWireType {
+@@ -121,6 +141,45 @@ pub type Ordinal = usize;
+ /// bit for a nullable primitive. This is only used during deparsing.
+ pub type BitfieldOrdinals = [Option<(Ordinal, bool)>; 8];
+ 
++/// Packed union variants optimized for the common generated layout where
++/// discriminants are dense and zero-based. Sparse/custom discriminants retain
++/// deterministic ordering and use binary search.
++#[derive(Debug, Clone, PartialEq)]
++pub struct PackedUnionVariants {
++    entries: Vec<(i32, MojomWireType)>,
++    dense_zero_based: bool,
++}
++
++impl PackedUnionVariants {
++    pub fn get(&self, tag: &i32) -> Option<&MojomWireType> {
++        if self.dense_zero_based && *tag >= 0 {
++            return self.entries.get(*tag as usize).map(|(_, value)| value);
++        }
++        self.entries
++            .binary_search_by_key(tag, |(entry_tag, _)| *entry_tag)
++            .ok()
++            .map(|index| &self.entries[index].1)
++    }
++}
++
++impl FromIterator<(i32, MojomWireType)> for PackedUnionVariants {
++    fn from_iter<T: IntoIterator<Item = (i32, MojomWireType)>>(iter: T) -> Self {
++        let mut entries: Vec<_> = iter.into_iter().collect();
++        entries.sort_unstable_by_key(|(tag, _)| *tag);
++        let dense_zero_based = entries
++            .iter()
++            .enumerate()
++            .all(|(index, (tag, _))| *tag == index as i32);
++        Self { entries, dense_zero_based }
++    }
++}
++
++impl<const N: usize> From<[(i32, MojomWireType); N]> for PackedUnionVariants {
++    fn from(entries: [(i32, MojomWireType); N]) -> Self {
++        entries.into_iter().collect()
++    }
++}
++
+ #[derive(Debug, Clone, PartialEq)]
+ /// Representation of a Mojom type that has been packed into the wire format. It
+ /// contains enough information to both parse and deparse the associated type.
+@@ -155,7 +214,41 @@ pub enum MojomWireType {
+     Pointer { nested_data_type: PackedStructuredType, is_nullable: bool },
      /// A 128-bit value (not a pointer!) which contains a tag and a 64-bit value
      /// (which may be a pointer).
-     Union { variants: BTreeMap<i32, MojomWireType>, is_nullable: bool },
+-    Union { variants: BTreeMap<i32, MojomWireType>, is_nullable: bool },
++    Union { variants: PackedUnionVariants, is_nullable: bool },
 +    /// A lazy reference to the cached wire type for a recursive Rust type.
 +    Recursive { resolver: WireTypeResolver },
 +}
@@ -152,18 +380,18 @@ index 6886dc455c362a8a3cc5ed20a5f30b0165443d2f..b32283bd3e55c789a173ef0a0854c42c
  }
  
  /// This type represents an element in the body of a struct, array, or union.
-@@ -229,9 +283,7 @@ pub enum PackedStructuredType {
+@@ -229,9 +322,7 @@ pub enum PackedStructuredType {
          element_type: Arc<MojomWireType>,
          array_type: PackedArrayType,
      },
 -    Union {
 -        variants: BTreeMap<i32, MojomWireType>,
 -    },
-+    Union { variants: BTreeMap<i32, MojomWireType> },
++    Union { variants: PackedUnionVariants },
      Map {
          key_type: Arc<MojomWireType>,
          value_type: Arc<MojomWireType>,
-@@ -252,10 +304,18 @@ pub enum PackedArrayType {
+@@ -252,10 +343,18 @@ pub enum PackedArrayType {
  /*************************************************************** */
  
  impl MojomWireType {
@@ -183,7 +411,7 @@ index 6886dc455c362a8a3cc5ed20a5f30b0165443d2f..b32283bd3e55c789a173ef0a0854c42c
              MojomWireType::Leaf { leaf_type, .. } => match leaf_type {
                  PackedLeafType::Int8 | PackedLeafType::UInt8 | PackedLeafType::Bool => 1,
                  PackedLeafType::Int16 | PackedLeafType::UInt16 => 2,
-@@ -270,6 +330,7 @@ impl MojomWireType {
+@@ -270,6 +369,7 @@ impl MojomWireType {
              MojomWireType::Pointer { .. } => 8,
  
              MojomWireType::Union { .. } => 16,
@@ -191,7 +419,7 @@ index 6886dc455c362a8a3cc5ed20a5f30b0165443d2f..b32283bd3e55c789a173ef0a0854c42c
          }
      }
  
-@@ -278,7 +339,7 @@ impl MojomWireType {
+@@ -278,7 +378,7 @@ impl MojomWireType {
      /// is 8 bytes. PendingRemote is an exception to this, the alignment is
      // 4 bytes.
      pub fn alignment(&self) -> usize {
@@ -200,7 +428,7 @@ index 6886dc455c362a8a3cc5ed20a5f30b0165443d2f..b32283bd3e55c789a173ef0a0854c42c
              MojomWireType::Union { .. } => 8,
              MojomWireType::Leaf { leaf_type: PackedLeafType::PendingRemote, .. }
              | MojomWireType::Leaf { leaf_type: PackedLeafType::PendingAssociatedRemote, .. } => 4,
-@@ -287,15 +348,16 @@ impl MojomWireType {
+@@ -287,15 +387,16 @@ impl MojomWireType {
      }
  
      pub fn is_nullable(&self) -> bool {
@@ -219,7 +447,7 @@ index 6886dc455c362a8a3cc5ed20a5f30b0165443d2f..b32283bd3e55c789a173ef0a0854c42c
              // Handles have their own nullability semantics
              MojomWireType::Leaf { leaf_type: PackedLeafType::Handle, .. }
              | MojomWireType::Leaf { leaf_type: PackedLeafType::PendingReceiver, .. }
-@@ -322,6 +384,7 @@ impl MojomWireType {
+@@ -322,6 +423,7 @@ impl MojomWireType {
              MojomWireType::Union { variants, .. } => {
                  MojomWireType::Union { variants, is_nullable: true }
              }
@@ -227,7 +455,7 @@ index 6886dc455c362a8a3cc5ed20a5f30b0165443d2f..b32283bd3e55c789a173ef0a0854c42c
          }
      }
  
-@@ -329,7 +392,7 @@ impl MojomWireType {
+@@ -329,7 +431,7 @@ impl MojomWireType {
      /// Valid keys are non-nullable primitives and strings.
      pub fn is_valid_map_key(&self) -> bool {
          matches!(
@@ -237,7 +465,7 @@ index 6886dc455c362a8a3cc5ed20a5f30b0165443d2f..b32283bd3e55c789a173ef0a0854c42c
                  | MojomWireType::Pointer {
                      nested_data_type: PackedStructuredType::Array {
 diff --git a/mojo/public/rust/mojom_value_parser/deparse_values.rs b/mojo/public/rust/mojom_value_parser/deparse_values.rs
-index 8dd1e0e3c02c08f0dc604255b1de0da0d0926995..c4cbf58b71d6539c8cba2725a58ba3530d65476a 100644
+index 8dd1e0e3c0..f9aa281e99 100644
 --- a/mojo/public/rust/mojom_value_parser/deparse_values.rs
 +++ b/mojo/public/rust/mojom_value_parser/deparse_values.rs
 @@ -16,6 +16,7 @@
@@ -268,6 +496,15 @@ index 8dd1e0e3c02c08f0dc604255b1de0da0d0926995..c4cbf58b71d6539c8cba2725a58ba353
      }
  }
  
+@@ -249,7 +252,7 @@ enum NestedData<'a> {
+     Union {
+         tag: i32,
+         value: MojomValue,
+-        variants: &'a BTreeMap<i32, MojomWireType>,
++        variants: &'a PackedUnionVariants,
+     },
+     Map {
+         values_map: BTreeMap<MojomValue, MojomValue>,
 @@ -266,6 +269,8 @@ struct NestedDataInfo<'a> {
      ptr_loc: usize,
  }
@@ -277,7 +514,7 @@ index 8dd1e0e3c02c08f0dc604255b1de0da0d0926995..c4cbf58b71d6539c8cba2725a58ba353
  /// Overwrite data[start..start+len] with the contents of `value`.
  /// Panics if the range doesn't exist or the `value` is too short, probably.
  fn write_to_slice(data: &mut [u8], start: usize, len: usize, value: &[u8]) {
-@@ -336,7 +341,7 @@ fn deparse_array(
+@@ -336,10 +341,10 @@ fn deparse_array(
  /// of the `enclosing_nested_data_list` argument
  fn deparse_union<'a>(
      data: &mut DeparsedData,
@@ -285,7 +522,11 @@ index 8dd1e0e3c02c08f0dc604255b1de0da0d0926995..c4cbf58b71d6539c8cba2725a58ba353
 +    enclosing_nested_data_list: Option<&mut NestedDataList<'a>>,
      tag: i32,
      contained_value: MojomValue,
-     variants: &'a BTreeMap<i32, MojomWireType>,
+-    variants: &'a BTreeMap<i32, MojomWireType>,
++    variants: &'a PackedUnionVariants,
+ ) -> Result<()> {
+     // Write the union's header
+     let expected_wire_type = variants
 @@ -399,7 +404,7 @@ fn deparse_string(data: &mut DeparsedData, value: String) -> Result<()> {
  /// For arrays, the padding is not included in the header; for structs, it is.
  fn deparse_structured_body<'a, 'b, IterT, BitfieldT>(
@@ -335,7 +576,7 @@ index 8dd1e0e3c02c08f0dc604255b1de0da0d0926995..c4cbf58b71d6539c8cba2725a58ba353
              }
          }
 diff --git a/mojo/public/rust/mojom_value_parser/lib_core.rs b/mojo/public/rust/mojom_value_parser/lib_core.rs
-index 7be52a8b689abde22e17434bd9c59e73b99c1a6b..49b2e31021adc079589e66c497b9106512acb22f 100644
+index 7be52a8b68..49b2e31021 100644
 --- a/mojo/public/rust/mojom_value_parser/lib_core.rs
 +++ b/mojo/public/rust/mojom_value_parser/lib_core.rs
 @@ -14,6 +14,7 @@
@@ -355,9 +596,18 @@ index 7be52a8b689abde22e17434bd9c59e73b99c1a6b..49b2e31021adc079589e66c497b91065
  pub use crate::message_header::*;
  pub use crate::pack::*;
 diff --git a/mojo/public/rust/mojom_value_parser/pack.rs b/mojo/public/rust/mojom_value_parser/pack.rs
-index 76d4931e927f76c0a2184f13ffc125ff23e5fad2..9a52d87883db7d6c172e0a9153f5a9789e2676b6 100644
+index 76d4931e92..77f4c3415d 100644
 --- a/mojo/public/rust/mojom_value_parser/pack.rs
 +++ b/mojo/public/rust/mojom_value_parser/pack.rs
+@@ -181,7 +181,7 @@ fn pack_struct(fields: &[MojomType], field_names: &[String]) -> PackedStructured
+     }
+ }
+ 
+-fn pack_union_variants(variants: &BTreeMap<i32, MojomType>) -> BTreeMap<i32, MojomWireType> {
++fn pack_union_variants(variants: &BTreeMap<i32, MojomType>) -> PackedUnionVariants {
+     variants
+         .iter()
+         .map(|(tag, ty)| {
 @@ -291,6 +291,10 @@ pub fn pack_mojom_type(ty: &MojomType) -> MojomWireType {
          MojomType::Union { variants } => {
              MojomWireType::Union { variants: pack_union_variants(variants), is_nullable }
@@ -378,10 +628,27 @@ index 76d4931e927f76c0a2184f13ffc125ff23e5fad2..9a52d87883db7d6c172e0a9153f5a978
      // bit. Those tag bits appear at the beginning of the array body, in order,
      // before any of the array elements.
 diff --git a/mojo/public/rust/mojom_value_parser/parse_values.rs b/mojo/public/rust/mojom_value_parser/parse_values.rs
-index 325143c43d3fdbce2ce008443211a6d0e2985d77..bce6198729c11d3cc6e880328db526052a5417e7 100644
+index 325143c43d..8a858a8b13 100644
 --- a/mojo/public/rust/mojom_value_parser/parse_values.rs
 +++ b/mojo/public/rust/mojom_value_parser/parse_values.rs
-@@ -578,6 +578,7 @@ where
+@@ -21,7 +21,6 @@
+ use crate::ast::*;
+ use crate::errors::*;
+ use crate::parse_primitives::*;
+-use std::collections::BTreeMap;
+ use std::sync::{Arc, LazyLock};
+ 
+ use itertools::Itertools;
+@@ -364,7 +363,7 @@ fn parse_array(
+ fn parse_union<'a>(
+     data: &mut ParserData,
+     mut enclosing_nested_data_list: Option<&mut Vec<NestedDataInfo<'a>>>,
+-    variants: &'a BTreeMap<i32, MojomWireType>,
++    variants: &'a PackedUnionVariants,
+     is_nullable: bool,
+ ) -> ParsingResult<(i32, Option<MojomValue>)> {
+     // Parse the union header
+@@ -578,6 +577,7 @@ where
                  }
              }
              StructuredBodyElement::SingleValue(ordinal, mojom_wire_type) => {
@@ -389,7 +656,7 @@ index 325143c43d3fdbce2ce008443211a6d0e2985d77..bce6198729c11d3cc6e880328db52605
                  match mojom_wire_type {
                      // Nested structured data, record for later unless it was null.
                      MojomWireType::Pointer { nested_data_type, is_nullable } => {
-@@ -647,6 +648,7 @@ where
+@@ -647,6 +647,7 @@ where
                              }
                          }
                      }
@@ -398,7 +665,7 @@ index 325143c43d3fdbce2ce008443211a6d0e2985d77..bce6198729c11d3cc6e880328db52605
              }
          }
 diff --git a/mojo/public/rust/mojom_value_parser/parsing_attribute.rs b/mojo/public/rust/mojom_value_parser/parsing_attribute.rs
-index b64b55ed6b5e7ed7d161ce5e9ab23fc854a9c6f0..ab17d10a270d1a7be8ff5ec94d2270e38f0e996f 100644
+index b64b55ed6b..ab17d10a27 100644
 --- a/mojo/public/rust/mojom_value_parser/parsing_attribute.rs
 +++ b/mojo/public/rust/mojom_value_parser/parsing_attribute.rs
 @@ -117,9 +117,9 @@ fn derive_mojomparse_struct(
@@ -578,7 +845,7 @@ index b64b55ed6b5e7ed7d161ce5e9ab23fc854a9c6f0..ab17d10a270d1a7be8ff5ec94d2270e3
                      let MojomValue::Union(discriminant, boxed_value) = #value_ident else {
                          ::anyhow::bail!(
 diff --git a/mojo/public/rust/mojom_value_parser/parsing_trait.rs b/mojo/public/rust/mojom_value_parser/parsing_trait.rs
-index 594614051bd31eb72825a2c181d2e1e940dbfdcf..4a269367cae7ba3cfbb442674c0e514c660581cd 100644
+index 594614051b..4a269367ca 100644
 --- a/mojo/public/rust/mojom_value_parser/parsing_trait.rs
 +++ b/mojo/public/rust/mojom_value_parser/parsing_trait.rs
 @@ -20,14 +20,50 @@ chromium::import! {
@@ -972,7 +1239,7 @@ index 594614051bd31eb72825a2c181d2e1e940dbfdcf..4a269367cae7ba3cfbb442674c0e514c
 +    }
  }
 diff --git a/mojo/public/rust/mojom_value_parser/test/test_parser.rs b/mojo/public/rust/mojom_value_parser/test/test_parser.rs
-index 230386c159c1195caf322036766fc5c9e073d495..42b06ac10e12874cbc6e91c55d5b4d5112041b05 100644
+index 230386c159..42b06ac10e 100644
 --- a/mojo/public/rust/mojom_value_parser/test/test_parser.rs
 +++ b/mojo/public/rust/mojom_value_parser/test/test_parser.rs
 @@ -22,6 +22,7 @@
@@ -1107,7 +1374,7 @@ index 230386c159c1195caf322036766fc5c9e073d495..42b06ac10e12874cbc6e91c55d5b4d51
  // which is a string in the mojom validation text format, as defined in
  // //mojo/public/cpp/bindings/tests/validation_test_input_parser.h
 diff --git a/services/data_decoder/BUILD.gn b/services/data_decoder/BUILD.gn
-index 9ec647da02e230db298f370614bed6c463deb50e..3ce1efe8cdd7d88a7a9b19f64f94b7ce8f971d46 100644
+index 9ec647da02..3ce1efe8cd 100644
 --- a/services/data_decoder/BUILD.gn
 +++ b/services/data_decoder/BUILD.gn
 @@ -2,8 +2,62 @@
@@ -1252,7 +1519,7 @@ index 9ec647da02e230db298f370614bed6c463deb50e..3ce1efe8cdd7d88a7a9b19f64f94b7ce
      "//third_party/libxml:xml_reader",
    ]
 diff --git a/services/data_decoder/data_decoder_service.cc b/services/data_decoder/data_decoder_service.cc
-index 920b62490ca91f959aa6ee6414f9b890d19d3d38..1aa5a3e86d961c66c3db713fa0109a57ac3a57fb 100644
+index 920b62490c..1aa5a3e86d 100644
 --- a/services/data_decoder/data_decoder_service.cc
 +++ b/services/data_decoder/data_decoder_service.cc
 @@ -4,6 +4,7 @@
@@ -1291,7 +1558,7 @@ index 920b62490ca91f959aa6ee6414f9b890d19d3d38..1aa5a3e86d961c66c3db713fa0109a57
  
  void DataDecoderService::BindWebBundleParserFactory(
 diff --git a/services/data_decoder/public/cpp/BUILD.gn b/services/data_decoder/public/cpp/BUILD.gn
-index 94835c02769eec15155907e3f82c756c4d87d586..0344d1327abc6ae92d3692b9b5cc8e645b76795e 100644
+index 94835c0276..0344d1327a 100644
 --- a/services/data_decoder/public/cpp/BUILD.gn
 +++ b/services/data_decoder/public/cpp/BUILD.gn
 @@ -97,7 +97,10 @@ source_set("xml_dom_core") {
@@ -1307,7 +1574,7 @@ index 94835c02769eec15155907e3f82c756c4d87d586..0344d1327abc6ae92d3692b9b5cc8e64
    public_deps = [ ":xml_dom_core" ]
    sources = [ "xml_dom_parser.cc" ]
 diff --git a/services/data_decoder/public/mojom/BUILD.gn b/services/data_decoder/public/mojom/BUILD.gn
-index 9df1a8d61012a8c77b86c8295ce80a420116ab86..f5b1ca0528d02133bceb65335ac027f615e52978 100644
+index 9df1a8d610..f5b1ca0528 100644
 --- a/services/data_decoder/public/mojom/BUILD.gn
 +++ b/services/data_decoder/public/mojom/BUILD.gn
 @@ -28,6 +28,7 @@ mojom("mojom") {
@@ -1319,7 +1586,7 @@ index 9df1a8d61012a8c77b86c8295ce80a420116ab86..f5b1ca0528d02133bceb65335ac027f6
    public_deps = [ "//mojo/public/mojom/base" ]
  }
 diff --git a/services/data_decoder/xml/parser.rs b/services/data_decoder/xml/parser.rs
-index d848048fc6795240496f035ae097ab27122426a8..ec1dacf2fe0e7a7b17de39c2e64f0d0c6c4fa55b 100644
+index d848048fc6..ec1dacf2fe 100644
 --- a/services/data_decoder/xml/parser.rs
 +++ b/services/data_decoder/xml/parser.rs
 @@ -17,8 +17,8 @@ const MAX_DEPTH: usize = 200;
@@ -1436,7 +1703,7 @@ index d848048fc6795240496f035ae097ab27122426a8..ec1dacf2fe0e7a7b17de39c2e64f0d0c
              Err(e) => {
                  write!(&mut err, "{}", e).unwrap();
 diff --git a/services/data_decoder/xml/xml_parser_rs_unittest.cc b/services/data_decoder/xml/xml_parser_rs_unittest.cc
-index a5d7da19a2815df73295407ddcb6d6fc81459371..a5ea41288d0bf38a16cd67e3b46a3b975dbc7f59 100644
+index a5d7da19a2..a5ea41288d 100644
 --- a/services/data_decoder/xml/xml_parser_rs_unittest.cc
 +++ b/services/data_decoder/xml/xml_parser_rs_unittest.cc
 @@ -2,18 +2,20 @@
@@ -1568,7 +1835,7 @@ index a5d7da19a2815df73295407ddcb6d6fc81459371..a5ea41288d0bf38a16cd67e3b46a3b97
  
  TEST_F(XmlParserRsTest, UndeclareDefaultNamespaceTest) {
 diff --git a/services/data_decoder/xml_parser.cc b/services/data_decoder/xml_parser.cc
-index 6aa37858e63bb12e484094bb33fbb78fc37a4e7e..afd8d4f0883328be4c521759de58a636fb35ce3c 100644
+index 6aa37858e6..afd8d4f088 100644
 --- a/services/data_decoder/xml_parser.cc
 +++ b/services/data_decoder/xml_parser.cc
 @@ -4,6 +4,7 @@
@@ -1636,7 +1903,7 @@ index 6aa37858e63bb12e484094bb33fbb78fc37a4e7e..afd8d4f0883328be4c521759de58a636
  
    if (!element_stack.empty()) {
 diff --git a/services/data_decoder/xml_parser_unittest.cc b/services/data_decoder/xml_parser_unittest.cc
-index d42a295c4bd7847ec1220c8e0bcb73f9e60093c3..6bda7d83d4150f4c368d3729e810ae46718c236d 100644
+index d42a295c4b..6bda7d83d4 100644
 --- a/services/data_decoder/xml_parser_unittest.cc
 +++ b/services/data_decoder/xml_parser_unittest.cc
 @@ -2,12 +2,16 @@
@@ -1738,7 +2005,7 @@ index d42a295c4bd7847ec1220c8e0bcb73f9e60093c3..6bda7d83d4150f4c368d3729e810ae46
  
  }  // namespace
 diff --git a/third_party/libxml/BUILD.gn b/third_party/libxml/BUILD.gn
-index 890afc0e83a926d1c9c08c34da54556699110691..10df36598d6b4142bbd5fbecadfdb3eaac33f6ec 100644
+index 890afc0e83..10df36598d 100644
 --- a/third_party/libxml/BUILD.gn
 +++ b/third_party/libxml/BUILD.gn
 @@ -126,6 +126,7 @@ static_library("libxml_utils") {
@@ -1750,7 +2017,7 @@ index 890afc0e83a926d1c9c08c34da54556699110691..10df36598d6b4142bbd5fbecadfdb3ea
    sources = [
      "chromium/libxml_utils.cc",
 diff --git a/third_party/rust/chromium_crates_io/Cargo.lock b/third_party/rust/chromium_crates_io/Cargo.lock
-index 18cd7bd7552c659c282d8a9f9f4af6ee6e7564a2..9151eb59bf452605a23863bd91ea599b642307ac 100644
+index 18cd7bd755..9151eb59bf 100644
 --- a/third_party/rust/chromium_crates_io/Cargo.lock
 +++ b/third_party/rust/chromium_crates_io/Cargo.lock
 @@ -272,6 +272,7 @@ dependencies = [
@@ -1777,7 +2044,7 @@ index 18cd7bd7552c659c282d8a9f9f4af6ee6e7564a2..9151eb59bf452605a23863bd91ea599b
  name = "quote"
  version = "1.0.47"
 diff --git a/third_party/rust/chromium_crates_io/Cargo.toml b/third_party/rust/chromium_crates_io/Cargo.toml
-index 2be8b9c75cdb7e5b306e07aafe465b43659e95dd..c4fc41cc9bf25c7c7d0a49a7cf547fcf91153240 100644
+index 2be8b9c75c..c4fc41cc9b 100644
 --- a/third_party/rust/chromium_crates_io/Cargo.toml
 +++ b/third_party/rust/chromium_crates_io/Cargo.toml
 @@ -41,6 +41,7 @@ png = "0.18.1"
@@ -1789,7 +2056,7 @@ index 2be8b9c75cdb7e5b306e07aafe465b43659e95dd..c4fc41cc9bf25c7c7d0a49a7cf547fcf
  rustc-demangle-capi = "0.1"
  serde = "1.0.219"
 diff --git a/third_party/rust/chromium_crates_io/gnrt_config.toml b/third_party/rust/chromium_crates_io/gnrt_config.toml
-index 3b149de90325a15b7813e87bbecc6384ded79470..6584bc088cd4985b18f57c267bbf4c995d1d88cb 100644
+index 3b149de903..6584bc088c 100644
 --- a/third_party/rust/chromium_crates_io/gnrt_config.toml
 +++ b/third_party/rust/chromium_crates_io/gnrt_config.toml
 @@ -765,6 +765,9 @@ extra_kv = { allow_unsafe = true }
@@ -1803,7 +2070,7 @@ index 3b149de90325a15b7813e87bbecc6384ded79470..6584bc088cd4985b18f57c267bbf4c99
  allow_unsafe = false
  
 diff --git a/third_party/rust/chromium_crates_io/vendor/xml-v1/src/reader.rs b/third_party/rust/chromium_crates_io/vendor/xml-v1/src/reader.rs
-index 2c640657d40be138ff092421951960ed549e5404..c93cf9949a4accb3eb79db16634ffdc3296a4d67 100644
+index 2c640657d4..c93cf9949a 100644
 --- a/third_party/rust/chromium_crates_io/vendor/xml-v1/src/reader.rs
 +++ b/third_party/rust/chromium_crates_io/vendor/xml-v1/src/reader.rs
 @@ -8,6 +8,7 @@ use std::iter::FusedIterator;
@@ -1832,7 +2099,7 @@ index 2c640657d40be138ff092421951960ed549e5404..c93cf9949a4accb3eb79db16634ffdc3
      ///
      /// Convenience function that is useful for the case where you have
 diff --git a/third_party/rust/chromium_crates_io/vendor/xml-v1/src/reader/parser.rs b/third_party/rust/chromium_crates_io/vendor/xml-v1/src/reader/parser.rs
-index 593ff1fdbf417e50e2bfaebc629360f0c72aba15..9c4992c799abcda3bcfd46ab6c12afff275a09f1 100644
+index 593ff1fdbf..9c4992c799 100644
 --- a/third_party/rust/chromium_crates_io/vendor/xml-v1/src/reader/parser.rs
 +++ b/third_party/rust/chromium_crates_io/vendor/xml-v1/src/reader/parser.rs
 @@ -4,7 +4,7 @@ use crate::common::{is_xml10_char, is_xml11_char, is_xml11_char_not_restricted,
@@ -1857,10 +2124,10 @@ index 593ff1fdbf417e50e2bfaebc629360f0c72aba15..9c4992c799abcda3bcfd46ab6c12afff
      /// This method should be always called with the same buffer. If you call it
 diff --git a/mojo/public/rust/mojom_value_parser/direct_serialize.rs b/mojo/public/rust/mojom_value_parser/direct_serialize.rs
 new file mode 100644
-index 0000000000000000000000000000000000000000..13a38eb499ff31b2d827430dc7b81d674a5a0a43
+index 0000000000..15d074947d
 --- /dev/null
 +++ b/mojo/public/rust/mojom_value_parser/direct_serialize.rs
-@@ -0,0 +1,567 @@
+@@ -0,0 +1,573 @@
 +// Copyright 2026 The Chromium Authors
 +// Use of this source code is governed by a BSD-style license that can be
 +// found in the LICENSE file.
@@ -2028,6 +2295,12 @@ index 0000000000000000000000000000000000000000..13a38eb499ff31b2d827430dc7b81d67
 +    }
 +
 +    fn nested_start(&mut self, pointer_location: usize) -> usize {
++        // Large recursive payloads otherwise grow the byte buffer repeatedly.
++        // Delay the reserve until the payload is unquestionably large so small
++        // messages retain Vec's zero-allocation start.
++        if self.bytes.len() >= 16 * 1024 && self.bytes.capacity() < 216 * 1024 {
++            self.bytes.reserve_exact(216 * 1024 - self.bytes.len());
++        }
 +        debug_assert_eq!(self.bytes.len() % 8, 0);
 +        let start = self.bytes.len();
 +        self.write_u64(pointer_location, (start - pointer_location) as u64);
@@ -2430,10 +2703,10 @@ index 0000000000000000000000000000000000000000..13a38eb499ff31b2d827430dc7b81d67
 +}
 diff --git a/services/data_decoder/xml/xml_parser_mojo.rs b/services/data_decoder/xml/xml_parser_mojo.rs
 new file mode 100644
-index 0000000000000000000000000000000000000000..743a2ec1ec592eb8590d0c3b38c2054bd130c79c
+index 0000000000..fa13221b7f
 --- /dev/null
 +++ b/services/data_decoder/xml/xml_parser_mojo.rs
-@@ -0,0 +1,260 @@
+@@ -0,0 +1,261 @@
 +// Copyright 2026 The Chromium Authors
 +// Use of this source code is governed by a BSD-style license that can be
 +// found in the LICENSE file.
@@ -2692,11 +2965,12 @@ index 0000000000000000000000000000000000000000..743a2ec1ec592eb8590d0c3b38c2054b
 +fn BindXmlParser(raw_handle: usize) {
 +    // SAFETY: C++ transfers unique ownership of this live receiver handle.
 +    let endpoint: MessageEndpoint = unsafe { UntypedHandle::wrap_raw_value(raw_handle) }.into();
-+    let _ = PendingReceiver::<dyn XmlParserMojom>::new(endpoint).bind_self_owned(XmlParser);
++    let _ = PendingReceiver::<dyn XmlParserMojom>::new(endpoint)
++        .bind_self_owned_inline_if_current(XmlParser);
 +}
 diff --git a/services/data_decoder/xml_migration_test_support.h b/services/data_decoder/xml_migration_test_support.h
 new file mode 100644
-index 0000000000000000000000000000000000000000..4aad3a332c9d4ef2fa102f55775d74e9eca48efe
+index 0000000000..4aad3a332c
 --- /dev/null
 +++ b/services/data_decoder/xml_migration_test_support.h
 @@ -0,0 +1,30 @@
@@ -2732,7 +3006,7 @@ index 0000000000000000000000000000000000000000..4aad3a332c9d4ef2fa102f55775d74e9
 +#endif  // SERVICES_DATA_DECODER_XML_MIGRATION_TEST_SUPPORT_H_
 diff --git a/services/data_decoder/xml_parser_perftest.cc b/services/data_decoder/xml_parser_perftest.cc
 new file mode 100644
-index 0000000000000000000000000000000000000000..d9448adb3866f9a795bd10f83836871582bfd429
+index 0000000000..d9448adb38
 --- /dev/null
 +++ b/services/data_decoder/xml_parser_perftest.cc
 @@ -0,0 +1,127 @@
@@ -2865,7 +3139,7 @@ index 0000000000000000000000000000000000000000..d9448adb3866f9a795bd10f838368715
 +}
 diff --git a/third_party/rust/chromium_crates_io/patches/xml-v1/0005-Expose-element-local-namespace-declarations.patch b/third_party/rust/chromium_crates_io/patches/xml-v1/0005-Expose-element-local-namespace-declarations.patch
 new file mode 100644
-index 0000000000000000000000000000000000000000..19c61a445cec82322f4d4d65a1efb5ea2adf8cad
+index 0000000000..19c61a445c
 --- /dev/null
 +++ b/third_party/rust/chromium_crates_io/patches/xml-v1/0005-Expose-element-local-namespace-declarations.patch
 @@ -0,0 +1,65 @@
@@ -2936,14 +3210,14 @@ index 0000000000000000000000000000000000000000..19c61a445cec82322f4d4d65a1efb5ea
 +2.55.0
 diff --git a/third_party/rust/chromium_crates_io/vendor/quick-xml-v0_42/.cargo-checksum.json b/third_party/rust/chromium_crates_io/vendor/quick-xml-v0_42/.cargo-checksum.json
 new file mode 100644
-index 0000000000000000000000000000000000000000..697c9ce2fbb40046d142b655e5201ee015041953
+index 0000000000..697c9ce2fb
 --- /dev/null
 +++ b/third_party/rust/chromium_crates_io/vendor/quick-xml-v0_42/.cargo-checksum.json
 @@ -0,0 +1 @@
 +{"files":{}}
 diff --git a/third_party/rust/chromium_crates_io/vendor/quick-xml-v0_42/.cargo_vcs_info.json b/third_party/rust/chromium_crates_io/vendor/quick-xml-v0_42/.cargo_vcs_info.json
 new file mode 100644
-index 0000000000000000000000000000000000000000..399017497be24dc6fbfc818a1fd662d116b1f7f1
+index 0000000000..399017497b
 --- /dev/null
 +++ b/third_party/rust/chromium_crates_io/vendor/quick-xml-v0_42/.cargo_vcs_info.json
 @@ -0,0 +1,6 @@
@@ -2956,7 +3230,7 @@ index 0000000000000000000000000000000000000000..399017497be24dc6fbfc818a1fd662d1
 \ No newline at end of file
 diff --git a/third_party/rust/chromium_crates_io/vendor/quick-xml-v0_42/Cargo.lock b/third_party/rust/chromium_crates_io/vendor/quick-xml-v0_42/Cargo.lock
 new file mode 100644
-index 0000000000000000000000000000000000000000..6d59ceb48f3fa95c319926ec4951bfec5ac5615c
+index 0000000000..6d59ceb48f
 --- /dev/null
 +++ b/third_party/rust/chromium_crates_io/vendor/quick-xml-v0_42/Cargo.lock
 @@ -0,0 +1,866 @@
@@ -3828,7 +4102,7 @@ index 0000000000000000000000000000000000000000..6d59ceb48f3fa95c319926ec4951bfec
 +checksum = "09041cd90cf85f7f8b2df60c646f853b7f535ce68f85244eb6731cf89fa498ec"
 diff --git a/third_party/rust/chromium_crates_io/vendor/quick-xml-v0_42/Cargo.toml b/third_party/rust/chromium_crates_io/vendor/quick-xml-v0_42/Cargo.toml
 new file mode 100644
-index 0000000000000000000000000000000000000000..62baf51e0e12659d95814034a5456b8e7f41a2b0
+index 0000000000..62baf51e0e
 --- /dev/null
 +++ b/third_party/rust/chromium_crates_io/vendor/quick-xml-v0_42/Cargo.toml
 @@ -0,0 +1,118 @@
@@ -3952,7 +4226,7 @@ index 0000000000000000000000000000000000000000..62baf51e0e12659d95814034a5456b8e
 +debug = 2
 diff --git a/third_party/rust/chromium_crates_io/vendor/quick-xml-v0_42/Cargo.toml.orig b/third_party/rust/chromium_crates_io/vendor/quick-xml-v0_42/Cargo.toml.orig
 new file mode 100644
-index 0000000000000000000000000000000000000000..5c25b9bf8d18d3b17251d106683a0cb867514d75
+index 0000000000..5c25b9bf8d
 --- /dev/null
 +++ b/third_party/rust/chromium_crates_io/vendor/quick-xml-v0_42/Cargo.toml.orig
 @@ -0,0 +1,289 @@
@@ -4247,7 +4521,7 @@ index 0000000000000000000000000000000000000000..5c25b9bf8d18d3b17251d106683a0cb8
 +path = "examples/read_utf16.rs"
 diff --git a/third_party/rust/chromium_crates_io/vendor/quick-xml-v0_42/LICENSE-MIT.md b/third_party/rust/chromium_crates_io/vendor/quick-xml-v0_42/LICENSE-MIT.md
 new file mode 100644
-index 0000000000000000000000000000000000000000..16a30bcb7493efb21c2cf5a80df1c0208a5307d9
+index 0000000000..16a30bcb74
 --- /dev/null
 +++ b/third_party/rust/chromium_crates_io/vendor/quick-xml-v0_42/LICENSE-MIT.md
 @@ -0,0 +1,23 @@
@@ -4276,7 +4550,7 @@ index 0000000000000000000000000000000000000000..16a30bcb7493efb21c2cf5a80df1c020
 +THE SOFTWARE.
 diff --git a/third_party/rust/chromium_crates_io/vendor/quick-xml-v0_42/README.md b/third_party/rust/chromium_crates_io/vendor/quick-xml-v0_42/README.md
 new file mode 100644
-index 0000000000000000000000000000000000000000..ba36df56f5965d6d3a330d5d893cd0b0f2066983
+index 0000000000..ba36df56f5
 --- /dev/null
 +++ b/third_party/rust/chromium_crates_io/vendor/quick-xml-v0_42/README.md
 @@ -0,0 +1,187 @@
@@ -4469,7 +4743,7 @@ index 0000000000000000000000000000000000000000..ba36df56f5965d6d3a330d5d893cd0b0
 +MIT
 diff --git a/third_party/rust/chromium_crates_io/vendor/quick-xml-v0_42/examples/README.md b/third_party/rust/chromium_crates_io/vendor/quick-xml-v0_42/examples/README.md
 new file mode 100644
-index 0000000000000000000000000000000000000000..aefa3e882fcb303e96bad6a5df84053501eb5342
+index 0000000000..aefa3e882f
 --- /dev/null
 +++ b/third_party/rust/chromium_crates_io/vendor/quick-xml-v0_42/examples/README.md
 @@ -0,0 +1,113 @@
@@ -4588,7 +4862,7 @@ index 0000000000000000000000000000000000000000..aefa3e882fcb303e96bad6a5df840535
 +```
 diff --git a/third_party/rust/chromium_crates_io/vendor/quick-xml-v0_42/src/de/attributes.rs b/third_party/rust/chromium_crates_io/vendor/quick-xml-v0_42/src/de/attributes.rs
 new file mode 100644
-index 0000000000000000000000000000000000000000..21acc8e9e4debdf4853878fdf9cd0e602b3f1f86
+index 0000000000..21acc8e9e4
 --- /dev/null
 +++ b/third_party/rust/chromium_crates_io/vendor/quick-xml-v0_42/src/de/attributes.rs
 @@ -0,0 +1,161 @@
@@ -4755,7 +5029,7 @@ index 0000000000000000000000000000000000000000..21acc8e9e4debdf4853878fdf9cd0e60
 +}
 diff --git a/third_party/rust/chromium_crates_io/vendor/quick-xml-v0_42/src/de/key.rs b/third_party/rust/chromium_crates_io/vendor/quick-xml-v0_42/src/de/key.rs
 new file mode 100644
-index 0000000000000000000000000000000000000000..09c0823b128c917f4c5f07f79cc88fb638c62873
+index 0000000000..09c0823b12
 --- /dev/null
 +++ b/third_party/rust/chromium_crates_io/vendor/quick-xml-v0_42/src/de/key.rs
 @@ -0,0 +1,429 @@
@@ -5190,7 +5464,7 @@ index 0000000000000000000000000000000000000000..09c0823b128c917f4c5f07f79cc88fb6
 +}
 diff --git a/third_party/rust/chromium_crates_io/vendor/quick-xml-v0_42/src/de/map.rs b/third_party/rust/chromium_crates_io/vendor/quick-xml-v0_42/src/de/map.rs
 new file mode 100644
-index 0000000000000000000000000000000000000000..e1c4bcab6f81340c241134aebedd67e5999d0df8
+index 0000000000..e1c4bcab6f
 --- /dev/null
 +++ b/third_party/rust/chromium_crates_io/vendor/quick-xml-v0_42/src/de/map.rs
 @@ -0,0 +1,1240 @@
@@ -6436,7 +6710,7 @@ index 0000000000000000000000000000000000000000..e1c4bcab6f81340c241134aebedd67e5
 +}
 diff --git a/third_party/rust/chromium_crates_io/vendor/quick-xml-v0_42/src/de/mod.rs b/third_party/rust/chromium_crates_io/vendor/quick-xml-v0_42/src/de/mod.rs
 new file mode 100644
-index 0000000000000000000000000000000000000000..f6786f7bf16b7fcc546be083e2afb8005bdaa643
+index 0000000000..f6786f7bf1
 --- /dev/null
 +++ b/third_party/rust/chromium_crates_io/vendor/quick-xml-v0_42/src/de/mod.rs
 @@ -0,0 +1,5197 @@
@@ -11639,7 +11913,7 @@ index 0000000000000000000000000000000000000000..f6786f7bf16b7fcc546be083e2afb800
 +}
 diff --git a/third_party/rust/chromium_crates_io/vendor/quick-xml-v0_42/src/de/resolver.rs b/third_party/rust/chromium_crates_io/vendor/quick-xml-v0_42/src/de/resolver.rs
 new file mode 100644
-index 0000000000000000000000000000000000000000..55a2b078de79df2553a41ffefb47274dc0fc1dc4
+index 0000000000..55a2b078de
 --- /dev/null
 +++ b/third_party/rust/chromium_crates_io/vendor/quick-xml-v0_42/src/de/resolver.rs
 @@ -0,0 +1,115 @@
@@ -11760,7 +12034,7 @@ index 0000000000000000000000000000000000000000..55a2b078de79df2553a41ffefb47274d
 +}
 diff --git a/third_party/rust/chromium_crates_io/vendor/quick-xml-v0_42/src/de/simple_type.rs b/third_party/rust/chromium_crates_io/vendor/quick-xml-v0_42/src/de/simple_type.rs
 new file mode 100644
-index 0000000000000000000000000000000000000000..a6da474ee19dd23b0c27b4ab96097cfe519af062
+index 0000000000..a6da474ee1
 --- /dev/null
 +++ b/third_party/rust/chromium_crates_io/vendor/quick-xml-v0_42/src/de/simple_type.rs
 @@ -0,0 +1,1193 @@
@@ -12959,7 +13233,7 @@ index 0000000000000000000000000000000000000000..a6da474ee19dd23b0c27b4ab96097cfe
 +}
 diff --git a/third_party/rust/chromium_crates_io/vendor/quick-xml-v0_42/src/de/text.rs b/third_party/rust/chromium_crates_io/vendor/quick-xml-v0_42/src/de/text.rs
 new file mode 100644
-index 0000000000000000000000000000000000000000..86b3f2751aa30307ed89edbde007cb046b50b1e6
+index 0000000000..86b3f2751a
 --- /dev/null
 +++ b/third_party/rust/chromium_crates_io/vendor/quick-xml-v0_42/src/de/text.rs
 @@ -0,0 +1,206 @@
@@ -13171,7 +13445,7 @@ index 0000000000000000000000000000000000000000..86b3f2751aa30307ed89edbde007cb04
 +}
 diff --git a/third_party/rust/chromium_crates_io/vendor/quick-xml-v0_42/src/de/var.rs b/third_party/rust/chromium_crates_io/vendor/quick-xml-v0_42/src/de/var.rs
 new file mode 100644
-index 0000000000000000000000000000000000000000..64bc2a0b9fca9ba3e6890015207aac2e16e62b68
+index 0000000000..64bc2a0b9f
 --- /dev/null
 +++ b/third_party/rust/chromium_crates_io/vendor/quick-xml-v0_42/src/de/var.rs
 @@ -0,0 +1,143 @@
@@ -13320,7 +13594,7 @@ index 0000000000000000000000000000000000000000..64bc2a0b9fca9ba3e6890015207aac2e
 +}
 diff --git a/third_party/rust/chromium_crates_io/vendor/quick-xml-v0_42/src/encoding.rs b/third_party/rust/chromium_crates_io/vendor/quick-xml-v0_42/src/encoding.rs
 new file mode 100644
-index 0000000000000000000000000000000000000000..194d41af3f0dd8dd75f3d9653ac68913e270f6ba
+index 0000000000..194d41af3f
 --- /dev/null
 +++ b/third_party/rust/chromium_crates_io/vendor/quick-xml-v0_42/src/encoding.rs
 @@ -0,0 +1,1155 @@
@@ -14481,7 +14755,7 @@ index 0000000000000000000000000000000000000000..194d41af3f0dd8dd75f3d9653ac68913
 +}
 diff --git a/third_party/rust/chromium_crates_io/vendor/quick-xml-v0_42/src/errors.rs b/third_party/rust/chromium_crates_io/vendor/quick-xml-v0_42/src/errors.rs
 new file mode 100644
-index 0000000000000000000000000000000000000000..8ed233a4a54aec6b10079ad6d91a47ee0f84a941
+index 0000000000..8ed233a4a5
 --- /dev/null
 +++ b/third_party/rust/chromium_crates_io/vendor/quick-xml-v0_42/src/errors.rs
 @@ -0,0 +1,503 @@
@@ -14990,7 +15264,7 @@ index 0000000000000000000000000000000000000000..8ed233a4a54aec6b10079ad6d91a47ee
 +}
 diff --git a/third_party/rust/chromium_crates_io/vendor/quick-xml-v0_42/src/escape.rs b/third_party/rust/chromium_crates_io/vendor/quick-xml-v0_42/src/escape.rs
 new file mode 100644
-index 0000000000000000000000000000000000000000..bc0180a60d1b6a275cf86143afb007a2c4fe031c
+index 0000000000..bc0180a60d
 --- /dev/null
 +++ b/third_party/rust/chromium_crates_io/vendor/quick-xml-v0_42/src/escape.rs
 @@ -0,0 +1,3222 @@
@@ -18218,7 +18492,7 @@ index 0000000000000000000000000000000000000000..bc0180a60d1b6a275cf86143afb007a2
 +}
 diff --git a/third_party/rust/chromium_crates_io/vendor/quick-xml-v0_42/src/events/attributes.rs b/third_party/rust/chromium_crates_io/vendor/quick-xml-v0_42/src/events/attributes.rs
 new file mode 100644
-index 0000000000000000000000000000000000000000..45dd2a9c9b1167ff992411f6d181325f4b7763c5
+index 0000000000..45dd2a9c9b
 --- /dev/null
 +++ b/third_party/rust/chromium_crates_io/vendor/quick-xml-v0_42/src/events/attributes.rs
 @@ -0,0 +1,2978 @@
@@ -21202,7 +21476,7 @@ index 0000000000000000000000000000000000000000..45dd2a9c9b1167ff992411f6d181325f
 +}
 diff --git a/third_party/rust/chromium_crates_io/vendor/quick-xml-v0_42/src/events/mod.rs b/third_party/rust/chromium_crates_io/vendor/quick-xml-v0_42/src/events/mod.rs
 new file mode 100644
-index 0000000000000000000000000000000000000000..9f010ea89917e8f7b9ee455836b3148edf853624
+index 0000000000..9f010ea899
 --- /dev/null
 +++ b/third_party/rust/chromium_crates_io/vendor/quick-xml-v0_42/src/events/mod.rs
 @@ -0,0 +1,1926 @@
@@ -23134,7 +23408,7 @@ index 0000000000000000000000000000000000000000..9f010ea89917e8f7b9ee455836b3148e
 +}
 diff --git a/third_party/rust/chromium_crates_io/vendor/quick-xml-v0_42/src/lib.rs b/third_party/rust/chromium_crates_io/vendor/quick-xml-v0_42/src/lib.rs
 new file mode 100644
-index 0000000000000000000000000000000000000000..b5af065532c2daf296d69cab3d8231e184283a24
+index 0000000000..b5af065532
 --- /dev/null
 +++ b/third_party/rust/chromium_crates_io/vendor/quick-xml-v0_42/src/lib.rs
 @@ -0,0 +1,131 @@
@@ -23271,7 +23545,7 @@ index 0000000000000000000000000000000000000000..b5af065532c2daf296d69cab3d8231e1
 +}
 diff --git a/third_party/rust/chromium_crates_io/vendor/quick-xml-v0_42/src/name.rs b/third_party/rust/chromium_crates_io/vendor/quick-xml-v0_42/src/name.rs
 new file mode 100644
-index 0000000000000000000000000000000000000000..d0aa49ed5c310c4715d45f76f928d5691b86a5da
+index 0000000000..d0aa49ed5c
 --- /dev/null
 +++ b/third_party/rust/chromium_crates_io/vendor/quick-xml-v0_42/src/name.rs
 @@ -0,0 +1,1867 @@
@@ -25144,7 +25418,7 @@ index 0000000000000000000000000000000000000000..d0aa49ed5c310c4715d45f76f928d569
 +}
 diff --git a/third_party/rust/chromium_crates_io/vendor/quick-xml-v0_42/src/parser/comment.rs b/third_party/rust/chromium_crates_io/vendor/quick-xml-v0_42/src/parser/comment.rs
 new file mode 100644
-index 0000000000000000000000000000000000000000..c6e574aa893f413e15021b53a95a946f7d965eaf
+index 0000000000..c6e574aa89
 --- /dev/null
 +++ b/third_party/rust/chromium_crates_io/vendor/quick-xml-v0_42/src/parser/comment.rs
 @@ -0,0 +1,190 @@
@@ -25340,7 +25614,7 @@ index 0000000000000000000000000000000000000000..c6e574aa893f413e15021b53a95a946f
 +}
 diff --git a/third_party/rust/chromium_crates_io/vendor/quick-xml-v0_42/src/parser/dtd.rs b/third_party/rust/chromium_crates_io/vendor/quick-xml-v0_42/src/parser/dtd.rs
 new file mode 100644
-index 0000000000000000000000000000000000000000..39998f3104c0c261de0acb8d25b46a923223726b
+index 0000000000..39998f3104
 --- /dev/null
 +++ b/third_party/rust/chromium_crates_io/vendor/quick-xml-v0_42/src/parser/dtd.rs
 @@ -0,0 +1,294 @@
@@ -25640,7 +25914,7 @@ index 0000000000000000000000000000000000000000..39998f3104c0c261de0acb8d25b46a92
 +}
 diff --git a/third_party/rust/chromium_crates_io/vendor/quick-xml-v0_42/src/parser/element.rs b/third_party/rust/chromium_crates_io/vendor/quick-xml-v0_42/src/parser/element.rs
 new file mode 100644
-index 0000000000000000000000000000000000000000..33b295d2693407385ac7666165b193eb50afa175
+index 0000000000..33b295d269
 --- /dev/null
 +++ b/third_party/rust/chromium_crates_io/vendor/quick-xml-v0_42/src/parser/element.rs
 @@ -0,0 +1,126 @@
@@ -25772,7 +26046,7 @@ index 0000000000000000000000000000000000000000..33b295d2693407385ac7666165b193eb
 +}
 diff --git a/third_party/rust/chromium_crates_io/vendor/quick-xml-v0_42/src/parser/mod.rs b/third_party/rust/chromium_crates_io/vendor/quick-xml-v0_42/src/parser/mod.rs
 new file mode 100644
-index 0000000000000000000000000000000000000000..382ac855f6ae2f96ff9b05f08f122fc8f8f7bf4f
+index 0000000000..382ac855f6
 --- /dev/null
 +++ b/third_party/rust/chromium_crates_io/vendor/quick-xml-v0_42/src/parser/mod.rs
 @@ -0,0 +1,37 @@
@@ -25815,7 +26089,7 @@ index 0000000000000000000000000000000000000000..382ac855f6ae2f96ff9b05f08f122fc8
 +}
 diff --git a/third_party/rust/chromium_crates_io/vendor/quick-xml-v0_42/src/parser/pi.rs b/third_party/rust/chromium_crates_io/vendor/quick-xml-v0_42/src/parser/pi.rs
 new file mode 100644
-index 0000000000000000000000000000000000000000..6adc7cf1f3547388fd11fa57079e3b68df79c588
+index 0000000000..6adc7cf1f3
 --- /dev/null
 +++ b/third_party/rust/chromium_crates_io/vendor/quick-xml-v0_42/src/parser/pi.rs
 @@ -0,0 +1,125 @@
@@ -25946,7 +26220,7 @@ index 0000000000000000000000000000000000000000..6adc7cf1f3547388fd11fa57079e3b68
 +}
 diff --git a/third_party/rust/chromium_crates_io/vendor/quick-xml-v0_42/src/reader/async_tokio.rs b/third_party/rust/chromium_crates_io/vendor/quick-xml-v0_42/src/reader/async_tokio.rs
 new file mode 100644
-index 0000000000000000000000000000000000000000..f4b3dc5a8490cab73a22980fa9fb8095df0666da
+index 0000000000..f4b3dc5a84
 --- /dev/null
 +++ b/third_party/rust/chromium_crates_io/vendor/quick-xml-v0_42/src/reader/async_tokio.rs
 @@ -0,0 +1,597 @@
@@ -26549,7 +26823,7 @@ index 0000000000000000000000000000000000000000..f4b3dc5a8490cab73a22980fa9fb8095
 +}
 diff --git a/third_party/rust/chromium_crates_io/vendor/quick-xml-v0_42/src/reader/buffered_reader.rs b/third_party/rust/chromium_crates_io/vendor/quick-xml-v0_42/src/reader/buffered_reader.rs
 new file mode 100644
-index 0000000000000000000000000000000000000000..4b4990e10e3752d3865422f00619ec49fba1a7be
+index 0000000000..4b4990e10e
 --- /dev/null
 +++ b/third_party/rust/chromium_crates_io/vendor/quick-xml-v0_42/src/reader/buffered_reader.rs
 @@ -0,0 +1,619 @@
@@ -27174,7 +27448,7 @@ index 0000000000000000000000000000000000000000..4b4990e10e3752d3865422f00619ec49
 +}
 diff --git a/third_party/rust/chromium_crates_io/vendor/quick-xml-v0_42/src/reader/mod.rs b/third_party/rust/chromium_crates_io/vendor/quick-xml-v0_42/src/reader/mod.rs
 new file mode 100644
-index 0000000000000000000000000000000000000000..aae0407db1e59011443062bcd90c6fc951b086d0
+index 0000000000..aae0407db1
 --- /dev/null
 +++ b/third_party/rust/chromium_crates_io/vendor/quick-xml-v0_42/src/reader/mod.rs
 @@ -0,0 +1,2236 @@
@@ -29416,7 +29690,7 @@ index 0000000000000000000000000000000000000000..aae0407db1e59011443062bcd90c6fc9
 +}
 diff --git a/third_party/rust/chromium_crates_io/vendor/quick-xml-v0_42/src/reader/ns_reader.rs b/third_party/rust/chromium_crates_io/vendor/quick-xml-v0_42/src/reader/ns_reader.rs
 new file mode 100644
-index 0000000000000000000000000000000000000000..e7b1c6c7c7077eff3bba68144207ba52482e7313
+index 0000000000..e7b1c6c7c7
 --- /dev/null
 +++ b/third_party/rust/chromium_crates_io/vendor/quick-xml-v0_42/src/reader/ns_reader.rs
 @@ -0,0 +1,770 @@
@@ -30192,7 +30466,7 @@ index 0000000000000000000000000000000000000000..e7b1c6c7c7077eff3bba68144207ba52
 +}
 diff --git a/third_party/rust/chromium_crates_io/vendor/quick-xml-v0_42/src/reader/slice_reader.rs b/third_party/rust/chromium_crates_io/vendor/quick-xml-v0_42/src/reader/slice_reader.rs
 new file mode 100644
-index 0000000000000000000000000000000000000000..fbbd869f4352376f4cec65381cab8aa987b768e4
+index 0000000000..fbbd869f43
 --- /dev/null
 +++ b/third_party/rust/chromium_crates_io/vendor/quick-xml-v0_42/src/reader/slice_reader.rs
 @@ -0,0 +1,443 @@
@@ -30641,7 +30915,7 @@ index 0000000000000000000000000000000000000000..fbbd869f4352376f4cec65381cab8aa9
 +}
 diff --git a/third_party/rust/chromium_crates_io/vendor/quick-xml-v0_42/src/reader/state.rs b/third_party/rust/chromium_crates_io/vendor/quick-xml-v0_42/src/reader/state.rs
 new file mode 100644
-index 0000000000000000000000000000000000000000..34e235c7491c33e13bd593b78ce9ecda369c85eb
+index 0000000000..34e235c749
 --- /dev/null
 +++ b/third_party/rust/chromium_crates_io/vendor/quick-xml-v0_42/src/reader/state.rs
 @@ -0,0 +1,382 @@
@@ -31029,7 +31303,7 @@ index 0000000000000000000000000000000000000000..34e235c7491c33e13bd593b78ce9ecda
 +}
 diff --git a/third_party/rust/chromium_crates_io/vendor/quick-xml-v0_42/src/se/content.rs b/third_party/rust/chromium_crates_io/vendor/quick-xml-v0_42/src/se/content.rs
 new file mode 100644
-index 0000000000000000000000000000000000000000..ea5d85d62e589badaca9d0ecb638d9c1d1894a7d
+index 0000000000..ea5d85d62e
 --- /dev/null
 +++ b/third_party/rust/chromium_crates_io/vendor/quick-xml-v0_42/src/se/content.rs
 @@ -0,0 +1,1530 @@
@@ -32565,7 +32839,7 @@ index 0000000000000000000000000000000000000000..ea5d85d62e589badaca9d0ecb638d9c1
 +}
 diff --git a/third_party/rust/chromium_crates_io/vendor/quick-xml-v0_42/src/se/element.rs b/third_party/rust/chromium_crates_io/vendor/quick-xml-v0_42/src/se/element.rs
 new file mode 100644
-index 0000000000000000000000000000000000000000..3d28fd0815d1852a1eb06f91091f972cab5dd5df
+index 0000000000..3d28fd0815
 --- /dev/null
 +++ b/third_party/rust/chromium_crates_io/vendor/quick-xml-v0_42/src/se/element.rs
 @@ -0,0 +1,2114 @@
@@ -34685,7 +34959,7 @@ index 0000000000000000000000000000000000000000..3d28fd0815d1852a1eb06f91091f972c
 +}
 diff --git a/third_party/rust/chromium_crates_io/vendor/quick-xml-v0_42/src/se/key.rs b/third_party/rust/chromium_crates_io/vendor/quick-xml-v0_42/src/se/key.rs
 new file mode 100644
-index 0000000000000000000000000000000000000000..24aed68eb2c885b1ea1e6fab704bfab864aadc3f
+index 0000000000..24aed68eb2
 --- /dev/null
 +++ b/third_party/rust/chromium_crates_io/vendor/quick-xml-v0_42/src/se/key.rs
 @@ -0,0 +1,302 @@
@@ -34993,7 +35267,7 @@ index 0000000000000000000000000000000000000000..24aed68eb2c885b1ea1e6fab704bfab8
 +}
 diff --git a/third_party/rust/chromium_crates_io/vendor/quick-xml-v0_42/src/se/mod.rs b/third_party/rust/chromium_crates_io/vendor/quick-xml-v0_42/src/se/mod.rs
 new file mode 100644
-index 0000000000000000000000000000000000000000..9db3ef40850df06086666e2be94ea984d9b1c414
+index 0000000000..9db3ef4085
 --- /dev/null
 +++ b/third_party/rust/chromium_crates_io/vendor/quick-xml-v0_42/src/se/mod.rs
 @@ -0,0 +1,1136 @@
@@ -36135,7 +36409,7 @@ index 0000000000000000000000000000000000000000..9db3ef40850df06086666e2be94ea984
 +}
 diff --git a/third_party/rust/chromium_crates_io/vendor/quick-xml-v0_42/src/se/simple_type.rs b/third_party/rust/chromium_crates_io/vendor/quick-xml-v0_42/src/se/simple_type.rs
 new file mode 100644
-index 0000000000000000000000000000000000000000..bcad5b8c8e88362b522be314ba571e85c9d46833
+index 0000000000..bcad5b8c8e
 --- /dev/null
 +++ b/third_party/rust/chromium_crates_io/vendor/quick-xml-v0_42/src/se/simple_type.rs
 @@ -0,0 +1,1422 @@
@@ -37563,7 +37837,7 @@ index 0000000000000000000000000000000000000000..bcad5b8c8e88362b522be314ba571e85
 +}
 diff --git a/third_party/rust/chromium_crates_io/vendor/quick-xml-v0_42/src/se/text.rs b/third_party/rust/chromium_crates_io/vendor/quick-xml-v0_42/src/se/text.rs
 new file mode 100644
-index 0000000000000000000000000000000000000000..af365d2a44297e1d073b7e2830b6c72b1c4930b6
+index 0000000000..af365d2a44
 --- /dev/null
 +++ b/third_party/rust/chromium_crates_io/vendor/quick-xml-v0_42/src/se/text.rs
 @@ -0,0 +1,189 @@
@@ -37758,7 +38032,7 @@ index 0000000000000000000000000000000000000000..af365d2a44297e1d073b7e2830b6c72b
 +}
 diff --git a/third_party/rust/chromium_crates_io/vendor/quick-xml-v0_42/src/serde_helpers.rs b/third_party/rust/chromium_crates_io/vendor/quick-xml-v0_42/src/serde_helpers.rs
 new file mode 100644
-index 0000000000000000000000000000000000000000..185659c91cc5fa5f2b0dcf029eb1c020c4592b55
+index 0000000000..185659c91c
 --- /dev/null
 +++ b/third_party/rust/chromium_crates_io/vendor/quick-xml-v0_42/src/serde_helpers.rs
 @@ -0,0 +1,514 @@
@@ -38278,7 +38552,7 @@ index 0000000000000000000000000000000000000000..185659c91cc5fa5f2b0dcf029eb1c020
 +}
 diff --git a/third_party/rust/chromium_crates_io/vendor/quick-xml-v0_42/src/utils.rs b/third_party/rust/chromium_crates_io/vendor/quick-xml-v0_42/src/utils.rs
 new file mode 100644
-index 0000000000000000000000000000000000000000..103cdcbe7343fc46248778b84abb9ef861a70679
+index 0000000000..103cdcbe73
 --- /dev/null
 +++ b/third_party/rust/chromium_crates_io/vendor/quick-xml-v0_42/src/utils.rs
 @@ -0,0 +1,492 @@
@@ -38774,9 +39048,587 @@ index 0000000000000000000000000000000000000000..103cdcbe7343fc46248778b84abb9ef8
 +        );
 +    }
 +}
+diff --git a/third_party/rust/chromium_crates_io/vendor/quick-xml-v0_42/src/writer/async_tokio.rs b/third_party/rust/chromium_crates_io/vendor/quick-xml-v0_42/src/writer/async_tokio.rs
+new file mode 100644
+index 0000000000..a08678c990
+--- /dev/null
++++ b/third_party/rust/chromium_crates_io/vendor/quick-xml-v0_42/src/writer/async_tokio.rs
+@@ -0,0 +1,572 @@
++use std::future::Future;
++use std::result::Result as StdResult;
++
++use tokio::io::{AsyncWrite, AsyncWriteExt};
++
++use crate::errors::{Error, Result};
++use crate::events::{BytesCData, BytesPI, BytesText, Event};
++use crate::{ElementWriter, Writer};
++
++impl<W: AsyncWrite + Unpin> Writer<W> {
++    /// Writes the given event to the underlying writer. Async version of [`Writer::write_event`].
++    pub async fn write_event_async<'a, E: Into<Event<'a>>>(&mut self, event: E) -> Result<()> {
++        let mut next_should_line_break = true;
++        let result = match event.into() {
++            Event::Start(e) => {
++                let result = self.write_wrapped_async("<", &e, ">").await;
++                if let Some(i) = self.indent.as_mut() {
++                    i.grow();
++                }
++                result
++            }
++            Event::End(e) => {
++                if let Some(i) = self.indent.as_mut() {
++                    i.shrink();
++                }
++                self.write_wrapped_async("</", &e, ">").await
++            }
++            Event::Empty(e) => self.write_wrapped_async("<", &e, "/>").await,
++            Event::Text(e) => {
++                next_should_line_break = false;
++                self.write_async(e.as_bytes()).await
++            }
++            Event::Comment(e) => self.write_wrapped_async("<!--", &e, "-->").await,
++            Event::CData(e) => {
++                next_should_line_break = false;
++                self.write_async(b"<![CDATA[").await?;
++                self.write_async(e.as_bytes()).await?;
++                self.write_async(b"]]>").await
++            }
++            Event::Decl(e) => self.write_wrapped_async("<?", &e, "?>").await,
++            Event::PI(e) => self.write_wrapped_async("<?", &e, "?>").await,
++            Event::DocType(e) => self.write_wrapped_async("<!DOCTYPE ", &e, ">").await,
++            Event::GeneralRef(e) => self.write_wrapped_async("&", &e, ";").await,
++            Event::Eof => Ok(()),
++        };
++        if let Some(i) = self.indent.as_mut() {
++            i.should_line_break = next_should_line_break;
++        }
++        result
++    }
++
++    /// Manually write a newline and indentation at the proper level. Async version of
++    /// [`Writer::write_indent`].
++    ///
++    /// This method will do nothing if `Writer` was not constructed with [`Writer::new_with_indent`].
++    pub async fn write_indent_async(&mut self) -> Result<()> {
++        if let Some(ref i) = self.indent {
++            self.writer.write_all(b"\n").await?;
++            self.writer.write_all(i.current().as_bytes()).await?;
++        }
++        Ok(())
++    }
++
++    #[inline]
++    async fn write_async(&mut self, value: &[u8]) -> Result<()> {
++        self.writer.write_all(value).await.map_err(Into::into)
++    }
++
++    #[inline]
++    async fn write_wrapped_async(&mut self, before: &str, value: &str, after: &str) -> Result<()> {
++        if let Some(ref i) = self.indent {
++            if i.should_line_break {
++                self.writer.write_all(b"\n").await?;
++                self.writer.write_all(i.current().as_bytes()).await?;
++            }
++        }
++        self.write_async(before.as_bytes()).await?;
++        self.write_async(value.as_bytes()).await?;
++        self.write_async(after.as_bytes()).await?;
++        Ok(())
++    }
++}
++
++impl<'a, W: AsyncWrite + Unpin> ElementWriter<'a, W> {
++    /// Write some text inside the current element.
++    ///
++    /// # Example
++    ///
++    /// ```
++    /// # use quick_xml::writer::Writer;
++    /// # use quick_xml::events::BytesText;
++    /// # use tokio::io::AsyncWriteExt;
++    /// # #[tokio::main(flavor = "current_thread")] async fn main() {
++    /// let mut buffer = Vec::new();
++    /// let mut tokio_buffer = tokio::io::BufWriter::new(&mut buffer);
++    /// let mut writer = Writer::new_with_indent(&mut tokio_buffer, b' ', 4);
++    ///
++    /// writer
++    ///     .create_element("paired")
++    ///     .with_attribute(("attr1", "value1"))
++    ///     .with_attribute(("attr2", "value2"))
++    ///     .write_text_content_async(BytesText::new("text"))
++    ///     .await
++    ///     .expect("cannot write content");
++    ///
++    /// tokio_buffer.flush().await.expect("flush failed");
++    ///
++    /// assert_eq!(
++    ///     std::str::from_utf8(&buffer).unwrap(),
++    ///     r#"<paired attr1="value1" attr2="value2">text</paired>"#
++    /// );
++    /// # }
++    pub async fn write_text_content_async(self, text: BytesText<'_>) -> Result<&'a mut Writer<W>> {
++        self.writer
++            .write_event_async(Event::Start(self.start_tag.borrow()))
++            .await?;
++        self.writer.write_event_async(Event::Text(text)).await?;
++        self.writer
++            .write_event_async(Event::End(self.start_tag.to_end()))
++            .await?;
++        Ok(self.writer)
++    }
++
++    /// Write a CData event `<![CDATA[...]]>` inside the current element.
++    ///
++    /// # Example
++    ///
++    /// ```
++    /// # use quick_xml::writer::Writer;
++    /// # use quick_xml::events::BytesCData;
++    /// # use tokio::io::AsyncWriteExt;
++    /// # #[tokio::main(flavor = "current_thread")] async fn main() {
++    /// let mut buffer = Vec::new();
++    /// let mut tokio_buffer = tokio::io::BufWriter::new(&mut buffer);
++    /// let mut writer = Writer::new_with_indent(&mut tokio_buffer, b' ', 4);
++    ///
++    /// writer
++    ///     .create_element("paired")
++    ///     .with_attribute(("attr1", "value1"))
++    ///     .with_attribute(("attr2", "value2"))
++    ///     .write_cdata_content_async(BytesCData::new("text & content"))
++    ///     .await
++    ///     .expect("cannot write content");
++    ///
++    /// tokio_buffer.flush().await.expect("flush failed");
++    ///
++    /// assert_eq!(
++    ///     std::str::from_utf8(&buffer).unwrap(),
++    ///     r#"<paired attr1="value1" attr2="value2"><![CDATA[text & content]]></paired>"#
++    /// );
++    /// # }
++    pub async fn write_cdata_content_async(
++        self,
++        text: BytesCData<'_>,
++    ) -> Result<&'a mut Writer<W>> {
++        self.writer
++            .write_event_async(Event::Start(self.start_tag.borrow()))
++            .await?;
++        self.writer.write_event_async(Event::CData(text)).await?;
++        self.writer
++            .write_event_async(Event::End(self.start_tag.to_end()))
++            .await?;
++        Ok(self.writer)
++    }
++
++    /// Write a processing instruction `<?...?>` inside the current element.
++    ///
++    /// # Example
++    ///
++    /// ```
++    /// # use quick_xml::writer::Writer;
++    /// # use quick_xml::events::BytesPI;
++    /// # use tokio::io::AsyncWriteExt;
++    /// # #[tokio::main(flavor = "current_thread")] async fn main() {
++    /// let mut buffer = Vec::new();
++    /// let mut tokio_buffer = tokio::io::BufWriter::new(&mut buffer);
++    /// let mut writer = Writer::new_with_indent(&mut tokio_buffer, b' ', 4);
++    ///
++    /// writer
++    ///     .create_element("paired")
++    ///     .with_attribute(("attr1", "value1"))
++    ///     .with_attribute(("attr2", "value2"))
++    ///     .write_pi_content_async(BytesPI::new(r#"xml-stylesheet href="style.css""#))
++    ///     .await
++    ///     .expect("cannot write content");
++    ///
++    /// tokio_buffer.flush().await.expect("flush failed");
++    ///
++    /// assert_eq!(
++    ///     std::str::from_utf8(&buffer).unwrap(),
++    ///     r#"<paired attr1="value1" attr2="value2">
++    ///     <?xml-stylesheet href="style.css"?>
++    /// </paired>"#
++    /// );
++    /// # }
++    pub async fn write_pi_content_async(self, text: BytesPI<'_>) -> Result<&'a mut Writer<W>> {
++        self.writer
++            .write_event_async(Event::Start(self.start_tag.borrow()))
++            .await?;
++        self.writer.write_event_async(Event::PI(text)).await?;
++        self.writer
++            .write_event_async(Event::End(self.start_tag.to_end()))
++            .await?;
++        Ok(self.writer)
++    }
++
++    /// Write an empty (self-closing) tag.
++    ///
++    /// # Example
++    ///
++    /// ```
++    /// # use quick_xml::writer::Writer;
++    /// # use quick_xml::events::BytesText;
++    /// # use tokio::io::AsyncWriteExt;
++    /// # #[tokio::main(flavor = "current_thread")] async fn main() {
++    /// let mut buffer = Vec::new();
++    /// let mut tokio_buffer = tokio::io::BufWriter::new(&mut buffer);
++    /// let mut writer = Writer::new_with_indent(&mut tokio_buffer, b' ', 4);
++    ///
++    /// writer
++    ///     .create_element("empty")
++    ///     .with_attribute(("attr1", "value1"))
++    ///     .with_attribute(("attr2", "value2"))
++    ///     .write_empty_async()
++    ///     .await
++    ///     .expect("cannot write content");
++    ///
++    /// tokio_buffer.flush().await.expect("flush failed");
++    ///
++    /// assert_eq!(
++    ///     std::str::from_utf8(&buffer).unwrap(),
++    ///     r#"<empty attr1="value1" attr2="value2"/>"#
++    /// );
++    /// # }
++    pub async fn write_empty_async(self) -> Result<&'a mut Writer<W>> {
++        self.writer
++            .write_event_async(Event::Empty(self.start_tag))
++            .await?;
++        Ok(self.writer)
++    }
++
++    /// Create a new scope for writing XML inside the current element.
++    ///
++    /// # Example
++    ///
++    /// ```
++    /// # use quick_xml::writer::Writer;
++    /// # use quick_xml::events::BytesText;
++    /// # use tokio::io::AsyncWriteExt;
++    /// use quick_xml::Error;
++    ///
++    /// # #[tokio::main(flavor = "current_thread")] async fn main() {
++    /// let mut buffer = Vec::new();
++    /// let mut tokio_buffer = tokio::io::BufWriter::new(&mut buffer);
++    /// let mut writer = Writer::new_with_indent(&mut tokio_buffer, b' ', 4);
++    ///
++    /// writer
++    ///     .create_element("outer")
++    ///     .with_attributes([("attr1", "value1"), ("attr2", "value2")])
++    ///     // We need to provide error type, because it is not named somewhere explicitly
++    ///     .write_inner_content_async::<_, _, Error>(|writer| async move {
++    ///         let fruits = ["apple", "orange", "banana"];
++    ///         for (quant, item) in fruits.iter().enumerate() {
++    ///             writer
++    ///                 .create_element("fruit")
++    ///                 .with_attributes([("quantity", quant.to_string().as_str())])
++    ///                 .write_text_content_async(BytesText::new(item))
++    ///                 .await?;
++    ///         }
++    ///         writer
++    ///             .create_element("inner")
++    ///             .write_inner_content_async(|writer| async move {
++    ///                 writer.create_element("empty").write_empty_async().await
++    ///             })
++    ///             .await?;
++    ///
++    ///         Ok(writer)
++    ///     })
++    ///     .await
++    ///     .expect("cannot write content");
++    ///
++    /// tokio_buffer.flush().await.expect("flush failed");
++    /// assert_eq!(
++    ///     std::str::from_utf8(&buffer).unwrap(),
++    ///     r#"<outer attr1="value1" attr2="value2">
++    ///     <fruit quantity="0">apple</fruit>
++    ///     <fruit quantity="1">orange</fruit>
++    ///     <fruit quantity="2">banana</fruit>
++    ///     <inner>
++    ///         <empty/>
++    ///     </inner>
++    /// </outer>"#
++    /// );
++    /// # }
++    pub async fn write_inner_content_async<F, Fut, E>(
++        mut self,
++        closure: F,
++    ) -> StdResult<&'a mut Writer<W>, E>
++    where
++        F: FnOnce(&'a mut Writer<W>) -> Fut,
++        Fut: Future<Output = StdResult<&'a mut Writer<W>, E>>,
++        E: From<Error>,
++    {
++        self.writer
++            .write_event_async(Event::Start(self.start_tag.borrow()))
++            .await?;
++        self.writer = closure(self.writer).await?;
++        self.writer
++            .write_event_async(Event::End(self.start_tag.to_end()))
++            .await?;
++        Ok(self.writer)
++    }
++}
++
++#[cfg(test)]
++mod tests {
++    use super::*;
++    use crate::events::*;
++    use pretty_assertions::assert_eq;
++
++    macro_rules! test {
++        ($name: ident, $event: expr, $expected: expr) => {
++            #[tokio::test]
++            async fn $name() {
++                let mut buffer = Vec::new();
++                let mut writer = Writer::new(&mut buffer);
++
++                writer
++                    .write_event_async($event)
++                    .await
++                    .expect("write event failed");
++
++                assert_eq!(std::str::from_utf8(&buffer).unwrap(), $expected,);
++            }
++        };
++    }
++
++    test!(
++        xml_header,
++        Event::Decl(BytesDecl::new("1.0", Some("UTF-8"), Some("no"))),
++        r#"<?xml version="1.0" encoding="UTF-8" standalone="no"?>"#
++    );
++
++    test!(empty_tag, Event::Empty(BytesStart::new("tag")), r#"<tag/>"#);
++
++    test!(
++        comment,
++        Event::Comment(BytesText::new("this is a comment")),
++        r#"<!--this is a comment-->"#
++    );
++
++    test!(
++        cdata,
++        Event::CData(BytesCData::new("this is a cdata")),
++        r#"<![CDATA[this is a cdata]]>"#
++    );
++
++    test!(
++        pi,
++        Event::PI(BytesPI::new("this is a processing instruction")),
++        r#"<?this is a processing instruction?>"#
++    );
++
++    test!(
++        doctype,
++        Event::DocType(BytesText::new("this is a doctype")),
++        r#"<!DOCTYPE this is a doctype>"#
++    );
++
++    #[tokio::test]
++    async fn full_tag() {
++        let mut buffer = Vec::new();
++        let mut writer = Writer::new(&mut buffer);
++
++        let start = Event::Start(BytesStart::new("tag"));
++        let text = Event::Text(BytesText::new("inner text"));
++        let end = Event::End(BytesEnd::new("tag"));
++        for i in [start, text, end] {
++            writer.write_event_async(i).await.expect("write tag failed");
++        }
++
++        assert_eq!(
++            std::str::from_utf8(&buffer).unwrap(),
++            r#"<tag>inner text</tag>"#
++        );
++    }
++}
++
++#[cfg(test)]
++mod indentation_async {
++    use super::*;
++    use crate::events::*;
++    use pretty_assertions::assert_eq;
++
++    #[tokio::test]
++    async fn self_closed() {
++        let mut buffer = Vec::new();
++        let mut writer = Writer::new_with_indent(&mut buffer, b' ', 4);
++
++        let tag = BytesStart::new("self-closed")
++            .with_attributes(vec![("attr1", "value1"), ("attr2", "value2")].into_iter());
++        writer
++            .write_event_async(Event::Empty(tag))
++            .await
++            .expect("write tag failed");
++
++        assert_eq!(
++            std::str::from_utf8(&buffer).unwrap(),
++            r#"<self-closed attr1="value1" attr2="value2"/>"#
++        );
++    }
++
++    #[tokio::test]
++    async fn empty_paired() {
++        let mut buffer = Vec::new();
++        let mut writer = Writer::new_with_indent(&mut buffer, b' ', 4);
++
++        let start = BytesStart::new("paired")
++            .with_attributes(vec![("attr1", "value1"), ("attr2", "value2")].into_iter());
++        let end = start.to_end();
++        writer
++            .write_event_async(Event::Start(start.clone()))
++            .await
++            .expect("write start tag failed");
++        writer
++            .write_event_async(Event::End(end))
++            .await
++            .expect("write end tag failed");
++
++        assert_eq!(
++            std::str::from_utf8(&buffer).unwrap(),
++            r#"<paired attr1="value1" attr2="value2">
++</paired>"#
++        );
++    }
++
++    #[tokio::test]
++    async fn paired_with_inner() {
++        let mut buffer = Vec::new();
++        let mut writer = Writer::new_with_indent(&mut buffer, b' ', 4);
++
++        let start = BytesStart::new("paired")
++            .with_attributes(vec![("attr1", "value1"), ("attr2", "value2")].into_iter());
++        let end = start.to_end();
++        let inner = BytesStart::new("inner");
++
++        writer
++            .write_event_async(Event::Start(start.clone()))
++            .await
++            .expect("write start tag failed");
++        writer
++            .write_event_async(Event::Empty(inner))
++            .await
++            .expect("write inner tag failed");
++        writer
++            .write_event_async(Event::End(end))
++            .await
++            .expect("write end tag failed");
++
++        assert_eq!(
++            std::str::from_utf8(&buffer).unwrap(),
++            r#"<paired attr1="value1" attr2="value2">
++    <inner/>
++</paired>"#
++        );
++    }
++
++    #[tokio::test]
++    async fn paired_with_text() {
++        let mut buffer = Vec::new();
++        let mut writer = Writer::new_with_indent(&mut buffer, b' ', 4);
++
++        let start = BytesStart::new("paired")
++            .with_attributes(vec![("attr1", "value1"), ("attr2", "value2")].into_iter());
++        let end = start.to_end();
++        let text = BytesText::new("text");
++
++        writer
++            .write_event_async(Event::Start(start.clone()))
++            .await
++            .expect("write start tag failed");
++        writer
++            .write_event_async(Event::Text(text))
++            .await
++            .expect("write text failed");
++        writer
++            .write_event_async(Event::End(end))
++            .await
++            .expect("write end tag failed");
++
++        assert_eq!(
++            std::str::from_utf8(&buffer).unwrap(),
++            r#"<paired attr1="value1" attr2="value2">text</paired>"#
++        );
++    }
++
++    #[tokio::test]
++    async fn mixed_content() {
++        let mut buffer = Vec::new();
++        let mut writer = Writer::new_with_indent(&mut buffer, b' ', 4);
++
++        let start = BytesStart::new("paired")
++            .with_attributes(vec![("attr1", "value1"), ("attr2", "value2")].into_iter());
++        let end = start.to_end();
++        let text = BytesText::new("text");
++        let inner = BytesStart::new("inner");
++
++        writer
++            .write_event_async(Event::Start(start.clone()))
++            .await
++            .expect("write start tag failed");
++        writer
++            .write_event_async(Event::Text(text))
++            .await
++            .expect("write text failed");
++        writer
++            .write_event_async(Event::Empty(inner))
++            .await
++            .expect("write inner tag failed");
++        writer
++            .write_event_async(Event::End(end))
++            .await
++            .expect("write end tag failed");
++
++        assert_eq!(
++            std::str::from_utf8(&buffer).unwrap(),
++            r#"<paired attr1="value1" attr2="value2">text<inner/>
++</paired>"#
++        );
++    }
++
++    #[tokio::test]
++    async fn nested() {
++        let mut buffer = Vec::new();
++        let mut writer = Writer::new_with_indent(&mut buffer, b' ', 4);
++
++        let start = BytesStart::new("paired")
++            .with_attributes(vec![("attr1", "value1"), ("attr2", "value2")].into_iter());
++        let end = start.to_end();
++        let inner = BytesStart::new("inner");
++
++        writer
++            .write_event_async(Event::Start(start.clone()))
++            .await
++            .expect("write start 1 tag failed");
++        writer
++            .write_event_async(Event::Start(start.clone()))
++            .await
++            .expect("write start 2 tag failed");
++        writer
++            .write_event_async(Event::Empty(inner))
++            .await
++            .expect("write inner tag failed");
++        writer
++            .write_event_async(Event::End(end.clone()))
++            .await
++            .expect("write end tag 2 failed");
++        writer
++            .write_event_async(Event::End(end))
++            .await
++            .expect("write end tag 1 failed");
++
++        assert_eq!(
++            std::str::from_utf8(&buffer).unwrap(),
++            r#"<paired attr1="value1" attr2="value2">
++    <paired attr1="value1" attr2="value2">
++        <inner/>
++    </paired>
++</paired>"#
++        );
++    }
++}
 diff --git a/third_party/rust/chromium_crates_io/vendor/quick-xml-v0_42/src/writer.rs b/third_party/rust/chromium_crates_io/vendor/quick-xml-v0_42/src/writer.rs
 new file mode 100644
-index 0000000000000000000000000000000000000000..b6a7c32ae4eebdd8b272fb9fea29922c106419d6
+index 0000000000..b6a7c32ae4
 --- /dev/null
 +++ b/third_party/rust/chromium_crates_io/vendor/quick-xml-v0_42/src/writer.rs
 @@ -0,0 +1,725 @@
@@ -39505,587 +40357,9 @@ index 0000000000000000000000000000000000000000..b6a7c32ae4eebdd8b272fb9fea29922c
 +        }
 +    }
 +}
-diff --git a/third_party/rust/chromium_crates_io/vendor/quick-xml-v0_42/src/writer/async_tokio.rs b/third_party/rust/chromium_crates_io/vendor/quick-xml-v0_42/src/writer/async_tokio.rs
-new file mode 100644
-index 0000000000000000000000000000000000000000..a08678c99034f8a38012426d8cf8abed074e9043
---- /dev/null
-+++ b/third_party/rust/chromium_crates_io/vendor/quick-xml-v0_42/src/writer/async_tokio.rs
-@@ -0,0 +1,572 @@
-+use std::future::Future;
-+use std::result::Result as StdResult;
-+
-+use tokio::io::{AsyncWrite, AsyncWriteExt};
-+
-+use crate::errors::{Error, Result};
-+use crate::events::{BytesCData, BytesPI, BytesText, Event};
-+use crate::{ElementWriter, Writer};
-+
-+impl<W: AsyncWrite + Unpin> Writer<W> {
-+    /// Writes the given event to the underlying writer. Async version of [`Writer::write_event`].
-+    pub async fn write_event_async<'a, E: Into<Event<'a>>>(&mut self, event: E) -> Result<()> {
-+        let mut next_should_line_break = true;
-+        let result = match event.into() {
-+            Event::Start(e) => {
-+                let result = self.write_wrapped_async("<", &e, ">").await;
-+                if let Some(i) = self.indent.as_mut() {
-+                    i.grow();
-+                }
-+                result
-+            }
-+            Event::End(e) => {
-+                if let Some(i) = self.indent.as_mut() {
-+                    i.shrink();
-+                }
-+                self.write_wrapped_async("</", &e, ">").await
-+            }
-+            Event::Empty(e) => self.write_wrapped_async("<", &e, "/>").await,
-+            Event::Text(e) => {
-+                next_should_line_break = false;
-+                self.write_async(e.as_bytes()).await
-+            }
-+            Event::Comment(e) => self.write_wrapped_async("<!--", &e, "-->").await,
-+            Event::CData(e) => {
-+                next_should_line_break = false;
-+                self.write_async(b"<![CDATA[").await?;
-+                self.write_async(e.as_bytes()).await?;
-+                self.write_async(b"]]>").await
-+            }
-+            Event::Decl(e) => self.write_wrapped_async("<?", &e, "?>").await,
-+            Event::PI(e) => self.write_wrapped_async("<?", &e, "?>").await,
-+            Event::DocType(e) => self.write_wrapped_async("<!DOCTYPE ", &e, ">").await,
-+            Event::GeneralRef(e) => self.write_wrapped_async("&", &e, ";").await,
-+            Event::Eof => Ok(()),
-+        };
-+        if let Some(i) = self.indent.as_mut() {
-+            i.should_line_break = next_should_line_break;
-+        }
-+        result
-+    }
-+
-+    /// Manually write a newline and indentation at the proper level. Async version of
-+    /// [`Writer::write_indent`].
-+    ///
-+    /// This method will do nothing if `Writer` was not constructed with [`Writer::new_with_indent`].
-+    pub async fn write_indent_async(&mut self) -> Result<()> {
-+        if let Some(ref i) = self.indent {
-+            self.writer.write_all(b"\n").await?;
-+            self.writer.write_all(i.current().as_bytes()).await?;
-+        }
-+        Ok(())
-+    }
-+
-+    #[inline]
-+    async fn write_async(&mut self, value: &[u8]) -> Result<()> {
-+        self.writer.write_all(value).await.map_err(Into::into)
-+    }
-+
-+    #[inline]
-+    async fn write_wrapped_async(&mut self, before: &str, value: &str, after: &str) -> Result<()> {
-+        if let Some(ref i) = self.indent {
-+            if i.should_line_break {
-+                self.writer.write_all(b"\n").await?;
-+                self.writer.write_all(i.current().as_bytes()).await?;
-+            }
-+        }
-+        self.write_async(before.as_bytes()).await?;
-+        self.write_async(value.as_bytes()).await?;
-+        self.write_async(after.as_bytes()).await?;
-+        Ok(())
-+    }
-+}
-+
-+impl<'a, W: AsyncWrite + Unpin> ElementWriter<'a, W> {
-+    /// Write some text inside the current element.
-+    ///
-+    /// # Example
-+    ///
-+    /// ```
-+    /// # use quick_xml::writer::Writer;
-+    /// # use quick_xml::events::BytesText;
-+    /// # use tokio::io::AsyncWriteExt;
-+    /// # #[tokio::main(flavor = "current_thread")] async fn main() {
-+    /// let mut buffer = Vec::new();
-+    /// let mut tokio_buffer = tokio::io::BufWriter::new(&mut buffer);
-+    /// let mut writer = Writer::new_with_indent(&mut tokio_buffer, b' ', 4);
-+    ///
-+    /// writer
-+    ///     .create_element("paired")
-+    ///     .with_attribute(("attr1", "value1"))
-+    ///     .with_attribute(("attr2", "value2"))
-+    ///     .write_text_content_async(BytesText::new("text"))
-+    ///     .await
-+    ///     .expect("cannot write content");
-+    ///
-+    /// tokio_buffer.flush().await.expect("flush failed");
-+    ///
-+    /// assert_eq!(
-+    ///     std::str::from_utf8(&buffer).unwrap(),
-+    ///     r#"<paired attr1="value1" attr2="value2">text</paired>"#
-+    /// );
-+    /// # }
-+    pub async fn write_text_content_async(self, text: BytesText<'_>) -> Result<&'a mut Writer<W>> {
-+        self.writer
-+            .write_event_async(Event::Start(self.start_tag.borrow()))
-+            .await?;
-+        self.writer.write_event_async(Event::Text(text)).await?;
-+        self.writer
-+            .write_event_async(Event::End(self.start_tag.to_end()))
-+            .await?;
-+        Ok(self.writer)
-+    }
-+
-+    /// Write a CData event `<![CDATA[...]]>` inside the current element.
-+    ///
-+    /// # Example
-+    ///
-+    /// ```
-+    /// # use quick_xml::writer::Writer;
-+    /// # use quick_xml::events::BytesCData;
-+    /// # use tokio::io::AsyncWriteExt;
-+    /// # #[tokio::main(flavor = "current_thread")] async fn main() {
-+    /// let mut buffer = Vec::new();
-+    /// let mut tokio_buffer = tokio::io::BufWriter::new(&mut buffer);
-+    /// let mut writer = Writer::new_with_indent(&mut tokio_buffer, b' ', 4);
-+    ///
-+    /// writer
-+    ///     .create_element("paired")
-+    ///     .with_attribute(("attr1", "value1"))
-+    ///     .with_attribute(("attr2", "value2"))
-+    ///     .write_cdata_content_async(BytesCData::new("text & content"))
-+    ///     .await
-+    ///     .expect("cannot write content");
-+    ///
-+    /// tokio_buffer.flush().await.expect("flush failed");
-+    ///
-+    /// assert_eq!(
-+    ///     std::str::from_utf8(&buffer).unwrap(),
-+    ///     r#"<paired attr1="value1" attr2="value2"><![CDATA[text & content]]></paired>"#
-+    /// );
-+    /// # }
-+    pub async fn write_cdata_content_async(
-+        self,
-+        text: BytesCData<'_>,
-+    ) -> Result<&'a mut Writer<W>> {
-+        self.writer
-+            .write_event_async(Event::Start(self.start_tag.borrow()))
-+            .await?;
-+        self.writer.write_event_async(Event::CData(text)).await?;
-+        self.writer
-+            .write_event_async(Event::End(self.start_tag.to_end()))
-+            .await?;
-+        Ok(self.writer)
-+    }
-+
-+    /// Write a processing instruction `<?...?>` inside the current element.
-+    ///
-+    /// # Example
-+    ///
-+    /// ```
-+    /// # use quick_xml::writer::Writer;
-+    /// # use quick_xml::events::BytesPI;
-+    /// # use tokio::io::AsyncWriteExt;
-+    /// # #[tokio::main(flavor = "current_thread")] async fn main() {
-+    /// let mut buffer = Vec::new();
-+    /// let mut tokio_buffer = tokio::io::BufWriter::new(&mut buffer);
-+    /// let mut writer = Writer::new_with_indent(&mut tokio_buffer, b' ', 4);
-+    ///
-+    /// writer
-+    ///     .create_element("paired")
-+    ///     .with_attribute(("attr1", "value1"))
-+    ///     .with_attribute(("attr2", "value2"))
-+    ///     .write_pi_content_async(BytesPI::new(r#"xml-stylesheet href="style.css""#))
-+    ///     .await
-+    ///     .expect("cannot write content");
-+    ///
-+    /// tokio_buffer.flush().await.expect("flush failed");
-+    ///
-+    /// assert_eq!(
-+    ///     std::str::from_utf8(&buffer).unwrap(),
-+    ///     r#"<paired attr1="value1" attr2="value2">
-+    ///     <?xml-stylesheet href="style.css"?>
-+    /// </paired>"#
-+    /// );
-+    /// # }
-+    pub async fn write_pi_content_async(self, text: BytesPI<'_>) -> Result<&'a mut Writer<W>> {
-+        self.writer
-+            .write_event_async(Event::Start(self.start_tag.borrow()))
-+            .await?;
-+        self.writer.write_event_async(Event::PI(text)).await?;
-+        self.writer
-+            .write_event_async(Event::End(self.start_tag.to_end()))
-+            .await?;
-+        Ok(self.writer)
-+    }
-+
-+    /// Write an empty (self-closing) tag.
-+    ///
-+    /// # Example
-+    ///
-+    /// ```
-+    /// # use quick_xml::writer::Writer;
-+    /// # use quick_xml::events::BytesText;
-+    /// # use tokio::io::AsyncWriteExt;
-+    /// # #[tokio::main(flavor = "current_thread")] async fn main() {
-+    /// let mut buffer = Vec::new();
-+    /// let mut tokio_buffer = tokio::io::BufWriter::new(&mut buffer);
-+    /// let mut writer = Writer::new_with_indent(&mut tokio_buffer, b' ', 4);
-+    ///
-+    /// writer
-+    ///     .create_element("empty")
-+    ///     .with_attribute(("attr1", "value1"))
-+    ///     .with_attribute(("attr2", "value2"))
-+    ///     .write_empty_async()
-+    ///     .await
-+    ///     .expect("cannot write content");
-+    ///
-+    /// tokio_buffer.flush().await.expect("flush failed");
-+    ///
-+    /// assert_eq!(
-+    ///     std::str::from_utf8(&buffer).unwrap(),
-+    ///     r#"<empty attr1="value1" attr2="value2"/>"#
-+    /// );
-+    /// # }
-+    pub async fn write_empty_async(self) -> Result<&'a mut Writer<W>> {
-+        self.writer
-+            .write_event_async(Event::Empty(self.start_tag))
-+            .await?;
-+        Ok(self.writer)
-+    }
-+
-+    /// Create a new scope for writing XML inside the current element.
-+    ///
-+    /// # Example
-+    ///
-+    /// ```
-+    /// # use quick_xml::writer::Writer;
-+    /// # use quick_xml::events::BytesText;
-+    /// # use tokio::io::AsyncWriteExt;
-+    /// use quick_xml::Error;
-+    ///
-+    /// # #[tokio::main(flavor = "current_thread")] async fn main() {
-+    /// let mut buffer = Vec::new();
-+    /// let mut tokio_buffer = tokio::io::BufWriter::new(&mut buffer);
-+    /// let mut writer = Writer::new_with_indent(&mut tokio_buffer, b' ', 4);
-+    ///
-+    /// writer
-+    ///     .create_element("outer")
-+    ///     .with_attributes([("attr1", "value1"), ("attr2", "value2")])
-+    ///     // We need to provide error type, because it is not named somewhere explicitly
-+    ///     .write_inner_content_async::<_, _, Error>(|writer| async move {
-+    ///         let fruits = ["apple", "orange", "banana"];
-+    ///         for (quant, item) in fruits.iter().enumerate() {
-+    ///             writer
-+    ///                 .create_element("fruit")
-+    ///                 .with_attributes([("quantity", quant.to_string().as_str())])
-+    ///                 .write_text_content_async(BytesText::new(item))
-+    ///                 .await?;
-+    ///         }
-+    ///         writer
-+    ///             .create_element("inner")
-+    ///             .write_inner_content_async(|writer| async move {
-+    ///                 writer.create_element("empty").write_empty_async().await
-+    ///             })
-+    ///             .await?;
-+    ///
-+    ///         Ok(writer)
-+    ///     })
-+    ///     .await
-+    ///     .expect("cannot write content");
-+    ///
-+    /// tokio_buffer.flush().await.expect("flush failed");
-+    /// assert_eq!(
-+    ///     std::str::from_utf8(&buffer).unwrap(),
-+    ///     r#"<outer attr1="value1" attr2="value2">
-+    ///     <fruit quantity="0">apple</fruit>
-+    ///     <fruit quantity="1">orange</fruit>
-+    ///     <fruit quantity="2">banana</fruit>
-+    ///     <inner>
-+    ///         <empty/>
-+    ///     </inner>
-+    /// </outer>"#
-+    /// );
-+    /// # }
-+    pub async fn write_inner_content_async<F, Fut, E>(
-+        mut self,
-+        closure: F,
-+    ) -> StdResult<&'a mut Writer<W>, E>
-+    where
-+        F: FnOnce(&'a mut Writer<W>) -> Fut,
-+        Fut: Future<Output = StdResult<&'a mut Writer<W>, E>>,
-+        E: From<Error>,
-+    {
-+        self.writer
-+            .write_event_async(Event::Start(self.start_tag.borrow()))
-+            .await?;
-+        self.writer = closure(self.writer).await?;
-+        self.writer
-+            .write_event_async(Event::End(self.start_tag.to_end()))
-+            .await?;
-+        Ok(self.writer)
-+    }
-+}
-+
-+#[cfg(test)]
-+mod tests {
-+    use super::*;
-+    use crate::events::*;
-+    use pretty_assertions::assert_eq;
-+
-+    macro_rules! test {
-+        ($name: ident, $event: expr, $expected: expr) => {
-+            #[tokio::test]
-+            async fn $name() {
-+                let mut buffer = Vec::new();
-+                let mut writer = Writer::new(&mut buffer);
-+
-+                writer
-+                    .write_event_async($event)
-+                    .await
-+                    .expect("write event failed");
-+
-+                assert_eq!(std::str::from_utf8(&buffer).unwrap(), $expected,);
-+            }
-+        };
-+    }
-+
-+    test!(
-+        xml_header,
-+        Event::Decl(BytesDecl::new("1.0", Some("UTF-8"), Some("no"))),
-+        r#"<?xml version="1.0" encoding="UTF-8" standalone="no"?>"#
-+    );
-+
-+    test!(empty_tag, Event::Empty(BytesStart::new("tag")), r#"<tag/>"#);
-+
-+    test!(
-+        comment,
-+        Event::Comment(BytesText::new("this is a comment")),
-+        r#"<!--this is a comment-->"#
-+    );
-+
-+    test!(
-+        cdata,
-+        Event::CData(BytesCData::new("this is a cdata")),
-+        r#"<![CDATA[this is a cdata]]>"#
-+    );
-+
-+    test!(
-+        pi,
-+        Event::PI(BytesPI::new("this is a processing instruction")),
-+        r#"<?this is a processing instruction?>"#
-+    );
-+
-+    test!(
-+        doctype,
-+        Event::DocType(BytesText::new("this is a doctype")),
-+        r#"<!DOCTYPE this is a doctype>"#
-+    );
-+
-+    #[tokio::test]
-+    async fn full_tag() {
-+        let mut buffer = Vec::new();
-+        let mut writer = Writer::new(&mut buffer);
-+
-+        let start = Event::Start(BytesStart::new("tag"));
-+        let text = Event::Text(BytesText::new("inner text"));
-+        let end = Event::End(BytesEnd::new("tag"));
-+        for i in [start, text, end] {
-+            writer.write_event_async(i).await.expect("write tag failed");
-+        }
-+
-+        assert_eq!(
-+            std::str::from_utf8(&buffer).unwrap(),
-+            r#"<tag>inner text</tag>"#
-+        );
-+    }
-+}
-+
-+#[cfg(test)]
-+mod indentation_async {
-+    use super::*;
-+    use crate::events::*;
-+    use pretty_assertions::assert_eq;
-+
-+    #[tokio::test]
-+    async fn self_closed() {
-+        let mut buffer = Vec::new();
-+        let mut writer = Writer::new_with_indent(&mut buffer, b' ', 4);
-+
-+        let tag = BytesStart::new("self-closed")
-+            .with_attributes(vec![("attr1", "value1"), ("attr2", "value2")].into_iter());
-+        writer
-+            .write_event_async(Event::Empty(tag))
-+            .await
-+            .expect("write tag failed");
-+
-+        assert_eq!(
-+            std::str::from_utf8(&buffer).unwrap(),
-+            r#"<self-closed attr1="value1" attr2="value2"/>"#
-+        );
-+    }
-+
-+    #[tokio::test]
-+    async fn empty_paired() {
-+        let mut buffer = Vec::new();
-+        let mut writer = Writer::new_with_indent(&mut buffer, b' ', 4);
-+
-+        let start = BytesStart::new("paired")
-+            .with_attributes(vec![("attr1", "value1"), ("attr2", "value2")].into_iter());
-+        let end = start.to_end();
-+        writer
-+            .write_event_async(Event::Start(start.clone()))
-+            .await
-+            .expect("write start tag failed");
-+        writer
-+            .write_event_async(Event::End(end))
-+            .await
-+            .expect("write end tag failed");
-+
-+        assert_eq!(
-+            std::str::from_utf8(&buffer).unwrap(),
-+            r#"<paired attr1="value1" attr2="value2">
-+</paired>"#
-+        );
-+    }
-+
-+    #[tokio::test]
-+    async fn paired_with_inner() {
-+        let mut buffer = Vec::new();
-+        let mut writer = Writer::new_with_indent(&mut buffer, b' ', 4);
-+
-+        let start = BytesStart::new("paired")
-+            .with_attributes(vec![("attr1", "value1"), ("attr2", "value2")].into_iter());
-+        let end = start.to_end();
-+        let inner = BytesStart::new("inner");
-+
-+        writer
-+            .write_event_async(Event::Start(start.clone()))
-+            .await
-+            .expect("write start tag failed");
-+        writer
-+            .write_event_async(Event::Empty(inner))
-+            .await
-+            .expect("write inner tag failed");
-+        writer
-+            .write_event_async(Event::End(end))
-+            .await
-+            .expect("write end tag failed");
-+
-+        assert_eq!(
-+            std::str::from_utf8(&buffer).unwrap(),
-+            r#"<paired attr1="value1" attr2="value2">
-+    <inner/>
-+</paired>"#
-+        );
-+    }
-+
-+    #[tokio::test]
-+    async fn paired_with_text() {
-+        let mut buffer = Vec::new();
-+        let mut writer = Writer::new_with_indent(&mut buffer, b' ', 4);
-+
-+        let start = BytesStart::new("paired")
-+            .with_attributes(vec![("attr1", "value1"), ("attr2", "value2")].into_iter());
-+        let end = start.to_end();
-+        let text = BytesText::new("text");
-+
-+        writer
-+            .write_event_async(Event::Start(start.clone()))
-+            .await
-+            .expect("write start tag failed");
-+        writer
-+            .write_event_async(Event::Text(text))
-+            .await
-+            .expect("write text failed");
-+        writer
-+            .write_event_async(Event::End(end))
-+            .await
-+            .expect("write end tag failed");
-+
-+        assert_eq!(
-+            std::str::from_utf8(&buffer).unwrap(),
-+            r#"<paired attr1="value1" attr2="value2">text</paired>"#
-+        );
-+    }
-+
-+    #[tokio::test]
-+    async fn mixed_content() {
-+        let mut buffer = Vec::new();
-+        let mut writer = Writer::new_with_indent(&mut buffer, b' ', 4);
-+
-+        let start = BytesStart::new("paired")
-+            .with_attributes(vec![("attr1", "value1"), ("attr2", "value2")].into_iter());
-+        let end = start.to_end();
-+        let text = BytesText::new("text");
-+        let inner = BytesStart::new("inner");
-+
-+        writer
-+            .write_event_async(Event::Start(start.clone()))
-+            .await
-+            .expect("write start tag failed");
-+        writer
-+            .write_event_async(Event::Text(text))
-+            .await
-+            .expect("write text failed");
-+        writer
-+            .write_event_async(Event::Empty(inner))
-+            .await
-+            .expect("write inner tag failed");
-+        writer
-+            .write_event_async(Event::End(end))
-+            .await
-+            .expect("write end tag failed");
-+
-+        assert_eq!(
-+            std::str::from_utf8(&buffer).unwrap(),
-+            r#"<paired attr1="value1" attr2="value2">text<inner/>
-+</paired>"#
-+        );
-+    }
-+
-+    #[tokio::test]
-+    async fn nested() {
-+        let mut buffer = Vec::new();
-+        let mut writer = Writer::new_with_indent(&mut buffer, b' ', 4);
-+
-+        let start = BytesStart::new("paired")
-+            .with_attributes(vec![("attr1", "value1"), ("attr2", "value2")].into_iter());
-+        let end = start.to_end();
-+        let inner = BytesStart::new("inner");
-+
-+        writer
-+            .write_event_async(Event::Start(start.clone()))
-+            .await
-+            .expect("write start 1 tag failed");
-+        writer
-+            .write_event_async(Event::Start(start.clone()))
-+            .await
-+            .expect("write start 2 tag failed");
-+        writer
-+            .write_event_async(Event::Empty(inner))
-+            .await
-+            .expect("write inner tag failed");
-+        writer
-+            .write_event_async(Event::End(end.clone()))
-+            .await
-+            .expect("write end tag 2 failed");
-+        writer
-+            .write_event_async(Event::End(end))
-+            .await
-+            .expect("write end tag 1 failed");
-+
-+        assert_eq!(
-+            std::str::from_utf8(&buffer).unwrap(),
-+            r#"<paired attr1="value1" attr2="value2">
-+    <paired attr1="value1" attr2="value2">
-+        <inner/>
-+    </paired>
-+</paired>"#
-+        );
-+    }
-+}
 diff --git a/third_party/rust/chromium_crates_io/vendor/quick-xml-v0_42/tests/README.md b/third_party/rust/chromium_crates_io/vendor/quick-xml-v0_42/tests/README.md
 new file mode 100644
-index 0000000000000000000000000000000000000000..0d7b145ab14db6d2395b148588489691217b804f
+index 0000000000..0d7b145ab1
 --- /dev/null
 +++ b/third_party/rust/chromium_crates_io/vendor/quick-xml-v0_42/tests/README.md
 @@ -0,0 +1,33 @@
@@ -40124,7 +40398,7 @@ index 0000000000000000000000000000000000000000..0d7b145ab14db6d2395b148588489691
 +utf16le.xml
 diff --git a/third_party/rust/quick_xml/v0_42/BUILD.gn b/third_party/rust/quick_xml/v0_42/BUILD.gn
 new file mode 100644
-index 0000000000000000000000000000000000000000..6a939223dddf03491076ad5a1a6b077a84280572
+index 0000000000..6a939223dd
 --- /dev/null
 +++ b/third_party/rust/quick_xml/v0_42/BUILD.gn
 @@ -0,0 +1,98 @@
@@ -40228,7 +40502,7 @@ index 0000000000000000000000000000000000000000..6a939223dddf03491076ad5a1a6b077a
 +}
 diff --git a/third_party/rust/quick_xml/v0_42/README.chromium b/third_party/rust/quick_xml/v0_42/README.chromium
 new file mode 100644
-index 0000000000000000000000000000000000000000..935bd518e4f173fd42315eb6e9c1bc73db67fb80
+index 0000000000..935bd518e4
 --- /dev/null
 +++ b/third_party/rust/quick_xml/v0_42/README.chromium
 @@ -0,0 +1,11 @@

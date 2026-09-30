@@ -1,6 +1,6 @@
 schema_version = 1
 id = "services-data-decoder-xml-parser"
-status = "in_progress"
+status = "retired"
 
 [upstream]
 repository = "https://chromium.googlesource.com/chromium/src.git"
@@ -40,7 +40,7 @@ status = "passed"
 [implementation.patch]
 path = "chromium.patch"
 base_revision = "04f9a8144d9b1701aa0b329b6000cf3299bbaf22"
-sha256 = "e88aff571907d6437692b4e36134cd07987726b5c14d0ebd07e56ef2491173ad"
+sha256 = "4e4bbaa93e3c779bf6faacfd980f790f3b7cb1738e026d03694a083e6f50f7ba"
 
 [[verification]]
 id = "rust-xml-focused-contract"
@@ -67,10 +67,10 @@ target = "//services:services_unittests"
 [m3_acceptance]
 feature_parity = "partial"
 upstream_test_parity = "pending"
-performance_budget = "failed"
+performance_budget = "passed"
 rollback = "verified"
 memory_safety_reduction = "passed"
-maintenance_complexity_reduction = "passed"
+maintenance_complexity_reduction = "failed"
 
 [parity]
 matrix = "parity.toml"
@@ -78,12 +78,13 @@ status = "partial"
 
 [performance]
 budget = "performance.toml"
-status = "failed"
+status = "passed"
 
 [exposure]
 measurement = "exposure.toml"
-status = "passed"
+status = "failed"
 
 [notes]
 verified_platform = "linux"
 feature_parity_scope = "The direct Rust Mojo implementation passes the focused 46-test Linux suite: 25 legacy XmlParser contracts and 21 Rust/parser parity cases, including explicit namespace redeclaration. Valid Mojom string cases traverse the real Rust receiver; legacy invalid-byte inputs remain parser-layer regressions because Mojom string requires UTF-8. Broader services tests and desktop platforms remain pending."
+closeout_reason = "XmlParser is closed after the optimized Rust path passed the Linux performance budget; it is not M3-accepted because broader upstream and full desktop parity evidence are incomplete and the final optimized implementation no longer passes the original strict maintenance-complexity gate."

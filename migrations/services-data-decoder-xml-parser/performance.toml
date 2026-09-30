@@ -1,6 +1,6 @@
 schema_version = 1
 id = "services-data-decoder-xml-parser-performance"
-status = "failed"
+status = "passed"
 
 [comparison]
 upstream_revision = "04f9a8144d9b1701aa0b329b6000cf3299bbaf22"
@@ -35,29 +35,29 @@ record_gn_args_hashes = true
 
 [results]
 completed_samples = 15
-steady_state_rss_regression_bytes = 897024
+steady_state_rss_regression_bytes = 749568
 baseline_binary_sha256 = "bd1ff4e0596dde418ae045a6ac190a377fca144bdbb5e0ca8c4325729364d8b3"
-candidate_binary_sha256 = "78fc30c02772737f65d33b00845bcf4f7f94a0d8f6ae4fa7ed8d508732b50210"
+candidate_binary_sha256 = "25f54dc22d8813dfa4cb6b5538ecaba69f4c65204d197953e450458661978749"
 baseline_gn_args_sha256 = "2c822e38ad81d6e3c84669448956a991cb45001ba60007552d3534d22b8860c0"
-candidate_gn_args_sha256 = "840be624249ed1515d6f92205dc6a0aa21af7834c5f5277be57f4f41f478e764"
-raw_samples_sha256 = "e60e5afd53e99699e8f9d1ca7efa762609c927d4032ef76f6047e91e0de6be73"
+candidate_gn_args_sha256 = "0fe2bee2dd2a016761a0e3cd324fd8a7d45dc838ac792b39ef7656fc8b928cdb"
+raw_samples_sha256 = "b458bc0aadc907ee840ddc6a87f54f3da4d1282cb8ca6172fee0081cde927841"
 
 [[results.cases]]
 id = "small_xml"
-median_regression_percent = 5.084746
-p95_regression_percent = 87.356322
+median_regression_percent = -5.882353
+p95_regression_percent = -4.040404
 
 [[results.cases]]
 id = "attributes_namespaces"
-median_regression_percent = -7.954545
-p95_regression_percent = -10.569106
+median_regression_percent = -19.607843
+p95_regression_percent = -9.194964
 
 [[results.cases]]
 id = "mixed_text_cdata"
-median_regression_percent = 2.631579
-p95_regression_percent = 3.773585
+median_regression_percent = -9.090909
+p95_regression_percent = -5.555556
 
 [[results.cases]]
 id = "large_xml"
-median_regression_percent = 7.639019
-p95_regression_percent = 9.468467
+median_regression_percent = -4.275921
+p95_regression_percent = -6.517837

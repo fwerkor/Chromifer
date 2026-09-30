@@ -18,6 +18,7 @@ pub const SUPPORTED_SCHEMA_VERSION: u32 = 1;
 pub enum PilotStatus {
     InProgress,
     Complete,
+    Retired,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
@@ -159,6 +160,8 @@ impl LinkedEvidence {
 pub struct Notes {
     pub verified_platform: String,
     pub feature_parity_scope: String,
+    #[serde(default)]
+    pub closeout_reason: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Deserialize)]
@@ -664,6 +667,36 @@ impl MigrationEvidence {
         self.validate_parity(&mut errors);
         self.validate_performance(&mut errors);
         self.validate_exposure(&mut errors);
+
+        if self.pilot.status == PilotStatus::Retired {
+            if self
+                .pilot
+                .notes
+                .closeout_reason
+                .as_deref()
+                .map(str::trim)
+                .filter(|reason| !reason.is_empty())
+                .is_none()
+            {
+                errors.push("retired pilot requires a non-empty closeout reason".to_owned());
+            }
+            let acceptance = [
+                self.pilot.m3_acceptance.feature_parity,
+                self.pilot.m3_acceptance.upstream_test_parity,
+                self.pilot.m3_acceptance.performance_budget,
+                self.pilot.m3_acceptance.rollback,
+                self.pilot.m3_acceptance.memory_safety_reduction,
+                self.pilot.m3_acceptance.maintenance_complexity_reduction,
+            ];
+            if acceptance.into_iter().all(EvidenceStatus::is_satisfied)
+                && self.pilot.implementation.status.is_satisfied()
+            {
+                errors.push(
+                    "retired pilot cannot have every M3 acceptance criterion satisfied; use complete"
+                        .to_owned(),
+                );
+            }
+        }
 
         if self.pilot.status == PilotStatus::Complete {
             for (name, status) in [

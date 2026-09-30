@@ -1,6 +1,8 @@
-# data_decoder Gzipper Rust successor (WIP)
+# data_decoder Gzipper Rust successor (retired pilot)
 
 This directory tracks the M3 successor candidate that replaces Chromium's `services/data_decoder::Gzipper` implementation with Rust at upstream revision `04f9a8144d9b1701aa0b329b6000cf3299bbaf22`.
+
+This pilot is retired. The focused Linux contract and memory-safety reduction remain valid evidence, but the broader regression and performance gates were not completed and the original maintenance-complexity gate failed. Retirement records the experiment as closed; it is not M3 production acceptance.
 
 The public `data_decoder.mojom.Gzipper` contract is unchanged. `use_rust_data_decoder_gzipper` defaults to `enable_rust`; when enabled, `gzipper.cc/.h` are excluded and the Mojo receiver is handed to a Rust implementation backed by Chromium's vendored `flate2`. When disabled, the original C++ implementation and zlib dependency are selected as a source-separated rollback.
 

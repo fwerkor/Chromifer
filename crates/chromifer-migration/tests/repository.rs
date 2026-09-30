@@ -570,3 +570,32 @@ fn measured_exposure_cannot_remain_defined_not_measured() {
         })
     );
 }
+
+#[test]
+fn retired_pilot_requires_closeout_reason() {
+    let mut evidence = ukm_pilot();
+    evidence.pilot.status = PilotStatus::Retired;
+    evidence.pilot.notes.closeout_reason = None;
+
+    let errors = evidence
+        .validate()
+        .expect_err("retired pilot without a closeout reason must be rejected");
+    assert!(
+        errors
+            .0
+            .iter()
+            .any(|error| error == "retired pilot requires a non-empty closeout reason")
+    );
+}
+
+#[test]
+fn retired_pilot_preserves_failed_acceptance_evidence() {
+    let mut evidence = ukm_pilot();
+    evidence.pilot.status = PilotStatus::Retired;
+    evidence.pilot.notes.closeout_reason =
+        Some("performance and maintenance gates did not pass".to_owned());
+
+    evidence
+        .validate()
+        .expect("a retired pilot may retain honest failed acceptance evidence");
+}

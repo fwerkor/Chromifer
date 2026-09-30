@@ -1,6 +1,6 @@
 schema_version = 1
 id = "services-data-decoder-gzipper"
-status = "in_progress"
+status = "retired"
 
 [upstream]
 repository = "https://chromium.googlesource.com/chromium/src.git"
@@ -90,3 +90,4 @@ status = "failed"
 [notes]
 verified_platform = "linux"
 feature_parity_scope = "The focused shared Mojo contract exercises all four Gzipper methods on Linux, including output-size enforcement and a 128 KiB shared-memory BigBuffer round trip. macOS, Windows, and the broader services regression suite remain unverified."
+closeout_reason = "Gzipper is closed as an unsuccessful M3 candidate: the focused Linux contract and memory-safety reduction pass, but broader upstream regression and performance were not completed and the strict maintenance-complexity gate fails."

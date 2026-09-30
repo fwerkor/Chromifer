@@ -10,7 +10,7 @@ A pilot directory contains:
 - `exposure.toml` — reproducible memory-safety exposure and maintenance-complexity measurements;
 - the exact upstream patch and its digest once the implementation has stabilized.
 
-Status values deliberately distinguish `pending`, `partial`, `defined_not_measured`, and verified/passed states. Defining a budget does not satisfy it, a Linux contract test does not establish desktop parity, and a rollback flag is not considered verified until the fallback configuration is actually built and its contract test executed.
+Pilot status is terminal only when it is complete or retired. complete means every M3 acceptance gate passed; retired closes an unsuccessful or superseded experiment and must record a closeout reason without rewriting failed or missing evidence. Evidence status values deliberately distinguish pending, partial, defined_not_measured, and verified/passed states. Defining a budget does not satisfy it, a Linux contract test does not establish desktop parity, and a rollback flag is not considered verified until the fallback configuration is actually built and its contract test executed.
 
 Validate any pilot directory with the same fail-closed contract used by repository tests:
 
