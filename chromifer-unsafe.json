@@ -338,11 +338,11 @@
         },
         {
           "source": "src/lib.rs",
-          "sha256": "309d68d9fd79df4f9729345df80e0df01aeb7427140b8d8d3bb7ec37c90298fa"
+          "sha256": "38dd85c0043f2cad7a71970f5180166782e3d7e87b3a96848417b2ec01ed169c"
         },
         {
           "source": "tests/repository.rs",
-          "sha256": "ea8b378b9eb54996e625986b7b44a025419154ddebb426fd3e8270ef4fec5444"
+          "sha256": "11eb3795bf7d23aaa4703d543c9c31cbf23bece879f8f922ffc08a829675351e"
         }
       ],
       "unsafe_occurrences": [],
